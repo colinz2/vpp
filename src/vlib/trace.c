@@ -1,45 +1,12 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * trace.c: VLIB trace buffer.
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* trace.c: VLIB trace buffer. */
 
 #include <vlib/vlib.h>
 #include <vlib/threads.h>
-#include <vnet/classify/vnet_classify.h>
 
 u8 *vnet_trace_placeholder;
 
@@ -173,12 +140,10 @@ format_vlib_trace (u8 * s, va_list * va)
 }
 
 /* Root of all trace cli commands. */
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (trace_cli_command,static) = {
   .path = "trace",
   .short_help = "Packet tracer commands",
 };
-/* *INDENT-ON* */
 
 int
 trace_time_cmp (void *a1, void *a2)
@@ -256,7 +221,6 @@ trace_apply_filter (vlib_main_t * vm)
    * of any N traces.
    */
   n_accepted = 0;
-  /* *INDENT-OFF* */
   pool_foreach (h, tm->trace_buffer_pool)
     {
       accept = filter_accept(tm, h[0]);
@@ -266,7 +230,6 @@ trace_apply_filter (vlib_main_t * vm)
       else
           n_accepted++;
   }
-  /* *INDENT-ON* */
 
   /* remove all traces that we don't want to keep */
   for (index = 0; index < vec_len (traces_to_remove); index++)
@@ -357,13 +320,11 @@ cli_show_trace_buffer (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_trace_cli,static) = {
   .path = "show trace",
   .short_help = "Show trace buffer [max COUNT]",
   .function = cli_show_trace_buffer,
 };
-/* *INDENT-ON* */
 
 int vlib_enable_disable_pkt_trace_filter (int enable) __attribute__ ((weak));
 
@@ -463,13 +424,6 @@ cli_add_trace_buffer (vlib_main_t * vm,
       goto done;
     }
 
-  u32 filter_table = classify_get_trace_chain ();
-  if (filter && filter_table == ~0)
-    {
-      error = clib_error_create ("No packet trace filter configured...");
-      goto done;
-    }
-
   trace_update_capture_options (add, node_index, filter, verbose);
 
 done:
@@ -478,13 +432,11 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (add_trace_cli,static) = {
   .path = "trace add",
   .short_help = "trace add <input-graph-node> <add'l-pkts-for-node-> [filter] [verbose]",
   .function = cli_add_trace_buffer,
 };
-/* *INDENT-ON* */
 
 /*
  * Configure a filter for packet traces.
@@ -582,13 +534,11 @@ cli_filter_trace (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (filter_trace_cli,static) = {
   .path = "trace filter",
   .short_help = "trace filter none | [include|exclude] NODE COUNT",
   .function = cli_filter_trace,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 cli_clear_trace_buffer (vlib_main_t * vm,
@@ -598,30 +548,16 @@ cli_clear_trace_buffer (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (clear_trace_cli,static) = {
   .path = "clear trace",
   .short_help = "Clear trace buffer and free memory",
   .function = cli_clear_trace_buffer,
 };
-/* *INDENT-ON* */
 
 /* Placeholder function to get us linked in. */
 void
 vlib_trace_cli_reference (void)
 {
-}
-
-int
-vnet_is_packet_traced (vlib_buffer_t * b,
-		       u32 classify_table_index, int func)
-__attribute__ ((weak));
-
-int
-vnet_is_packet_traced (vlib_buffer_t * b, u32 classify_table_index, int func)
-{
-  clib_warning ("BUG: STUB called");
-  return 1;
 }
 
 void *
@@ -631,12 +567,145 @@ vlib_add_trace (vlib_main_t * vm,
   return vlib_add_trace_inline (vm, r, b, n_data_bytes);
 }
 
+vlib_is_packet_traced_fn_t *
+vlib_is_packet_traced_function_from_name (const char *name)
+{
+  vlib_trace_filter_function_registration_t *reg =
+    vlib_trace_filter_main.trace_filter_registration;
+  while (reg)
+    {
+      if (clib_strcmp (reg->name, name) == 0)
+	break;
+      reg = reg->next;
+    }
+  if (!reg)
+    return 0;
+  return reg->function;
+}
 
+vlib_is_packet_traced_fn_t *
+vlib_is_packet_traced_default_function ()
+{
+  vlib_trace_filter_function_registration_t *reg =
+    vlib_trace_filter_main.trace_filter_registration;
+  vlib_trace_filter_function_registration_t *tmp_reg = reg;
+  while (reg)
+    {
+      if (reg->priority > tmp_reg->priority)
+	tmp_reg = reg;
+      reg = reg->next;
+    }
+  return tmp_reg->function;
+}
 
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+static clib_error_t *
+vlib_trace_filter_function_init (vlib_main_t *vm)
+{
+  vlib_is_packet_traced_fn_t *default_fn =
+    vlib_is_packet_traced_default_function ();
+  foreach_vlib_main ()
+    {
+      vlib_trace_main_t *tm = &this_vlib_main->trace_main;
+      tm->current_trace_filter_function = default_fn;
+    }
+  return 0;
+}
+
+vlib_trace_filter_main_t vlib_trace_filter_main;
+
+VLIB_INIT_FUNCTION (vlib_trace_filter_function_init);
+
+static clib_error_t *
+show_trace_filter_function (vlib_main_t *vm, unformat_input_t *input,
+			    vlib_cli_command_t *cmd)
+{
+  vlib_trace_filter_main_t *tfm = &vlib_trace_filter_main;
+  vlib_trace_main_t *tm = &vm->trace_main;
+  vlib_is_packet_traced_fn_t *current_trace_filter_fn =
+    tm->current_trace_filter_function;
+  vlib_trace_filter_function_registration_t *reg =
+    tfm->trace_filter_registration;
+
+  while (reg)
+    {
+      vlib_cli_output (vm, "%sname:%s description: %s priority: %u",
+		       reg->function == current_trace_filter_fn ? "(*) " : "",
+		       reg->name, reg->description, reg->priority);
+      reg = reg->next;
+    }
+  return 0;
+}
+
+VLIB_CLI_COMMAND (show_trace_filter_function_cli, static) = {
+  .path = "show trace filter function",
+  .short_help = "show trace filter function",
+  .function = show_trace_filter_function,
+};
+
+uword
+unformat_vlib_trace_filter_function (unformat_input_t *input, va_list *args)
+{
+  vlib_is_packet_traced_fn_t **res =
+    va_arg (*args, vlib_is_packet_traced_fn_t **);
+  vlib_trace_filter_main_t *tfm = &vlib_trace_filter_main;
+
+  vlib_trace_filter_function_registration_t *reg =
+    tfm->trace_filter_registration;
+  while (reg)
+    {
+      if (unformat (input, reg->name))
+	{
+	  *res = reg->function;
+	  return 1;
+	}
+      reg = reg->next;
+    }
+  return 0;
+}
+
+void
+vlib_set_trace_filter_function (vlib_is_packet_traced_fn_t *x)
+{
+  foreach_vlib_main ()
+    {
+      this_vlib_main->trace_main.current_trace_filter_function = x;
+    }
+}
+
+static clib_error_t *
+set_trace_filter_function (vlib_main_t *vm, unformat_input_t *input,
+			   vlib_cli_command_t *cmd)
+{
+  unformat_input_t _line_input, *line_input = &_line_input;
+  vlib_is_packet_traced_fn_t *res = 0;
+  clib_error_t *error = 0;
+
+  if (!unformat_user (input, unformat_line_input, line_input))
+    return 0;
+
+  while (unformat_check_input (line_input) != (uword) UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (line_input, "%U", unformat_vlib_trace_filter_function,
+		    &res))
+	;
+      else
+	{
+	  error = clib_error_create (
+	    "expected valid trace filter function, got `%U'",
+	    format_unformat_error, line_input);
+	  goto done;
+	}
+    }
+  vlib_set_trace_filter_function (res);
+
+done:
+  unformat_free (line_input);
+
+  return error;
+}
+
+VLIB_CLI_COMMAND (set_trace_filter_function_cli, static) = {
+  .path = "set trace filter function",
+  .short_help = "set trace filter function <func_name>",
+  .function = set_trace_filter_function,
+};

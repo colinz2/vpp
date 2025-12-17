@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 /**
@@ -183,7 +173,6 @@ VLIB_NODE_FN (udp6_punt_node) (vlib_main_t * vm,
   return udp46_punt_inline (vm, node, from_frame, 0 /* is_ip4 */ );
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (udp4_punt_node) = {
   .name = "ip4-udp-punt",
   /* Takes a vector of packets. */
@@ -215,7 +204,6 @@ VLIB_REGISTER_NODE (udp6_punt_node) = {
 #undef _
   },
 };
-/* *INDENT-ON* */
 
 typedef struct
 {
@@ -244,13 +232,12 @@ format_udp_punt_trace (u8 * s, va_list * args)
 }
 
 always_inline uword
-punt_socket_inline (vlib_main_t * vm,
-		    vlib_node_runtime_t * node,
-		    vlib_frame_t * frame,
-		    punt_type_t pt, ip_address_family_t af)
+punt_socket_inline2 (vlib_main_t *vm, vlib_node_runtime_t *node,
+		     vlib_frame_t *frame, punt_type_t pt,
+		     ip_address_family_t af, ip_protocol_t protocol)
 {
   u32 *buffers = vlib_frame_vector_args (frame);
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   uword n_packets = frame->n_vectors;
   punt_main_t *pm = &punt_main;
   int i;
@@ -267,33 +254,42 @@ punt_socket_inline (vlib_main_t * vm,
       uword l;
       punt_packetdesc_t packetdesc;
       punt_client_t *c;
-
+      u16 port = 0;
       b = vlib_get_buffer (vm, buffers[i]);
 
       if (PUNT_TYPE_L4 == pt)
 	{
-	  /* Reverse UDP Punt advance */
-	  udp_header_t *udp;
-	  if (AF_IP4 == af)
+	  if (protocol == IP_PROTOCOL_UDP)
 	    {
-	      vlib_buffer_advance (b, -(sizeof (ip4_header_t) +
-					sizeof (udp_header_t)));
-	      ip4_header_t *ip = vlib_buffer_get_current (b);
-	      udp = (udp_header_t *) (ip + 1);
+	      /* Reverse UDP Punt advance */
+	      udp_header_t *udp;
+	      if (AF_IP4 == af)
+		{
+		  vlib_buffer_advance (
+		    b, -(sizeof (ip4_header_t) + sizeof (udp_header_t)));
+		  ip4_header_t *ip = vlib_buffer_get_current (b);
+		  udp = (udp_header_t *) (ip + 1);
+		}
+	      else
+		{
+		  vlib_buffer_advance (
+		    b, -(sizeof (ip6_header_t) + sizeof (udp_header_t)));
+		  ip6_header_t *ip = vlib_buffer_get_current (b);
+		  udp = (udp_header_t *) (ip + 1);
+		}
+	      port = clib_net_to_host_u16 (udp->dst_port);
 	    }
-	  else
+	  else if (protocol == IP_PROTOCOL_ICMP6)
 	    {
-	      vlib_buffer_advance (b, -(sizeof (ip6_header_t) +
-					sizeof (udp_header_t)));
 	      ip6_header_t *ip = vlib_buffer_get_current (b);
-	      udp = (udp_header_t *) (ip + 1);
+	      icmp46_header_t *icmp = ip6_next_header (ip);
+	      port = icmp->type;
 	    }
-
 	  /*
 	   * Find registerered client
 	   * If no registered client, drop packet and count
 	   */
-	  c = punt_client_l4_get (af, clib_net_to_host_u16 (udp->dst_port));
+	  c = punt_client_l4_get (af, port);
 	}
       else if (PUNT_TYPE_IP_PROTO == pt)
 	{
@@ -397,6 +393,14 @@ error:
   return n_packets;
 }
 
+always_inline uword
+punt_socket_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
+		    vlib_frame_t *frame, punt_type_t pt,
+		    ip_address_family_t af)
+{
+  return punt_socket_inline2 (vm, node, frame, pt, af, IP_PROTOCOL_UDP);
+}
+
 static uword
 udp4_punt_socket (vlib_main_t * vm,
 		  vlib_node_runtime_t * node, vlib_frame_t * from_frame)
@@ -428,6 +432,14 @@ ip6_proto_punt_socket (vlib_main_t * vm,
 }
 
 static uword
+icmp6_punt_socket (vlib_main_t *vm, vlib_node_runtime_t *node,
+		   vlib_frame_t *from_frame)
+{
+  return punt_socket_inline2 (vm, node, from_frame, PUNT_TYPE_L4, AF_IP6,
+			      IP_PROTOCOL_ICMP6);
+}
+
+static uword
 exception_punt_socket (vlib_main_t * vm,
 		       vlib_node_runtime_t * node, vlib_frame_t * from_frame)
 {
@@ -436,7 +448,6 @@ exception_punt_socket (vlib_main_t * vm,
 }
 
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (udp4_punt_socket_node) = {
   .function = udp4_punt_socket,
   .name = "ip4-udp-punt-socket",
@@ -484,7 +495,16 @@ VLIB_REGISTER_NODE (exception_punt_socket_node) = {
   .n_errors = PUNT_N_ERROR,
   .error_strings = punt_error_strings,
 };
-/* *INDENT-ON* */
+VLIB_REGISTER_NODE (icmp6_punt_socket_node) = {
+  .function = icmp6_punt_socket,
+  .name = "ip6-icmp-punt-socket",
+  .format_trace = format_udp_punt_trace,
+  .flags = VLIB_NODE_FLAG_IS_DROP,
+  .vector_size = sizeof (u32),
+  .n_errors = PUNT_N_ERROR,
+  .error_strings = punt_error_strings,
+};
+
 
 typedef struct
 {
@@ -615,7 +635,6 @@ punt_socket_rx (vlib_main_t * vm,
   return total_count;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (punt_socket_rx_node) =
 {
  .function = punt_socket_rx,
@@ -634,12 +653,3 @@ VLIB_REGISTER_NODE (punt_socket_rx_node) =
   },
  .format_trace = format_punt_trace,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

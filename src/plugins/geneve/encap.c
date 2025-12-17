@@ -1,17 +1,7 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 SUSE LLC.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vppinfra/error.h>
 #include <vppinfra/hash.h>
 #include <vnet/vnet.h>
@@ -60,7 +50,7 @@ geneve_encap_inline (vlib_main_t * vm,
   vnet_interface_main_t *im = &vnm->interface_main;
   u32 pkts_encapsulated = 0;
   u16 old_l0 = 0, old_l1 = 0;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   u32 stats_sw_if_index, stats_n_packets, stats_n_bytes;
   u32 sw_if_index0 = ~0, sw_if_index1 = ~0;
   u32 next0 = 0, next1 = 0;
@@ -544,7 +534,6 @@ VLIB_NODE_FN (geneve6_encap_node) (vlib_main_t * vm,
   return geneve_encap_inline (vm, node, from_frame, /* is_ip4 */ 0);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (geneve4_encap_node) = {
   .name = "geneve4-encap",
   .vector_size = sizeof (u32),
@@ -570,12 +559,3 @@ VLIB_REGISTER_NODE (geneve6_encap_node) = {
         [GENEVE_ENCAP_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

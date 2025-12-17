@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef __POLICE_INLINES_H__
 #define __POLICE_INLINES_H__
 
@@ -74,7 +65,7 @@ vnet_policer_police (vlib_main_t *vm, vlib_buffer_t *b, u32 policer_index,
 
   if (handoff)
     {
-      if (PREDICT_FALSE (pol->thread_index == ~0))
+      if (PREDICT_FALSE (pol->thread_index == CLIB_INVALID_THREAD_INDEX))
 	/*
 	 * This is the first packet to use this policer. Set the
 	 * thread index in the policer to this thread and any
@@ -123,7 +114,7 @@ policer_handoff (vlib_main_t *vm, vlib_node_runtime_t *node,
   u32 n_enq, n_left_from, *from;
   vnet_policer_main_t *pm;
   policer_t *policer;
-  u32 this_thread, policer_thread;
+  u32 this_thread, policer_thread = 0;
   bool single_policer_node = (policer_index != ~0);
 
   pm = &vnet_policer_main;
@@ -180,11 +171,3 @@ policer_handoff (vlib_main_t *vm, vlib_node_runtime_t *node,
   return n_enq;
 }
 #endif // __POLICE_INLINES_H__
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

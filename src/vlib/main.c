@@ -1,50 +1,17 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * main.c: main vector processing loop
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* main.c: main vector processing loop */
 
 #include <math.h>
 #include <vppinfra/format.h>
 #include <vlib/vlib.h>
 #include <vlib/threads.h>
+#include <vlib/file.h>
 #include <vlib/stats/stats.h>
 #include <vppinfra/tw_timer_1t_3w_1024sl_ov.h>
-
-#include <vlib/unix/unix.h>
 
 #define VLIB_FRAME_MAGIC (0xabadc0ed)
 
@@ -240,13 +207,11 @@ show_frame_stats (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_frame_stats_cli, static) = {
   .path = "show vlib frame-allocation",
   .short_help = "Show node dispatch frame statistics",
   .function = show_frame_stats,
 };
-/* *INDENT-ON* */
 
 /* Change ownership of enqueue rights to given next node. */
 static void
@@ -259,11 +224,6 @@ vlib_next_frame_change_ownership (vlib_main_t * vm,
   vlib_node_t *node, *next_node;
 
   node = vec_elt (nm->nodes, node_runtime->node_index);
-
-  /* Only internal & input nodes are allowed to call other nodes. */
-  ASSERT (node->type == VLIB_NODE_TYPE_INTERNAL
-	  || node->type == VLIB_NODE_TYPE_INPUT
-	  || node->type == VLIB_NODE_TYPE_PROCESS);
 
   ASSERT (vec_len (node->next_nodes) == node_runtime->n_next_nodes);
 
@@ -571,6 +531,9 @@ vlib_node_sync_stats (vlib_main_t * vm, vlib_node_t * n)
     uword i;
     for (i = 0; i < rt->n_next_nodes; i++)
       {
+	if (n->flags & VLIB_NODE_FLAG_ALLOW_LAZY_NEXT_NODES &&
+	    n->next_nodes[i] == VLIB_INVALID_NODE_INDEX)
+	  continue;
 	nf = vlib_node_runtime_get_next_frame (vm, rt, i);
 	vec_elt (n->n_vectors_by_next_node, i) +=
 	  nf->vectors_since_last_overflow;
@@ -630,24 +593,22 @@ static clib_error_t *
 vlib_cli_elog_clear (vlib_main_t * vm,
 		     unformat_input_t * input, vlib_cli_command_t * cmd)
 {
-  elog_reset_buffer (&vlib_global_main.elog_main);
+  elog_reset_buffer (vlib_get_elog_main ());
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (elog_clear_cli, static) = {
   .path = "event-logger clear",
   .short_help = "Clear the event log",
   .function = vlib_cli_elog_clear,
 };
-/* *INDENT-ON* */
 
 #ifdef CLIB_UNIX
 static clib_error_t *
 elog_save_buffer (vlib_main_t * vm,
 		  unformat_input_t * input, vlib_cli_command_t * cmd)
 {
-  elog_main_t *em = &vlib_global_main.elog_main;
+  elog_main_t *em = vlib_get_elog_main ();
   char *file, *chroot_file;
   clib_error_t *error = 0;
 
@@ -659,7 +620,7 @@ elog_save_buffer (vlib_main_t * vm,
     }
 
   /* It's fairly hard to get "../oopsie" through unformat; just in case */
-  if (strstr (file, "..") || index (file, '/'))
+  if (strstr (file, "..") || strchr (file, '/'))
     {
       vlib_cli_output (vm, "illegal characters in filename '%s'", file);
       return 0;
@@ -689,19 +650,17 @@ vlib_post_mortem_dump (void)
     (vgm->post_mortem_callbacks[i]) ();
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (elog_save_cli, static) = {
   .path = "event-logger save",
   .short_help = "event-logger save <filename> (saves log in /tmp/<filename>)",
   .function = elog_save_buffer,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 elog_stop (vlib_main_t * vm,
 	   unformat_input_t * input, vlib_cli_command_t * cmd)
 {
-  elog_main_t *em = &vlib_global_main.elog_main;
+  elog_main_t *em = vlib_get_elog_main ();
 
   em->n_total_events_disable_limit = em->n_total_events;
 
@@ -709,19 +668,17 @@ elog_stop (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (elog_stop_cli, static) = {
   .path = "event-logger stop",
   .short_help = "Stop the event-logger",
   .function = elog_stop,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 elog_restart (vlib_main_t * vm,
 	      unformat_input_t * input, vlib_cli_command_t * cmd)
 {
-  elog_main_t *em = &vlib_global_main.elog_main;
+  elog_main_t *em = vlib_get_elog_main ();
 
   em->n_total_events_disable_limit = ~0;
 
@@ -729,19 +686,17 @@ elog_restart (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (elog_restart_cli, static) = {
   .path = "event-logger restart",
   .short_help = "Restart the event-logger",
   .function = elog_restart,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 elog_resize_command_fn (vlib_main_t * vm,
 			unformat_input_t * input, vlib_cli_command_t * cmd)
 {
-  elog_main_t *em = &vlib_global_main.elog_main;
+  elog_main_t *em = vlib_get_elog_main ();
   u32 tmp;
 
   /* Stop the parade */
@@ -759,20 +714,18 @@ elog_resize_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (elog_resize_cli, static) = {
   .path = "event-logger resize",
   .short_help = "event-logger resize <nnn>",
   .function = elog_resize_command_fn,
 };
-/* *INDENT-ON* */
 
 #endif /* CLIB_UNIX */
 
 static void
 elog_show_buffer_internal (vlib_main_t * vm, u32 n_events_to_show)
 {
-  elog_main_t *em = &vlib_global_main.elog_main;
+  elog_main_t *em = vlib_get_elog_main ();
   elog_event_t *e, *es;
   f64 dt;
 
@@ -818,13 +771,11 @@ elog_show_buffer (vlib_main_t * vm,
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (elog_show_cli, static) = {
   .path = "show event-logger",
   .short_help = "Show event logger info",
   .function = elog_show_buffer,
 };
-/* *INDENT-ON* */
 
 void
 vlib_gdb_show_event_log (void)
@@ -882,16 +833,16 @@ add_trajectory_trace (vlib_buffer_t * b, u32 node_index)
 }
 
 static_always_inline u64
-dispatch_node (vlib_main_t * vm,
-	       vlib_node_runtime_t * node,
-	       vlib_node_type_t type,
-	       vlib_node_state_t dispatch_state,
-	       vlib_frame_t * frame, u64 last_time_stamp)
+dispatch_node (vlib_main_t *vm, vlib_node_runtime_t *node,
+	       vlib_node_type_t type, vlib_frame_t *frame,
+	       vlib_node_dispatch_reason_t dispatch_reason,
+	       u64 last_time_stamp)
 {
   uword n, v;
   u64 t;
   vlib_node_main_t *nm = &vm->node_main;
   vlib_next_frame_t *nf;
+  vlib_node_type_atts_t attr = node_type_attrs[type];
 
   if (CLIB_DEBUG > 0)
     {
@@ -899,15 +850,14 @@ dispatch_node (vlib_main_t * vm,
       ASSERT (n->type == type);
     }
 
-  /* Only non-internal nodes may be disabled. */
-  if (type != VLIB_NODE_TYPE_INTERNAL && node->state != dispatch_state)
+  if (attr.can_be_disabled == 0 && node->state == VLIB_NODE_STATE_DISABLED)
     {
-      ASSERT (type != VLIB_NODE_TYPE_INTERNAL);
+      ASSERT (0); /* disabled node should not be dispatched */
       return last_time_stamp;
     }
 
-  if ((type == VLIB_NODE_TYPE_PRE_INPUT || type == VLIB_NODE_TYPE_INPUT)
-      && dispatch_state != VLIB_NODE_STATE_INTERRUPT)
+  if (attr.decrement_main_loop_per_calls_if_polling &&
+      node->state == VLIB_NODE_STATE_POLLING)
     {
       u32 c = node->input_main_loops_per_call;
       /* Only call node when count reaches zero. */
@@ -949,18 +899,13 @@ dispatch_node (vlib_main_t * vm,
 	  vlib_buffer_t *b = vlib_get_buffer (vm, from[i]);
 	  add_trajectory_trace (b, node->node_index);
 	}
-      if (PREDICT_TRUE (vm->dispatch_wrapper_fn == 0))
-	n = node->function (vm, node, frame);
-      else
-	n = vm->dispatch_wrapper_fn (vm, node, frame);
     }
+
+  node->dispatch_reason = dispatch_reason;
+  if (PREDICT_TRUE (vm->dispatch_wrapper_fn == 0))
+    n = node->function (vm, node, frame);
   else
-    {
-      if (PREDICT_TRUE (vm->dispatch_wrapper_fn == 0))
-	n = node->function (vm, node, frame);
-      else
-	n = vm->dispatch_wrapper_fn (vm, node, frame);
-    }
+    n = vm->dispatch_wrapper_fn (vm, node, frame);
 
   t = clib_cpu_time_now ();
 
@@ -979,12 +924,12 @@ dispatch_node (vlib_main_t * vm,
 
   /* When in adaptive mode and vector rate crosses threshold switch to
      polling mode and vice versa. */
-  if (PREDICT_FALSE (node->flags & VLIB_NODE_FLAG_ADAPTIVE_MODE))
+  if (PREDICT_FALSE (attr.supports_adaptive_mode &&
+		     node->flags & VLIB_NODE_FLAG_ADAPTIVE_MODE))
     {
-      /* *INDENT-OFF* */
       ELOG_TYPE_DECLARE (e) =
         {
-          .function = (char *) __FUNCTION__,
+          .function = (char *) __func__,
           .format = "%s vector length %d, switching to %s",
           .format_args = "T4i4t4",
           .n_enum_strings = 2,
@@ -992,14 +937,13 @@ dispatch_node (vlib_main_t * vm,
             "interrupt", "polling",
           },
         };
-      /* *INDENT-ON* */
       struct
       {
 	u32 node_name, vector_length, is_polling;
       } *ed;
 
-      if ((dispatch_state == VLIB_NODE_STATE_INTERRUPT
-	   && v >= nm->polling_threshold_vector_length) &&
+      if ((node->state == VLIB_NODE_STATE_INTERRUPT &&
+	   v >= nm->polling_threshold_vector_length) &&
 	  !(node->flags &
 	    VLIB_NODE_FLAG_SWITCH_FROM_INTERRUPT_TO_POLLING_MODE))
 	{
@@ -1018,15 +962,14 @@ dispatch_node (vlib_main_t * vm,
 	      vlib_worker_thread_t *w = vlib_worker_threads
 		+ vm->thread_index;
 
-	      ed = ELOG_TRACK_DATA (&vlib_global_main.elog_main, e,
-				    w->elog_track);
+	      ed = ELOG_TRACK_DATA (vlib_get_elog_main (), e, w->elog_track);
 	      ed->node_name = n->name_elog_string;
 	      ed->vector_length = v;
 	      ed->is_polling = 1;
 	    }
 	}
-      else if (dispatch_state == VLIB_NODE_STATE_POLLING
-	       && v <= nm->interrupt_threshold_vector_length)
+      else if (node->state == VLIB_NODE_STATE_POLLING &&
+	       v <= nm->interrupt_threshold_vector_length)
 	{
 	  vlib_node_t *n = vlib_get_node (vm, node->node_index);
 	  if (node->flags &
@@ -1051,11 +994,10 @@ dispatch_node (vlib_main_t * vm,
 	      if (PREDICT_FALSE (
 		    vlib_get_first_main ()->elog_trace_graph_dispatch))
 		{
-		  ed = ELOG_TRACK_DATA (&vlib_global_main.elog_main, e,
-					w->elog_track);
-		  ed->node_name = n->name_elog_string;
-		  ed->vector_length = v;
-		  ed->is_polling = 0;
+		ed = ELOG_TRACK_DATA (vlib_get_elog_main (), e, w->elog_track);
+		ed->node_name = n->name_elog_string;
+		ed->vector_length = v;
+		ed->is_polling = 0;
 		}
 	    }
 	}
@@ -1116,10 +1058,9 @@ dispatch_pending_node (vlib_main_t * vm, uword pending_frame_index,
   n->flags |= (nf->flags & VLIB_FRAME_TRACE) ? VLIB_NODE_FLAG_TRACE : 0;
   nf->flags &= ~VLIB_FRAME_TRACE;
 
-  last_time_stamp = dispatch_node (vm, n,
-				   VLIB_NODE_TYPE_INTERNAL,
-				   VLIB_NODE_STATE_POLLING,
-				   f, last_time_stamp);
+  last_time_stamp =
+    dispatch_node (vm, n, VLIB_NODE_TYPE_INTERNAL, f,
+		   VLIB_NODE_DISPATCH_REASON_PENDING_FRAME, last_time_stamp);
   /* Internal node vector-rate accounting, for summary stats */
   vm->internal_node_vectors += f->n_vectors;
   vm->internal_node_calls++;
@@ -1256,9 +1197,12 @@ static_always_inline uword
 vlib_process_resume (vlib_main_t * vm, vlib_process_t * p)
 {
   uword r;
-  p->flags &= ~(VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_CLOCK
-		| VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_EVENT
-		| VLIB_PROCESS_RESUME_PENDING);
+
+  if (p->state == VLIB_PROCESS_STATE_WAIT_FOR_EVENT ||
+      p->state == VLIB_PROCESS_STATE_WAIT_FOR_EVENT_OR_CLOCK)
+    p->event_resume_pending = 0;
+
+  p->state = VLIB_PROCESS_STATE_RUNNING;
   r = clib_setjmp (&p->return_longjmp, VLIB_PROCESS_RETURN_LONGJMP_RETURN);
   if (r == VLIB_PROCESS_RETURN_LONGJMP_RETURN)
     {
@@ -1268,6 +1212,18 @@ vlib_process_resume (vlib_main_t * vm, vlib_process_t * p)
   else
     vlib_process_finish_switch_stack (vm);
   return r;
+}
+
+static void
+process_timer_start (vlib_main_t *vm, vlib_process_t *p, u32 runtime_index)
+{
+  vlib_tw_event_t e = { .type = VLIB_TW_EVENT_T_PROCESS_NODE,
+			.index = runtime_index };
+
+  if (p->resume_clock_interval == 0)
+    return;
+
+  p->stop_timer_handle = vlib_tw_timer_start (vm, e, p->resume_clock_interval);
 }
 
 static u64
@@ -1281,12 +1237,13 @@ dispatch_process (vlib_main_t * vm,
   u64 t;
   uword n_vectors, is_suspend;
 
-  if (node->state != VLIB_NODE_STATE_POLLING
-      || (p->flags & (VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_CLOCK
-		      | VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_EVENT)))
+  if (node->state != VLIB_NODE_STATE_POLLING)
     return last_time_stamp;
 
-  p->flags |= VLIB_PROCESS_IS_RUNNING;
+  if (p->state != VLIB_PROCESS_STATE_NOT_STARTED)
+    return last_time_stamp;
+
+  p->state = VLIB_PROCESS_STATE_RUNNING;
 
   t = last_time_stamp;
   vlib_elog_main_loop_event (vm, node_runtime->node_index, t,
@@ -1318,20 +1275,10 @@ dispatch_process (vlib_main_t * vm,
       p->n_suspends += 1;
       p->suspended_process_frame_index = pf - nm->suspended_process_frames;
 
-      if (p->flags & VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_CLOCK)
-	{
-	  TWT (tw_timer_wheel) * tw =
-	    (TWT (tw_timer_wheel) *) nm->timing_wheel;
-	  p->stop_timer_handle =
-	    TW (tw_timer_start) (tw,
-				 vlib_timing_wheel_data_set_suspended_process
-				 (node->runtime_index) /* [sic] pool idex */ ,
-				 0 /* timer_id */ ,
-				 p->resume_clock_interval);
-	}
+      process_timer_start (vm, p, node->runtime_index);
     }
   else
-    p->flags &= ~VLIB_PROCESS_IS_RUNNING;
+    p->state = VLIB_PROCESS_STATE_NOT_STARTED;
 
   t = clib_cpu_time_now ();
 
@@ -1354,12 +1301,13 @@ vlib_start_process (vlib_main_t * vm, uword process_index)
 {
   vlib_node_main_t *nm = &vm->node_main;
   vlib_process_t *p = vec_elt (nm->processes, process_index);
-  dispatch_process (vm, p, /* frame */ 0, /* cpu_time_now */ 0);
+  u64 cpu_time_now = clib_cpu_time_now ();
+  dispatch_process (vm, p, /* frame */ 0, cpu_time_now);
 }
 
 static u64
-dispatch_suspended_process (vlib_main_t * vm,
-			    uword process_index, u64 last_time_stamp)
+dispatch_suspended_process (vlib_main_t *vm, vlib_process_restore_t *r,
+			    u64 last_time_stamp)
 {
   vlib_node_main_t *nm = &vm->node_main;
   vlib_node_runtime_t *node_runtime;
@@ -1368,15 +1316,39 @@ dispatch_suspended_process (vlib_main_t * vm,
   vlib_process_t *p;
   vlib_pending_frame_t *pf;
   u64 t, n_vectors, is_suspend;
+  uword process_index = r->runtime_index;
+
+  u8 resume_permissons[VLIB_PROCRSS_N_RESTORE_REASON][VLIB_PROCESS_N_STATES] = {
+      [VLIB_PROCESS_RESTORE_REASON_YIELD] = {
+	[VLIB_PROCESS_STATE_YIELD] = 1,
+      },
+      [VLIB_PROCESS_RESTORE_REASON_CLOCK] = {
+	[VLIB_PROCESS_STATE_WAIT_FOR_CLOCK] = 1,
+	[VLIB_PROCESS_STATE_WAIT_FOR_EVENT_OR_CLOCK] = 1,
+	[VLIB_PROCESS_STATE_SUSPENDED] = 1,
+      },
+      [VLIB_PROCESS_RESTORE_REASON_EVENT] = {
+	[VLIB_PROCESS_STATE_WAIT_FOR_EVENT] = 1,
+	[VLIB_PROCESS_STATE_WAIT_FOR_EVENT_OR_CLOCK] = 1,
+      },
+      [VLIB_PROCESS_RESTORE_REASON_TIMED_EVENT] = {
+	[VLIB_PROCESS_STATE_WAIT_FOR_EVENT] = 1,
+	[VLIB_PROCESS_STATE_WAIT_FOR_EVENT_OR_CLOCK] = 1,
+      },
+  };
 
   t = last_time_stamp;
 
   p = vec_elt (nm->processes, process_index);
-  if (PREDICT_FALSE (!(p->flags & VLIB_PROCESS_IS_RUNNING)))
+
+  if (PREDICT_FALSE (p->state == VLIB_PROCESS_STATE_NOT_STARTED))
     return last_time_stamp;
 
-  ASSERT (p->flags & (VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_CLOCK
-		      | VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_EVENT));
+  if (resume_permissons[r->reason][p->state] == 0)
+    {
+      vec_add1 (nm->process_restore_next, *r);
+      return last_time_stamp;
+    }
 
   pf = pool_elt_at_index (nm->suspended_process_frames,
 			  p->suspended_process_frame_index);
@@ -1405,19 +1377,11 @@ dispatch_suspended_process (vlib_main_t * vm,
       /* Suspend it again. */
       n_vectors = 0;
       p->n_suspends += 1;
-      if (p->flags & VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_CLOCK)
-	{
-	  p->stop_timer_handle =
-	    TW (tw_timer_start) ((TWT (tw_timer_wheel) *) nm->timing_wheel,
-				 vlib_timing_wheel_data_set_suspended_process
-				 (node->runtime_index) /* [sic] pool idex */ ,
-				 0 /* timer_id */ ,
-				 p->resume_clock_interval);
-	}
+      process_timer_start (vm, p, node->runtime_index);
     }
   else
     {
-      p->flags &= ~VLIB_PROCESS_IS_RUNNING;
+      p->state = VLIB_PROCESS_STATE_NOT_STARTED;
       pool_put_index (nm->suspended_process_frames,
 		      p->suspended_process_frame_index);
       p->suspended_process_frame_index = ~0;
@@ -1438,10 +1402,44 @@ dispatch_suspended_process (vlib_main_t * vm,
   return t;
 }
 
-void vl_api_send_pending_rpc_requests (vlib_main_t *) __attribute__ ((weak));
-void
-vl_api_send_pending_rpc_requests (vlib_main_t * vm)
+static __clib_warn_unused_result u32 *
+process_expired_timers (u32 *v)
 {
+  vlib_main_t *vm = vlib_get_main ();
+  vlib_node_main_t *nm = &vm->node_main;
+  u32 *handle;
+
+  v = vlib_tw_timer_expire_timers (vm, v);
+
+  vec_foreach (handle, v)
+    {
+      vlib_tw_event_t e = { .as_u32 = *handle };
+      vlib_process_restore_t restore = {};
+
+      if (e.type == VLIB_TW_EVENT_T_TIMED_EVENT)
+	{
+	  restore.reason = VLIB_PROCESS_RESTORE_REASON_TIMED_EVENT;
+	  restore.timed_event_data_pool_index = e.index;
+	  vec_add1 (nm->process_restore_current, restore);
+	}
+      else if (e.type == VLIB_TW_EVENT_T_PROCESS_NODE)
+	{
+	  vlib_process_t *p = vec_elt (nm->processes, e.index);
+	  p->stop_timer_handle = ~0;
+	  restore.reason = VLIB_PROCESS_RESTORE_REASON_CLOCK;
+	  restore.runtime_index = e.index;
+	  vec_add1 (nm->process_restore_current, restore);
+	}
+      else if (e.type == VLIB_TW_EVENT_T_SCHED_NODE)
+	{
+	  vec_add1 (nm->sched_node_pending, e.index);
+	  vlib_node_runtime_t *nr = vlib_node_get_runtime (vm, e.index);
+	  nr->stop_timer_handle_plus_1 = CLIB_U32_MAX;
+	}
+      else
+	ASSERT (0);
+    }
+  return v;
 }
 
 static_always_inline void
@@ -1454,6 +1452,7 @@ vlib_main_or_worker_loop (vlib_main_t * vm, int is_main)
   f64 now;
   vlib_frame_queue_main_t *fqm;
   u32 frame_queue_check_counter = 0;
+  u32 *expired_timers = 0;
 
   /* Initialize pending node vector. */
   if (is_main)
@@ -1471,16 +1470,12 @@ vlib_main_or_worker_loop (vlib_main_t * vm, int is_main)
   else
     cpu_time_now = clib_cpu_time_now ();
 
-  /* Pre-allocate interupt runtime indices and lock. */
-  vec_validate_aligned (nm->pending_interrupts, 0, CLIB_CACHE_LINE_BYTES);
-
   /* Pre-allocate expired nodes. */
   if (!nm->polling_threshold_vector_length)
     nm->polling_threshold_vector_length = 10;
   if (!nm->interrupt_threshold_vector_length)
     nm->interrupt_threshold_vector_length = 5;
 
-  vm->cpu_id = clib_get_current_cpu_id ();
   vm->numa_node = clib_get_current_numa_node ();
   os_set_numa_index (vm->numa_node);
 
@@ -1509,7 +1504,7 @@ vlib_main_or_worker_loop (vlib_main_t * vm, int is_main)
       if (PREDICT_FALSE (_vec_len (vm->pending_rpc_requests) > 0))
 	{
 	  if (!is_main)
-	    vl_api_send_pending_rpc_requests (vm);
+	    vlib_worker_flush_pending_rpc_requests (vm);
 	}
 
       if (!is_main)
@@ -1543,43 +1538,74 @@ vlib_main_or_worker_loop (vlib_main_t * vm, int is_main)
 	clib_call_callbacks (vm->worker_thread_main_loop_callbacks, vm,
 			     cpu_time_now);
 
-      /* Process pre-input nodes. */
       cpu_time_now = clib_cpu_time_now ();
-      vec_foreach (n, nm->nodes_by_type[VLIB_NODE_TYPE_PRE_INPUT])
-	cpu_time_now = dispatch_node (vm, n,
-				      VLIB_NODE_TYPE_PRE_INPUT,
-				      VLIB_NODE_STATE_POLLING,
-				      /* frame */ 0,
-				      cpu_time_now);
 
-      /* Next process input nodes. */
-      vec_foreach (n, nm->nodes_by_type[VLIB_NODE_TYPE_INPUT])
-	cpu_time_now = dispatch_node (vm, n,
-				      VLIB_NODE_TYPE_INPUT,
-				      VLIB_NODE_STATE_POLLING,
-				      /* frame */ 0,
-				      cpu_time_now);
+      if (vm->file_poll_skip_loops)
+	vm->file_poll_skip_loops--;
+      else
+	vlib_file_poll (vm);
+
+      for (vlib_node_type_t nt = 0; nt < VLIB_N_NODE_TYPE; nt++)
+	{
+	  if (node_type_attrs[nt].can_be_polled)
+	    vec_foreach (n, nm->nodes_by_type[nt])
+	      if (n->state == VLIB_NODE_STATE_POLLING)
+		cpu_time_now = dispatch_node (
+		  vm, n, nt,
+		  /* frame */ 0, VLIB_NODE_DISPATCH_REASON_POLL, cpu_time_now);
+
+	  if (node_type_attrs[nt].may_receive_interrupts &&
+	      nm->node_interrupts[nt] &&
+	      clib_interrupt_is_any_pending (nm->node_interrupts[nt]))
+	    {
+	      int int_num = -1;
+
+	      while ((int_num = clib_interrupt_get_next_and_clear (
+			nm->node_interrupts[nt], int_num)) != -1)
+		{
+		  vlib_node_runtime_t *n;
+		  n = vec_elt_at_index (nm->nodes_by_type[nt], int_num);
+		  if (n->stop_timer_handle_plus_1)
+		  {
+		    /* CLIB_U32_MAX means just expired */
+		    if (n->stop_timer_handle_plus_1 == CLIB_U32_MAX)
+		      n->stop_timer_handle_plus_1 = 0;
+		    else
+		      vlib_node_unschedule (vm, n->node_index);
+		  }
+		  cpu_time_now = dispatch_node (
+		    vm, n, nt,
+		    /* frame */ 0, VLIB_NODE_DISPATCH_REASON_INTERRUPT,
+		    cpu_time_now);
+		}
+	    }
+	}
+
+      /* Process sched nodes. */
+      if (vec_len (nm->sched_node_pending))
+	{
+	  vec_foreach_index (i, nm->sched_node_pending)
+	    {
+	      vlib_node_t *n = vlib_get_node (vm, nm->sched_node_pending[i]);
+	      if (n->type == VLIB_NODE_TYPE_SCHED)
+		{
+		  vlib_node_runtime_t *nr =
+		    vlib_node_get_runtime (vm, n->index);
+		  if (nr->stop_timer_handle_plus_1 == CLIB_U32_MAX)
+		  {
+		    nr->stop_timer_handle_plus_1 = 0;
+		    cpu_time_now = dispatch_node (
+		      vm, nr, VLIB_NODE_TYPE_SCHED,
+		      /* frame */ 0, VLIB_NODE_DISPATCH_REASON_SCHED,
+		      cpu_time_now);
+		  }
+		}
+	    }
+	  vec_reset_length (nm->sched_node_pending);
+	}
 
       if (PREDICT_TRUE (is_main && vm->queue_signal_pending == 0))
 	vm->queue_signal_callback (vm);
-
-      if (__atomic_load_n (nm->pending_interrupts, __ATOMIC_ACQUIRE))
-	{
-	  int int_num = -1;
-	  *nm->pending_interrupts = 0;
-
-	  while ((int_num =
-		    clib_interrupt_get_next (nm->interrupts, int_num)) != -1)
-	    {
-	      vlib_node_runtime_t *n;
-	      clib_interrupt_clear (nm->interrupts, int_num);
-	      n = vec_elt_at_index (nm->nodes_by_type[VLIB_NODE_TYPE_INPUT],
-				    int_num);
-	      cpu_time_now = dispatch_node (vm, n, VLIB_NODE_TYPE_INPUT,
-					    VLIB_NODE_STATE_INTERRUPT,
-					    /* frame */ 0, cpu_time_now);
-	    }
-	}
 
       /* Input nodes may have added work to the pending vector.
          Process pending vector until there is nothing left.
@@ -1591,7 +1617,6 @@ vlib_main_or_worker_loop (vlib_main_t * vm, int is_main)
 
       if (is_main)
 	{
-          /* *INDENT-OFF* */
           ELOG_TYPE_DECLARE (es) =
             {
               .format = "process tw start",
@@ -1602,7 +1627,6 @@ vlib_main_or_worker_loop (vlib_main_t * vm, int is_main)
               .format = "process tw end: %d",
               .format_args = "i4",
             };
-          /* *INDENT-ON* */
 
 	  struct
 	  {
@@ -1610,71 +1634,72 @@ vlib_main_or_worker_loop (vlib_main_t * vm, int is_main)
 	  } *ed;
 
 	  /* Check if process nodes have expired from timing wheel. */
-	  ASSERT (nm->data_from_advancing_timing_wheel != 0);
+	  ASSERT (nm->process_restore_current != 0);
 
 	  if (PREDICT_FALSE (vm->elog_trace_graph_dispatch))
-	    ed = ELOG_DATA (&vlib_global_main.elog_main, es);
+	    ed = ELOG_DATA (vlib_get_elog_main (), es);
 
-	  TW (tw_timer_expire_timers)
-	  ((TWT (tw_timer_wheel) *) nm->timing_wheel, vlib_time_now (vm));
+	  expired_timers = process_expired_timers (expired_timers);
 
-	  ASSERT (nm->data_from_advancing_timing_wheel != 0);
+	  ASSERT (nm->process_restore_current != 0);
 
 	  if (PREDICT_FALSE (vm->elog_trace_graph_dispatch))
 	    {
-	      ed = ELOG_DATA (&vlib_global_main.elog_main, ee);
-	      ed->nready_procs =
-		_vec_len (nm->data_from_advancing_timing_wheel);
+	      ed = ELOG_DATA (vlib_get_elog_main (), ee);
+	      ed->nready_procs = _vec_len (nm->process_restore_current);
 	    }
 
-	  if (PREDICT_FALSE
-	      (_vec_len (nm->data_from_advancing_timing_wheel) > 0))
+	  if (PREDICT_FALSE (_vec_len (nm->process_restore_current) > 0))
 	    {
 	      uword i;
 
-	      for (i = 0; i < _vec_len (nm->data_from_advancing_timing_wheel);
-		   i++)
+	      for (i = 0; i < _vec_len (nm->process_restore_current); i++)
 		{
-		  u32 d = nm->data_from_advancing_timing_wheel[i];
-		  u32 di = vlib_timing_wheel_data_get_index (d);
+		  vlib_process_restore_t *res =
+		    nm->process_restore_current + i;
 
-		  if (vlib_timing_wheel_data_is_timed_event (d))
-		    {
-		      vlib_signal_timed_event_data_t *te =
-			pool_elt_at_index (nm->signal_timed_event_data_pool,
-					   di);
-		      vlib_node_t *n =
-			vlib_get_node (vm, te->process_node_index);
-		      vlib_process_t *p =
-			vec_elt (nm->processes, n->runtime_index);
-		      p->stop_timer_handle = ~0;
-		      void *data;
-		      data =
-			vlib_process_signal_event_helper (nm, n, p,
-							  te->event_type_index,
-							  te->n_data_elts,
-							  te->n_data_elt_bytes);
-		      if (te->n_data_bytes < sizeof (te->inline_event_data))
-			clib_memcpy_fast (data, te->inline_event_data,
+		  if (res->reason == VLIB_PROCESS_RESTORE_REASON_TIMED_EVENT)
+		  {
+		    u32 di = res->timed_event_data_pool_index;
+		    vlib_signal_timed_event_data_t *te =
+		      pool_elt_at_index (nm->signal_timed_event_data_pool, di);
+		    vlib_node_t *n =
+		      vlib_get_node (vm, te->process_node_index);
+		    vlib_process_t *p =
+		      vec_elt (nm->processes, n->runtime_index);
+		    p->stop_timer_handle = ~0;
+		    void *data;
+		    data = vlib_process_signal_event_helper (
+		      vm, nm, n, p, te->event_type_index, te->n_data_elts,
+		      te->n_data_elt_bytes);
+		    if (te->n_data_bytes < sizeof (te->inline_event_data))
+		      clib_memcpy_fast (data, te->inline_event_data,
+					te->n_data_bytes);
+		    else
+		      {
+			clib_memcpy_fast (data, te->event_data_as_vector,
 					  te->n_data_bytes);
-		      else
-			{
-			  clib_memcpy_fast (data, te->event_data_as_vector,
-					    te->n_data_bytes);
-			  vec_free (te->event_data_as_vector);
-			}
-		      pool_put (nm->signal_timed_event_data_pool, te);
-		    }
+			vec_free (te->event_data_as_vector);
+		      }
+		    pool_put (nm->signal_timed_event_data_pool, te);
+		  }
 		  else
 		    {
 		      cpu_time_now = clib_cpu_time_now ();
 		      cpu_time_now =
-			dispatch_suspended_process (vm, di, cpu_time_now);
+			dispatch_suspended_process (vm, res, cpu_time_now);
 		    }
 		}
-	      vec_set_len (nm->data_from_advancing_timing_wheel, 0);
+
+	      vec_set_len (nm->process_restore_current, 0);
+
+	      CLIB_SWAP (nm->process_restore_current,
+			 nm->process_restore_next);
 	    }
 	}
+      else
+	expired_timers = process_expired_timers (expired_timers);
+
       vlib_increment_main_loop_counter (vm);
       /* Record time stamp in case there are no enabled nodes and above
          calls do not update time stamp. */
@@ -1707,18 +1732,6 @@ vlib_main_or_worker_loop (vlib_main_t * vm, int is_main)
 	  vm->loops_this_reporting_interval = 0;
 	}
     }
-}
-
-static void
-vlib_main_loop (vlib_main_t * vm)
-{
-  vlib_main_or_worker_loop (vm, /* is_main */ 1);
-}
-
-void
-vlib_worker_loop (vlib_main_t * vm)
-{
-  vlib_main_or_worker_loop (vm, /* is_main */ 0);
 }
 
 vlib_global_main_t vlib_global_main;
@@ -1846,23 +1859,6 @@ vl_api_get_elog_trace_api_messages (void)
   return 0;
 }
 
-static void
-process_expired_timer_cb (u32 *expired_timer_handles)
-{
-  vlib_main_t *vm = vlib_get_main ();
-  vlib_node_main_t *nm = &vm->node_main;
-  u32 *handle;
-
-  vec_foreach (handle, expired_timer_handles)
-    {
-      u32 pi = vlib_timing_wheel_data_get_index (*handle);
-      vlib_process_t *p = vec_elt (nm->processes, pi);
-
-      p->stop_timer_handle = ~0;
-    }
-  vec_append (nm->data_from_advancing_timing_wheel, expired_timer_handles);
-}
-
 /* Main function. */
 int
 vlib_main (vlib_main_t * volatile vm, unformat_input_t * input)
@@ -1875,14 +1871,15 @@ vlib_main (vlib_main_t * volatile vm, unformat_input_t * input)
 
   /* Reconfigure event log which is enabled very early */
   if (vgm->configured_elog_ring_size &&
-      vgm->configured_elog_ring_size != vgm->elog_main.event_ring_size)
-    elog_resize (&vgm->elog_main, vgm->configured_elog_ring_size);
+      vgm->configured_elog_ring_size != vgm->elog_main->event_ring_size)
+    elog_resize (vgm->elog_main, vgm->configured_elog_ring_size);
   vl_api_set_elog_main (vlib_get_elog_main ());
-  (void) vl_api_set_elog_trace_api_messages (1);
 
   /* Default name. */
   if (!vgm->name)
     vgm->name = "VLIB";
+
+  vm->numa_node = clib_get_current_numa_node ();
 
   if ((error = vlib_physmem_init (vm)))
     {
@@ -1955,23 +1952,19 @@ vlib_main (vlib_main_t * volatile vm, unformat_input_t * input)
       goto done;
     }
 
+  vlib_tw_init (vm);
+  vlib_file_poll_init (vm);
+
   /* See unix/main.c; most likely already set up */
   if (vgm->init_functions_called == 0)
     vgm->init_functions_called = hash_create (0, /* value bytes */ 0);
   if ((error = vlib_call_all_init_functions (vm)))
     goto done;
 
-  nm->timing_wheel = clib_mem_alloc_aligned (sizeof (TWT (tw_timer_wheel)),
-					     CLIB_CACHE_LINE_BYTES);
-
-  vec_validate (nm->data_from_advancing_timing_wheel, 10);
-  vec_set_len (nm->data_from_advancing_timing_wheel, 0);
-
-  /* Create the process timing wheel */
-  TW (tw_timer_wheel_init)
-  ((TWT (tw_timer_wheel) *) nm->timing_wheel,
-   process_expired_timer_cb /* callback */, 10e-6 /* timer period 10us */,
-   ~0 /* max expirations per call */);
+  vec_validate (nm->process_restore_current, 10);
+  vec_validate (nm->process_restore_next, 10);
+  vec_set_len (nm->process_restore_current, 0);
+  vec_set_len (nm->process_restore_next, 0);
 
   vec_validate (vm->pending_rpc_requests, 0);
   vec_set_len (vm->pending_rpc_requests, 0);
@@ -2023,7 +2016,7 @@ vlib_main (vlib_main_t * volatile vm, unformat_input_t * input)
       goto done;
     }
 
-  vlib_main_loop (vm);
+  vlib_main_or_worker_loop (vm, /* is_main */ 1);
 
 done:
   /* Stop worker threads, barrier will not be released */
@@ -2043,6 +2036,40 @@ done:
   return vm->main_loop_exit_status;
 }
 
+static void
+vlib_worker_thread_fn (void *arg)
+{
+  vlib_global_main_t *vgm = vlib_get_global_main ();
+  vlib_worker_thread_t *w = (vlib_worker_thread_t *) arg;
+  vlib_main_t *vm = vlib_get_main ();
+  clib_error_t *e;
+
+  ASSERT (vm->thread_index == vlib_get_thread_index ());
+  vm->numa_node = clib_get_current_numa_node ();
+
+  vlib_worker_thread_init (w);
+  clib_time_init (&vm->clib_time);
+  clib_mem_set_heap (w->thread_mheap);
+  vlib_tw_init (vm);
+  vlib_file_poll_init (vm);
+
+  vm->worker_init_functions_called = hash_create (0, 0);
+
+  e = vlib_call_init_exit_functions_no_sort (
+    vm, &vgm->worker_init_function_registrations, 1 /* call_once */,
+    0 /* is_global */);
+  if (e)
+    clib_error_report (e);
+
+  vlib_main_or_worker_loop (vm, /* is_main */ 0);
+}
+
+VLIB_REGISTER_THREAD (worker_thread_reg, static) = {
+  .name = "workers",
+  .short_name = "wk",
+  .function = vlib_worker_thread_fn,
+};
+
 vlib_main_t *
 vlib_get_main_not_inline (void)
 {
@@ -2052,7 +2079,16 @@ vlib_get_main_not_inline (void)
 elog_main_t *
 vlib_get_elog_main_not_inline ()
 {
-  return &vlib_global_main.elog_main;
+  return vlib_get_elog_main ();
+}
+
+void
+vlib_update_elog_main (elog_main_t *em)
+{
+  vlib_global_main_t *vgm = vlib_get_global_main ();
+
+  vgm->elog_main = em;
+  vl_api_set_elog_main (em);
 }
 
 void
@@ -2061,11 +2097,3 @@ vlib_exit_with_status (vlib_main_t *vm, int status)
   vm->main_loop_exit_status = status;
   __atomic_store_n (&vm->main_loop_exit_now, 1, __ATOMIC_RELEASE);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

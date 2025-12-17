@@ -1,19 +1,8 @@
-/*
- * ipsec_tun_protect_in.c : IPSec interface input node
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* ipsec_tun_protect_in.c : IPSec interface input node */
 
 #include <vnet/vnet.h>
 #include <vnet/api_errno.h>
@@ -60,8 +49,8 @@ format_ipsec_tun_protect_input_trace (u8 * s, va_list * args)
     s = format (s, "IPSec: %U seq %u",
 		format_ipsec6_tunnel_kv, &t->kv6, t->seq);
   else
-    s = format (s, "IPSec: %U seq %u sa %d",
-		format_ipsec4_tunnel_kv, &t->kv4, t->seq);
+    s =
+      format (s, "IPSec: %U seq %u", format_ipsec4_tunnel_kv, &t->kv4, t->seq);
   return s;
 }
 
@@ -114,7 +103,7 @@ ipsec_tun_protect_input_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
   vnet_interface_main_t *vim = &vnm->interface_main;
 
   int is_trace = node->flags & VLIB_NODE_FLAG_TRACE;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
 
   u32 n_left_from, *from;
   u16 nexts[VLIB_FRAME_SIZE], *next;
@@ -278,6 +267,7 @@ ipsec_tun_protect_input_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
 	      else
 		{
 		  next[0] = ipsec_ip6_if_no_tunnel (node, b[0], esp0, ip60);
+		  vlib_buffer_advance (b[0], -buf_rewind0);
 		  n_no_tunnel++;
 		  goto trace00;
 		}
@@ -410,7 +400,6 @@ VLIB_NODE_FN (ipsec4_tun_input_node) (vlib_main_t * vm,
   return ipsec_tun_protect_input_inline (vm, node, from_frame, 0);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ipsec4_tun_input_node) = {
   .name = "ipsec4-tun-input",
   .vector_size = sizeof (u32),
@@ -420,7 +409,6 @@ VLIB_REGISTER_NODE (ipsec4_tun_input_node) = {
   .error_counters = ipsec_tun_error_counters,
   .sibling_of = "device-input",
 };
-/* *INDENT-ON* */
 
 VLIB_NODE_FN (ipsec6_tun_input_node) (vlib_main_t * vm,
 				      vlib_node_runtime_t * node,
@@ -429,7 +417,6 @@ VLIB_NODE_FN (ipsec6_tun_input_node) (vlib_main_t * vm,
   return ipsec_tun_protect_input_inline (vm, node, from_frame, 1);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ipsec6_tun_input_node) = {
   .name = "ipsec6-tun-input",
   .vector_size = sizeof (u32),
@@ -439,12 +426,3 @@ VLIB_REGISTER_NODE (ipsec6_tun_input_node) = {
   .error_counters = ipsec_tun_error_counters,
   .sibling_of = "device-input",
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

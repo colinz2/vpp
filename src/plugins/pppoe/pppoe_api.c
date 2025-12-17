@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * pppoe_api.c - pppoe api
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Intel and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * pppoe_api.c - pppoe api
  */
 
 #include <vnet/interface.h>
@@ -64,12 +53,10 @@ static void vl_api_pppoe_add_del_session_t_handler
   rv = vnet_pppoe_add_del_session (&a, &sw_if_index);
 
 out:
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_PPPOE_ADD_DEL_SESSION_REPLY,
   ({
     rmp->sw_if_index = ntohl (sw_if_index);
   }));
-  /* *INDENT-ON* */
 }
 
 static void send_pppoe_session_details
@@ -120,12 +107,10 @@ vl_api_pppoe_session_dump_t_handler (vl_api_pppoe_session_dump_t * mp)
 
   if (~0 == sw_if_index)
     {
-      /* *INDENT-OFF* */
       pool_foreach (t, pem->sessions)
        {
         send_pppoe_session_details(t, reg, mp->context);
       }
-      /* *INDENT-ON* */
     }
   else
     {
@@ -148,9 +133,7 @@ vl_api_pppoe_add_del_cp_t_handler (vl_api_pppoe_add_del_cp_t * mp)
 
   rv = pppoe_add_del_cp (ntohl (mp->sw_if_index), mp->is_add);
 
-  /* *INDENT-OFF* */
   REPLY_MACRO(VL_API_PPPOE_ADD_DEL_CP_REPLY);
-  /* *INDENT-ON* */
 }
 
 #include <pppoe/pppoe.api.c>
@@ -164,11 +147,3 @@ pppoe_api_hookup (vlib_main_t * vm)
 }
 
 VLIB_API_INIT_FUNCTION (pppoe_api_hookup);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

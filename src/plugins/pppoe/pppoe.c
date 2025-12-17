@@ -1,19 +1,7 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Intel and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
+
 #include <stdint.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
@@ -27,7 +15,7 @@
 #include <vnet/dpo/interface_tx_dpo.h>
 #include <vnet/plugin/plugin.h>
 #include <vpp/app/version.h>
-#include <vnet/ppp/packet.h>
+#include <ppp/packet.h>
 #include <pppoe/pppoe.h>
 #include <vnet/adj/adj_midchain.h>
 #include <vnet/adj/adj_mcast.h>
@@ -77,13 +65,11 @@ pppoe_interface_admin_up_down (vnet_main_t * vnm, u32 hw_if_index, u32 flags)
   return /* no error */ 0;
 }
 
-/* *INDENT-OFF* */
 VNET_DEVICE_CLASS (pppoe_device_class,static) = {
   .name = "PPPoE",
   .format_device_name = format_pppoe_name,
   .admin_up_down_function = pppoe_interface_admin_up_down,
 };
-/* *INDENT-ON* */
 
 static u8 *
 format_pppoe_header_with_length (u8 * s, va_list * args)
@@ -256,7 +242,6 @@ pppoe_update_adj (vnet_main_t * vnm, u32 sw_if_index, adj_index_t ai)
   dpo_reset (&dpo);
 }
 
-/* *INDENT-OFF* */
 VNET_HW_INTERFACE_CLASS (pppoe_hw_class) =
 {
   .name = "PPPoE",
@@ -265,7 +250,6 @@ VNET_HW_INTERFACE_CLASS (pppoe_hw_class) =
   .update_adjacency = pppoe_update_adj,
   .flags = VNET_HW_INTERFACE_CLASS_FLAG_P2P,
 };
-/* *INDENT-ON* */
 
 #define foreach_copy_field                      \
 _(session_id)                                   \
@@ -613,7 +597,6 @@ done:
  * @cliexcmd{create pppoe session client-ip 10.0.3.1 session-id 13
  *             client-mac 00:01:02:03:04:05 del }
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (create_pppoe_session_command, static) = {
   .path = "create pppoe session",
   .short_help =
@@ -621,9 +604,7 @@ VLIB_CLI_COMMAND (create_pppoe_session_command, static) = {
   " client-mac <client-mac> [decap-vrf-id <nn>] [del]",
   .function = pppoe_add_del_session_command_fn,
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 static clib_error_t *
 show_pppoe_session_command_fn (vlib_main_t * vm,
 			       unformat_input_t * input,
@@ -642,7 +623,6 @@ show_pppoe_session_command_fn (vlib_main_t * vm,
 
   return 0;
 }
-/* *INDENT-ON* */
 
 /*?
  * Display all the PPPoE Session entries.
@@ -654,13 +634,11 @@ show_pppoe_session_command_fn (vlib_main_t * vm,
  *     local-mac a0:b0:c0:d0:e0:f0 client-mac 00:01:02:03:04:05
  * @cliexend
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_pppoe_session_command, static) = {
     .path = "show pppoe session",
     .short_help = "show pppoe session",
     .function = show_pppoe_session_command_fn,
 };
-/* *INDENT-ON* */
 
 typedef struct pppoe_show_walk_ctx_t_
 {
@@ -737,13 +715,11 @@ show_pppoe_fib_command_fn (vlib_main_t * vm,
  * 52:54:00:53:18:55   2        GigabitEthernet0/8/1      3          1
  * @cliexend
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_pppoe_fib_command, static) = {
     .path = "show pppoe fib",
     .short_help = "show pppoe fib",
     .function = show_pppoe_fib_command_fn,
 };
-/* *INDENT-ON* */
 
 clib_error_t *
 pppoe_init (vlib_main_t * vm)
@@ -775,17 +751,7 @@ pppoe_init (vlib_main_t * vm)
 
 VLIB_INIT_FUNCTION (pppoe_init);
 
-/* *INDENT-OFF* */
 VLIB_PLUGIN_REGISTER () = {
-    .version = VPP_BUILD_VER,
-    .description = "PPP over Ethernet (PPPoE)",
+  .version = VPP_BUILD_VER,
+  .description = "PPP over Ethernet (PPPoE)",
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

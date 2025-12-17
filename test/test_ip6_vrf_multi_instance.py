@@ -65,7 +65,6 @@
 
 import unittest
 import random
-import socket
 
 from scapy.packet import Raw
 from scapy.layers.l2 import Ether
@@ -77,10 +76,10 @@ from scapy.layers.inet6 import (
     RouterAlert,
     IPv6ExtHdrHopByHop,
 )
-from scapy.utils6 import in6_ismaddr, in6_isllsnmaddr, in6_getAddrType
-from scapy.pton_ntop import inet_ntop
+from scapy.utils6 import in6_ismaddr, in6_isllsnmaddr
 
-from framework import VppTestCase, VppTestRunner
+from framework import VppTestCase
+from asfframework import VppTestRunner
 from util import ppp
 from vrf import VRFState
 
@@ -214,7 +213,7 @@ class TestIP6VrfMultiInst(VppTestCase):
         """
         for i in range(count):
             vrf_id = i + start
-            self.vapi.ip_table_add_del(
+            self.vapi.ip_table_add_del_v2(
                 is_add=1, table={"table_id": vrf_id, "is_ip6": 1}
             )
             self.logger.info("IPv6 VRF ID %d created" % vrf_id)
@@ -277,7 +276,7 @@ class TestIP6VrfMultiInst(VppTestCase):
             self.vrf_list.remove(vrf_id)
         if vrf_id in self.vrf_reset_list:
             self.vrf_reset_list.remove(vrf_id)
-        self.vapi.ip_table_add_del(is_add=0, table={"table_id": vrf_id, "is_ip6": 1})
+        self.vapi.ip_table_add_del_v2(is_add=0, table={"table_id": vrf_id, "is_ip6": 1})
 
     def create_stream(self, src_if, packet_sizes):
         """

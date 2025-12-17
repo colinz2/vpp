@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017-2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef __included_udp_h__
 #define __included_udp_h__
 
@@ -87,6 +78,12 @@ typedef struct
   u32 sw_if_index;			/**< connection sw_if_index */
   u32 next_node_index;	/**< Can be used to control next node in output */
   u32 next_node_opaque; /**< Opaque to pass to next node */
+  u64 bytes_in;		/**< bytes received */
+  u64 dgrams_in;	/**< rfc4113 dgrams received  */
+  u64 bytes_out;	/**< bytes sent */
+  u64 dgrams_out;	/**< rfc4113 dgrams sent */
+  u32 errors_in;	/**< rfc4113 dgrams in errors */
+  clib_time_type_t start_ts; /**< time stamp when connection was created */
 } udp_connection_t;
 
 #define udp_csum_offload(uc) (!((uc)->cfg_flags & UDP_CFG_F_NO_CSUM_OFFLOAD))
@@ -154,6 +151,7 @@ typedef struct
   u16 default_mtu;
   u16 msg_id_base;
   u8 csum_offload;
+  u8 is_init;
 
   u8 icmp_send_unreachable_disabled;
 } udp_main_t;
@@ -170,13 +168,13 @@ void udp_add_dst_port (udp_main_t * um, udp_dst_port_t dst_port,
 		       char *dst_port_name, u8 is_ip4);
 
 always_inline udp_worker_t *
-udp_worker_get (u32 thread_index)
+udp_worker_get (clib_thread_index_t thread_index)
 {
   return vec_elt_at_index (udp_main.wrk, thread_index);
 }
 
 always_inline udp_connection_t *
-udp_connection_get (u32 conn_index, u32 thread_index)
+udp_connection_get (u32 conn_index, clib_thread_index_t thread_index)
 {
   udp_worker_t *wrk = udp_worker_get (thread_index);
 
@@ -204,10 +202,15 @@ udp_connection_from_transport (transport_connection_t * tc)
 }
 
 void udp_connection_free (udp_connection_t * uc);
-udp_connection_t *udp_connection_alloc (u32 thread_index);
+udp_connection_t *udp_connection_alloc (clib_thread_index_t thread_index);
+void udp_connection_share_port (u16 lcl_port, u8 is_ip4);
+
+void udp_connection_handle_icmp (transport_connection_t *tconn, u8 icmp_type,
+				 u8 icmp_code);
 
 always_inline udp_connection_t *
-udp_connection_clone_safe (u32 connection_index, u32 thread_index)
+udp_connection_clone_safe (u32 connection_index,
+			   clib_thread_index_t thread_index)
 {
   u32 current_thread_index = vlib_get_thread_index (), new_index;
   udp_connection_t *old_c, *new_c;
@@ -239,14 +242,5 @@ format_function_t format_udp_connection;
 unformat_function_t unformat_udp_header;
 unformat_function_t unformat_udp_port;
 
-void udp_punt_unknown (vlib_main_t * vm, u8 is_ip4, u8 is_add);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
-
+void udp_punt_unknown (vlib_main_t *vm, u8 is_ip4, u8 is_add);
 #endif /* __included_udp_h__ */

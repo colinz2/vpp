@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2012 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <stdio.h>
@@ -73,7 +63,6 @@ get_significant_errors (gmon_main_t * gm)
   int vm_index;
   u64 significant_errors = 0;
 
-  /* *INDENT-OFF* */
   clib_bitmap_foreach (code, gm->sig_error_bitmap)
    {
     for (vm_index = 0; vm_index < vec_len (gm->my_vlib_mains); vm_index++)
@@ -85,7 +74,6 @@ get_significant_errors (gmon_main_t * gm)
            em->counters_last_clear[code] : 0);
       }
   }
-  /* *INDENT-ON* */
 
   return (significant_errors);
 }
@@ -145,13 +133,11 @@ gmon_process (vlib_main_t * vm, vlib_node_runtime_t * rt, vlib_frame_t * f)
   return 0;			/* not so much */
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (gmon_process_node,static) = {
   .function = gmon_process,
   .type = VLIB_NODE_TYPE_PROCESS,
   .name = "gmon-process",
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 gmon_init (vlib_main_t * vm)
@@ -288,18 +274,8 @@ set_significant_error_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_significant_error_command, static) = {
   .path = "set significant error",
   .short_help = "set significant error <counter-index-nnn> [disable]",
   .function = set_significant_error_command_fn,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

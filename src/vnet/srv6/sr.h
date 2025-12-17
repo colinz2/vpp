@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 /**
@@ -43,9 +33,22 @@
 #define SR_BEHAVIOR_DX4 7
 #define SR_BEHAVIOR_DT6 8
 #define SR_BEHAVIOR_DT4 9
-#define SR_BEHAVIOR_END_UN_PERF 10
-#define SR_BEHAVIOR_END_UN 11
-#define SR_BEHAVIOR_LAST 12	/* Must always be the last one */
+/**
+ * SR_BEHAVIOR_LAST
+ * Not used anymore. Kept not to break the API.
+ * We use SR_BEHAVIOR_CURRENT_LAST going forward
+ * */
+#define SR_BEHAVIOR_LAST	10
+#define SR_BEHAVIOR_END_UN_PERF 11
+#define SR_BEHAVIOR_END_UN	12
+#define SR_BEHAVIOR_UA		13
+
+/**
+ * SR_BEHAVIOR_CURRENT_LAST
+ * MUST be updated everytime we add new behaviors.
+ * MUST be set to value of last added behavior + 1.
+ * */
+#define SR_BEHAVIOR_CURRENT_LAST 14
 
 #define SR_STEER_L2 2
 #define SR_STEER_IPV4 4
@@ -56,13 +59,11 @@
 
 #define SR_SEGMENT_LIST_WEIGHT_DEFAULT 1
 
-/* *INDENT-OFF* */
 typedef struct
 {
   ip6_header_t ip;
   ip6_sr_header_t sr;
 } __attribute__ ((packed)) ip6srv_combo_header_t;
-/* *INDENT-ON* */
 
 /**
  * @brief SR Segment List (SID list)
@@ -166,7 +167,8 @@ typedef int (sr_plugin_callback_t) (ip6_sr_localsid_t * localsid);
  */
 typedef struct
 {
-  u16 sr_localsid_function_number;			/**< SR LocalSID plugin function (>SR_BEHAVIOR_LAST) */
+  u16 sr_localsid_function_number; /**< SR LocalSID plugin function
+				      (>SR_BEHAVIOR_CURRENT_LAST) */
 
   u8 *function_name;							/**< Function name. (key). */
 
@@ -412,11 +414,3 @@ ip6_sr_compute_rewrite_string_insert (ip6_address_t * sl)
 }
 
 #endif /* included_vnet_sr_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

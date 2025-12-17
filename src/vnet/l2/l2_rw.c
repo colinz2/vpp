@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vlib/vlib.h>
@@ -109,6 +99,7 @@ l2_rw_rewrite (l2_rw_entry_t * rwe, u8 * h)
       /* FALLTHROUGH */
     case 1:
       d[0] = (d[0] & ~rwe->mask[0]) | rwe->value[0];
+      rwe->hit_count++;
       break;
     default:
       abort ();
@@ -332,6 +323,7 @@ l2_rw_mod_entry (u32 * index,
       return 0;
     }
 
+  e->hit_count = 0;
   e->skip_n_vectors = skip / sizeof (u32x4);
   skip -= e->skip_n_vectors * sizeof (u32x4);
   e->rewrite_n_vectors = (skip + len - 1) / sizeof (u32x4) + 1;
@@ -398,17 +390,19 @@ l2_rw_entry_cli_fn (vlib_main_t * vm,
  * the provisioned mask and value, modifies the packet header.
  *
  * @cliexpar
- * @todo This is incomplete. This needs a detailed description and a
- * practical example.
+ * Example of how to add an l2 rewrite entry to change the destination mac of
+ * the packet to 00:8a:00:0d:0e:02 (where parameter mask is Ethernet header's
+mask,
+ * parameter value is Ethernet header's value):
+ * @cliexcmd{l2 rewrite entry mask ffffffffffff00000000000000000000 value
+008a000d0e0200000000000000000000}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (l2_rw_entry_cli, static) = {
   .path = "l2 rewrite entry",
   .short_help =
   "l2 rewrite entry [index <index>] [mask <hex-mask>] [value <hex-value>] [skip <n_bytes>] [del]",
   .function = l2_rw_entry_cli_fn,
 };
-/* *INDENT-ON* */
 
 #ifndef CLIB_MARCH_VARIANT
 int
@@ -468,21 +462,36 @@ l2_rw_interface_cli_fn (vlib_main_t * vm,
 }
 
 /*?
- * Layer 2-Rewrite node uses classify tables to match packets. Then, using
- * the provisioned mask and value, modifies the packet header.
+ * Apply the rule to the interface. The following example shows how to use
+classify
+ * entry and Layer 2-Rewrite entry to modify the packet ethernet header on the
+ * interface.
  *
  * @cliexpar
- * @todo This is incomplete. This needs a detailed description and a
- * practical example.
+ * Example use the classify to filter packets that do not need to be modified
+(where
+ * 192.168.68.34 is the destination ip of the data packet, 8080 is the
+destination port
+ * of the packet):
+ * @cliexcmd{classify table mask l3 ip4 dst l4 dst_port}
+ * @cliexcmd{classify session acl-hit-next permit table-index 0 match l3 ip4
+dst 192.168.68.34 l4 dst_port 8080}
+ *
+ * @cliexpar
+ * Example apply classify and l2 rewrite rules to the interface (where
+YusurK2Eth6/0/1/3
+ * is interface, \"table 0\" means Table Id is 0, \"miss 0\" means the packet
+that matches
+ * the classify. miss will be modified according to the l2 rewrite entry with
+index 0):
+ * @cliexcmd{set interface l2 rewrite YusurK2Eth6/0/1/3 table 0 miss-index 0}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (l2_rw_interface_cli, static) = {
   .path = "set interface l2 rewrite",
   .short_help =
   "set interface l2 rewrite <interface> [table <table index>] [miss-index <entry-index>]",
   .function = l2_rw_interface_cli_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 l2_rw_show_interfaces_cli_fn (vlib_main_t * vm,
@@ -494,30 +503,27 @@ l2_rw_show_interfaces_cli_fn (vlib_main_t * vm,
     vlib_cli_output (vm, "No interface is currently using l2 rewrite\n");
 
   uword i;
-  /* *INDENT-OFF* */
   clib_bitmap_foreach (i, rw->configs_bitmap) {
       vlib_cli_output (vm, "sw_if_index:%d %U\n", i, format_l2_rw_config, &rw->configs[i]);
   }
-  /* *INDENT-ON* */
   return 0;
 }
 
 /*?
- * Layer 2-Rewrite node uses classify tables to match packets. Then, using
- * the provisioned mask and value, modifies the packet header.
+ * This command displays the l2 rewrite entries of the interfaces.
  *
  * @cliexpar
- * @todo This is incomplete. This needs a detailed description and a
- * practical example.
+ * Example of how to display the l2 rewrite rules on the interface:
+ * @cliexstart{show l2 rewrite interfaces}
+ * sw_if_index:4 table-index:0 miss-index:0
+ * @cliexend
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (l2_rw_show_interfaces_cli, static) = {
   .path = "show l2 rewrite interfaces",
   .short_help =
   "show l2 rewrite interfaces",
   .function = l2_rw_show_interfaces_cli_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 l2_rw_show_entries_cli_fn (vlib_main_t * vm,
@@ -528,30 +534,29 @@ l2_rw_show_entries_cli_fn (vlib_main_t * vm,
   if (pool_elts (rw->entries) == 0)
     vlib_cli_output (vm, "No entries\n");
 
-  /* *INDENT-OFF* */
   pool_foreach (e, rw->entries) {
     vlib_cli_output (vm, "%U\n", format_l2_rw_entry, e);
   }
-  /* *INDENT-ON* */
   return 0;
 }
 
 /*?
- * Layer 2-Rewrite node uses classify tables to match packets. Then, using
- * the provisioned mask and value, modifies the packet header.
+ * This command displays all l2 rewrite entries.
  *
  * @cliexpar
- * @todo This is incomplete. This needs a detailed description and a
- * practical example.
+ * Example of how to display all l2 rewrite entries:
+ * @cliexstart{show l2 rewrite entries}
+ * 0 -  mask:ffffffffffff00000000000000000000
+value:aabbccddeeff00000000000000000000
+ *    hits:0 skip_bytes:0
+ * @cliexend
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (l2_rw_show_entries_cli, static) = {
   .path = "show l2 rewrite entries",
   .short_help =
   "show l2 rewrite entries",
   .function = l2_rw_show_entries_cli_fn,
 };
-/* *INDENT-ON* */
 
 static int
 l2_rw_enable_disable (u32 bridge_domain, u8 disable)
@@ -587,21 +592,22 @@ l2_rw_set_cli_fn (vlib_main_t * vm,
 }
 
 /*?
- * Layer 2-Rewrite node uses classify tables to match packets. Then, using
- * the provisioned mask and value, modifies the packet header.
+ * Layer 2 rewrite can be enabled and disabled on each interface and on each
+bridge-domain.
+ * Use this command to manage l2 rewrite on bridge-domain.
  *
  * @cliexpar
- * @todo This is incomplete. This needs a detailed description and a
- * practical example.
+ * Example of how to enable rewrite (where 100 is the bridge-domain-id):
+ * @cliexcmd{set bridge-domain rewrite 100}
+ * Example of how to disable rewrite (where 100 is the bridge-domain-id):
+ * @cliexcmd{set bridge-domain rewrite 100 disable}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (l2_rw_set_cli, static) = {
   .path = "set bridge-domain rewrite",
   .short_help =
   "set bridge-domain rewrite <bridge-domain> [disable]",
   .function = l2_rw_set_cli_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 l2_rw_init (vlib_main_t * vm)
@@ -643,24 +649,14 @@ static char *l2_rw_error_strings[] = {
 #undef _
 };
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (l2_rw_node) = {
   .name = "l2-rw",
   .vector_size = sizeof (u32),
   .format_trace = format_l2_rw_trace,
   .type = VLIB_NODE_TYPE_INTERNAL,
-  .n_errors = ARRAY_LEN(l2_rw_error_strings),
+  .n_errors = ARRAY_LEN (l2_rw_error_strings),
   .error_strings = l2_rw_error_strings,
   .runtime_data_bytes = 0,
   .n_next_nodes = L2_RW_N_NEXT,
-  .next_nodes = { [L2_RW_NEXT_DROP]  = "error-drop"},
+  .next_nodes = { [L2_RW_NEXT_DROP] = "error-drop" },
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

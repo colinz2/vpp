@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/ipsec/ipsec.h>
@@ -38,12 +28,10 @@ ipsec_add_del_spd (vlib_main_t * vm, u32 spd_id, int is_add)
       if (!spd)
 	return VNET_API_ERROR_INVALID_VALUE;
 
-      /* *INDENT-OFF* */
       hash_foreach (k, v, im->spd_index_by_sw_if_index, ({
         if (v == spd_index)
           ipsec_set_interface_spd(vm, k, spd_id, 0);
       }));
-      /* *INDENT-ON* */
       hash_unset (im->spd_index_by_spd_id, spd_id);
 #define _(s,v) vec_free(spd->policies[IPSEC_SPD_POLICY_##s]);
       foreach_ipsec_spd_policy_type
@@ -165,9 +153,6 @@ ipsec_add_del_spd (vlib_main_t * vm, u32 spd_id, int is_add)
 	      pool_max_len (im->fp_ip6_lookup_hashes_pool))
 	    {
 	      clib_bihash_40_8_t *bihash_table;
-	      ipsec_spd_fp_t *fp_spd = &spd->fp_spd;
-
-	      fp_spd->name6_out = format (0, "spd_%u_fp_ip6_out", spd_id);
 
 	      fp_spd->name6_out = format (0, "spd_%u_fp_ip6_out", spd_id);
 	      pool_get (im->fp_ip6_lookup_hashes_pool, bihash_table);
@@ -185,7 +170,6 @@ ipsec_add_del_spd (vlib_main_t * vm, u32 spd_id, int is_add)
 	      pool_max_len (im->fp_ip6_lookup_hashes_pool))
 	    {
 	      clib_bihash_40_8_t *bihash_table;
-	      ipsec_spd_fp_t *fp_spd = &spd->fp_spd;
 
 	      fp_spd->name6_in = format (0, "spd_%u_fp_ip6_in", spd_id);
 	      pool_get (im->fp_ip6_lookup_hashes_pool, bihash_table);
@@ -246,11 +230,3 @@ ipsec_set_interface_spd (vlib_main_t * vm, u32 sw_if_index, u32 spd_id,
 
   return 0;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

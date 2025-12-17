@@ -1,23 +1,18 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef included_vlib_threads_h
 #define included_vlib_threads_h
 
 #include <vlib/main.h>
 #include <vppinfra/callback.h>
+#ifdef __linux__
 #include <linux/sched.h>
+#elif __FreeBSD__
+#include <sys/sched.h>
+#endif /* __linux__ */
 
 void vlib_set_thread_name (char *name);
 
@@ -44,22 +39,6 @@ typedef struct vlib_thread_registration_
   u32 first_index;
   uword *coremask;
 } vlib_thread_registration_t;
-
-/*
- * Frames have their cpu / vlib_main_t index in the low-order N bits
- * Make VLIB_MAX_CPUS a power-of-two, please...
- */
-
-#ifndef VLIB_MAX_CPUS
-#define VLIB_MAX_CPUS 256
-#endif
-
-#if VLIB_MAX_CPUS > CLIB_MAX_MHEAPS
-#error Please increase number of per-cpu mheaps
-#endif
-
-#define VLIB_CPU_MASK (VLIB_MAX_CPUS - 1)	/* 0x3f, max */
-#define VLIB_OFFSET_MASK (~VLIB_CPU_MASK)
 
 #define VLIB_LOG2_THREAD_STACK_SIZE (21)
 #define VLIB_THREAD_STACK_SIZE (1<<VLIB_LOG2_THREAD_STACK_SIZE)
@@ -178,7 +157,10 @@ u32 vlib_frame_queue_main_init (u32 node_index, u32 frame_queue_nelts);
 #define BARRIER_SYNC_TIMEOUT (1.0)
 #endif
 
-#define vlib_worker_thread_barrier_sync(X) {vlib_worker_thread_barrier_sync_int(X, __FUNCTION__);}
+#define vlib_worker_thread_barrier_sync(X)                                    \
+  {                                                                           \
+    vlib_worker_thread_barrier_sync_int (X, __func__);                        \
+  }
 
 void vlib_worker_thread_barrier_sync_int (vlib_main_t * vm,
 					  const char *func_name);
@@ -190,8 +172,12 @@ void vlib_worker_thread_node_refork (void);
  * Wait until each of the workers has been once around the track
  */
 void vlib_worker_wait_one_loop (void);
+/**
+ * Flush worker's pending rpc requests to main thread's rpc queue
+ */
+void vlib_worker_flush_pending_rpc_requests (vlib_main_t *vm);
 
-static_always_inline uword
+static_always_inline clib_thread_index_t
 vlib_get_thread_index (void)
 {
   return __os_thread_index;
@@ -203,12 +189,12 @@ vlib_smp_unsafe_warning (void)
   if (CLIB_DEBUG > 0)
     {
       if (vlib_get_thread_index ())
-	fformat (stderr, "%s: SMP unsafe warning...\n", __FUNCTION__);
+	fformat (stderr, "%s: SMP unsafe warning...\n", __func__);
     }
 }
 
 always_inline int
-__foreach_vlib_main_helper (vlib_main_t *ii, vlib_main_t **p)
+__foreach_vlib_main_helper (vlib_main_t *ii, vlib_main_t **p, int checks)
 {
   vlib_main_t *vm;
   u32 index = ii - (vlib_main_t *) 0;
@@ -217,21 +203,31 @@ __foreach_vlib_main_helper (vlib_main_t *ii, vlib_main_t **p)
     return 0;
 
   *p = vm = vlib_global_main.vlib_mains[index];
-  ASSERT (index == 0 || vm->parked_at_barrier == 1);
+  ASSERT (!checks || index == 0 || vm->parked_at_barrier == 1);
   return 1;
 }
 
-#define foreach_vlib_main()                                                   \
+#define foreach_vlib_main__(checks)                                           \
   for (vlib_main_t *ii = 0, *this_vlib_main;                                  \
-       __foreach_vlib_main_helper (ii, &this_vlib_main); ii++)                \
+       __foreach_vlib_main_helper (ii, &this_vlib_main, checks); ii++)        \
     if (this_vlib_main)
 
-#define foreach_sched_policy \
-  _(SCHED_OTHER, OTHER, "other") \
-  _(SCHED_BATCH, BATCH, "batch") \
-  _(SCHED_IDLE, IDLE, "idle")   \
-  _(SCHED_FIFO, FIFO, "fifo")   \
-  _(SCHED_RR, RR, "rr")
+#define foreach_vlib_main() foreach_vlib_main__ (1)
+
+#define foreach_sched_policy_posix                                            \
+  _ (SCHED_OTHER, OTHER, "other")                                             \
+  _ (SCHED_FIFO, FIFO, "fifo")                                                \
+  _ (SCHED_RR, RR, "rr")
+#define foreach_sched_policy_linux                                            \
+  _ (SCHED_BATCH, BATCH, "batch")                                             \
+  _ (SCHED_IDLE, IDLE, "idle")
+
+#ifdef __linux__
+#define foreach_sched_policy                                                  \
+  foreach_sched_policy_posix foreach_sched_policy_linux
+#else
+#define foreach_sched_policy foreach_sched_policy_posix
+#endif /* __linux__ */
 
 typedef enum
 {
@@ -254,6 +250,9 @@ typedef struct
   vlib_worker_thread_t *worker_threads;
 
   int use_pthreads;
+
+  /* Translate requested cpu configuration to vpp affinity mask */
+  int cpu_translate;
 
   /* Number of vlib_main / vnet_main clones */
   u32 n_vlib_mains;
@@ -335,7 +334,7 @@ vlib_get_worker_thread_index (u32 worker_index)
 }
 
 always_inline u32
-vlib_get_worker_index (u32 thread_index)
+vlib_get_worker_index (clib_thread_index_t thread_index)
 {
   return thread_index - 1;
 }
@@ -353,7 +352,7 @@ vlib_worker_thread_barrier_check (void)
     {
       vlib_global_main_t *vgm = vlib_get_global_main ();
       vlib_main_t *vm = vlib_get_main ();
-      u32 thread_index = vm->thread_index;
+      clib_thread_index_t thread_index = vm->thread_index;
       f64 t = vlib_time_now (vm);
 
       if (PREDICT_FALSE (vec_len (vm->barrier_perf_callbacks) != 0))
@@ -363,19 +362,17 @@ vlib_worker_thread_barrier_check (void)
       if (PREDICT_FALSE (vlib_worker_threads->barrier_elog_enabled))
 	{
 	  vlib_worker_thread_t *w = vlib_worker_threads + thread_index;
-	  /* *INDENT-OFF* */
 	  ELOG_TYPE_DECLARE (e) = {
 	    .format = "barrier-wait-thread-%d",
 	    .format_args = "i4",
 	  };
-	  /* *INDENT-ON* */
 
 	  struct
 	  {
-	    u32 thread_index;
+	    clib_thread_index_t thread_index;
 	  } __clib_packed *ed;
 
-	  ed = ELOG_TRACK_DATA (&vlib_global_main.elog_main, e, w->elog_track);
+	  ed = ELOG_TRACK_DATA (vlib_get_elog_main (), e, w->elog_track);
 	  ed->thread_index = thread_index;
 	}
 
@@ -412,20 +409,17 @@ vlib_worker_thread_barrier_check (void)
 	    {
 	      t = vlib_time_now (vm) - t;
 	      vlib_worker_thread_t *w = vlib_worker_threads + thread_index;
-              /* *INDENT-OFF* */
               ELOG_TYPE_DECLARE (e) = {
                 .format = "barrier-refork-thread-%d",
                 .format_args = "i4",
               };
-              /* *INDENT-ON* */
 
 	      struct
 	      {
-		u32 thread_index;
+		clib_thread_index_t thread_index;
 	      } __clib_packed *ed;
 
-	      ed = ELOG_TRACK_DATA (&vlib_global_main.elog_main, e,
-				    w->elog_track);
+	      ed = ELOG_TRACK_DATA (vlib_get_elog_main (), e, w->elog_track);
 	      ed->thread_index = thread_index;
 	    }
 
@@ -439,20 +433,18 @@ vlib_worker_thread_barrier_check (void)
 	{
 	  t = vlib_time_now (vm) - t;
 	  vlib_worker_thread_t *w = vlib_worker_threads + thread_index;
-	  /* *INDENT-OFF* */
 	  ELOG_TYPE_DECLARE (e) = {
 	    .format = "barrier-released-thread-%d: %dus",
 	    .format_args = "i4i4",
 	  };
-	  /* *INDENT-ON* */
 
 	  struct
 	  {
-	    u32 thread_index;
+	    clib_thread_index_t thread_index;
 	    u32 duration;
 	  } __clib_packed *ed;
 
-	  ed = ELOG_TRACK_DATA (&vlib_global_main.elog_main, e, w->elog_track);
+	  ed = ELOG_TRACK_DATA (vlib_get_elog_main (), e, w->elog_track);
 	  ed->thread_index = thread_index;
 	  ed->duration = (int) (1000000.0 * t);
 	}
@@ -502,13 +494,16 @@ void vlib_workers_sync (void);
  * Release barrier after workers sync
  */
 void vlib_workers_continue (void);
+static_always_inline void
+vlib_thread_wakeup (clib_thread_index_t thread_index)
+{
+  vlib_main_t *vm = vlib_get_main_by_index (thread_index);
+  ssize_t __clib_unused rv;
+  u64 val = 1;
+
+  if (__atomic_load_n (&vm->thread_sleeps, __ATOMIC_RELAXED))
+    if (__atomic_exchange_n (&vm->wakeup_pending, 1, __ATOMIC_RELAXED) == 0)
+      rv = write (vm->wakeup_fd, &val, sizeof (u64));
+}
 
 #endif /* included_vlib_threads_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

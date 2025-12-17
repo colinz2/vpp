@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vlib/vlib.h>
@@ -22,14 +12,12 @@ test_crash_command_fn (vlib_main_t * vm,
 {
   u64 *p = (u64 *) 0xdefec8ed;
 
-  /* *INDENT-OFF* */
   ELOG_TYPE_DECLARE (e) =
     {
       .format = "deliberate crash: touching %x",
       .format_args = "i4",
     };
-  /* *INDENT-ON* */
-  elog (&vlib_global_main.elog_main, &e, 0xdefec8ed);
+  elog (vlib_get_elog_main (), &e, 0xdefec8ed);
 
   *p = 0xdeadbeef;
 
@@ -37,14 +25,12 @@ test_crash_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (test_crash_command, static) =
 {
   .path = "test crash",
   .short_help = "crash the bus!",
   .function = test_crash_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 test_hash_command_fn (vlib_main_t * vm,
@@ -98,19 +84,39 @@ test_hash_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (test_hash_command, static) =
 {
   .path = "test hash_memory",
   .short_help = "page boundary crossing test",
   .function = test_hash_command_fn,
 };
-/* *INDENT-ON* */
 
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+static void *
+leak_memory_fn (void *args)
+{
+  u8 *p = 0;
+  vec_validate (p, 100);
+  p = 0;
+  return 0;
+}
+
+static clib_error_t *
+test_mem_leak_command_fn (vlib_main_t *vm, unformat_input_t *input,
+			  vlib_cli_command_t *cmd)
+{
+  /* do memory leak from thread, so no 'unix_cli' in traceback */
+  pthread_t thread;
+  int rv = pthread_create (&thread, NULL, leak_memory_fn, 0);
+  if (rv)
+    {
+      return clib_error_return (0, "pthread_create failed");
+    }
+
+  return 0;
+}
+
+VLIB_CLI_COMMAND (test_mem_leak_command, static) = {
+  .path = "test mem-leak",
+  .short_help = "leak some memory",
+  .function = test_mem_leak_command_fn,
+};

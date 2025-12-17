@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * pg_stream.c: packet generator streams
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* pg_stream.c: packet generator streams */
 
 #include <vnet/vnet.h>
 #include <vnet/pg/pg.h>
@@ -94,6 +62,12 @@ pg_stream_enable_disable (pg_main_t * pg, pg_stream_t * s, int want_enabled)
   s->time_last_generate = 0;
 }
 
+static char *pg_tx_func_error_strings[] = {
+#define _(n, s) s,
+  foreach_pg_tx_func_error
+#undef _
+};
+
 static u8 *
 format_pg_output_trace (u8 * s, va_list * va)
 {
@@ -105,9 +79,16 @@ format_pg_output_trace (u8 * s, va_list * va)
   s = format (s, "%Ubuffer 0x%x: %U", format_white_space, indent,
 	      t->buffer_index, format_vnet_buffer_no_chain, &t->buffer);
 
-  s = format (s, "\n%U%U", format_white_space, indent,
-	      format_ethernet_header_with_length, t->buffer.pre_data,
-	      sizeof (t->buffer.pre_data));
+  if (t->mode == PG_MODE_IP4)
+    s = format (s, "\n%U%U", format_white_space, indent, format_ip4_header,
+		t->buffer.pre_data, sizeof (t->buffer.pre_data));
+  else if (t->mode == PG_MODE_IP6)
+    s = format (s, "\n%U%U", format_white_space, indent, format_ip6_header,
+		t->buffer.pre_data, sizeof (t->buffer.pre_data));
+  else
+    s = format (s, "\n%U%U", format_white_space, indent,
+		format_ethernet_header_with_length, t->buffer.pre_data,
+		sizeof (t->buffer.pre_data));
 
   return s;
 }
@@ -171,16 +152,16 @@ pg_add_del_mac_address (vnet_hw_interface_t * hi,
   return (NULL);
 }
 
-/* *INDENT-OFF* */
 VNET_DEVICE_CLASS (pg_dev_class) = {
   .name = "pg",
   .tx_function = pg_output,
   .format_device_name = format_pg_interface_name,
   .format_tx_trace = format_pg_output_trace,
+  .tx_function_n_errors = PG_TX_N_ERROR,
+  .tx_function_error_strings = pg_tx_func_error_strings,
   .admin_up_down_function = pg_interface_admin_up_down,
   .mac_addr_add_del_function = pg_add_del_mac_address,
 };
-/* *INDENT-ON* */
 
 static u8 *
 pg_build_rewrite (vnet_main_t * vnm,
@@ -197,12 +178,10 @@ pg_build_rewrite (vnet_main_t * vnm,
   return (rewrite);
 }
 
-/* *INDENT-OFF* */
 VNET_HW_INTERFACE_CLASS (pg_interface_class,static) = {
   .name = "Packet generator",
   .build_rewrite = pg_build_rewrite,
 };
-/* *INDENT-ON* */
 
 static u32
 pg_eth_flag_change (vnet_main_t * vnm, vnet_hw_interface_t * hi, u32 flags)
@@ -240,27 +219,22 @@ format_pg_tun_tx_trace (u8 *s, va_list *args)
 
 VNET_HW_INTERFACE_CLASS (pg_tun_hw_interface_class) = {
   .name = "PG-tun",
-  //.format_header = format_gre_header_with_length,
-  //.unformat_header = unformat_gre_header,
   .build_rewrite = NULL,
-  //.update_adjacency = gre_update_adj,
   .flags = VNET_HW_INTERFACE_CLASS_FLAG_P2P,
   .tx_hash_fn_type = VNET_HASH_FN_TYPE_IP,
 };
 
 u32
-pg_interface_add_or_get (pg_main_t *pg, uword if_id, u8 gso_enabled,
-			 u32 gso_size, u8 coalesce_enabled,
-			 pg_interface_mode_t mode)
+pg_interface_add_or_get (pg_main_t *pg, pg_interface_args_t *args)
 {
   vnet_main_t *vnm = vnet_get_main ();
-  vlib_main_t *vm = vlib_get_main ();
   pg_interface_t *pi;
   vnet_hw_interface_t *hi;
+  vnet_hw_if_caps_change_t cc = { .mask = 0, .val = 0 };
   uword *p;
   u32 i;
 
-  p = hash_get (pg->if_index_by_if_id, if_id);
+  p = hash_get (pg->if_index_by_if_id, args->if_id);
 
   if (p)
     {
@@ -268,32 +242,26 @@ pg_interface_add_or_get (pg_main_t *pg, uword if_id, u8 gso_enabled,
     }
   else
     {
-      vnet_eth_interface_registration_t eir = {};
-      u8 hw_addr[6];
-      f64 now = vlib_time_now (vm);
-      u32 rnd;
-
       pool_get (pg->interfaces, pi);
       i = pi - pg->interfaces;
-
-      rnd = (u32) (now * 1e6);
-      rnd = random_u32 (&rnd);
-      clib_memcpy_fast (hw_addr + 2, &rnd, sizeof (rnd));
-      hw_addr[0] = 2;
-      hw_addr[1] = 0xfe;
-
-      pi->id = if_id;
-      pi->mode = mode;
+      pi->id = args->if_id;
+      pi->mode = args->mode;
 
       switch (pi->mode)
 	{
 	case PG_MODE_ETHERNET:
-	  eir.dev_class_index = pg_dev_class.index;
-	  eir.dev_instance = i;
-	  eir.address = hw_addr;
-	  eir.cb.flag_change = pg_eth_flag_change;
-	  pi->hw_if_index = vnet_eth_register_interface (vnm, &eir);
-	  break;
+	  {
+	    vnet_eth_interface_registration_t eir = { 0 };
+	    if (!args->hw_addr_set)
+	      ethernet_mac_address_generate (args->hw_addr.bytes);
+	    clib_memcpy (pi->hw_addr.bytes, args->hw_addr.bytes, 6);
+	    eir.dev_class_index = pg_dev_class.index;
+	    eir.dev_instance = i;
+	    eir.address = pi->hw_addr.bytes;
+	    eir.cb.flag_change = pg_eth_flag_change;
+	    pi->hw_if_index = vnet_eth_register_interface (vnm, &eir);
+	    break;
+	  }
 	case PG_MODE_IP4:
 	case PG_MODE_IP6:
 	  pi->hw_if_index = vnet_register_interface (
@@ -301,22 +269,37 @@ pg_interface_add_or_get (pg_main_t *pg, uword if_id, u8 gso_enabled,
 	  break;
 	}
       hi = vnet_get_hw_interface (vnm, pi->hw_if_index);
-      if (gso_enabled)
+      cc.mask = VNET_HW_IF_CAP_TCP_GSO | VNET_HW_IF_CAP_TX_IP4_CKSUM |
+		VNET_HW_IF_CAP_TX_TCP_CKSUM | VNET_HW_IF_CAP_TX_UDP_CKSUM |
+		VNET_HW_IF_CAP_TX_FIXED_OFFSET;
+      if (args->flags & PG_INTERFACE_FLAG_GSO)
 	{
-	  vnet_hw_if_set_caps (vnm, pi->hw_if_index, VNET_HW_IF_CAP_TCP_GSO);
+	  cc.val = VNET_HW_IF_CAP_TCP_GSO | VNET_HW_IF_CAP_TX_IP4_CKSUM |
+		   VNET_HW_IF_CAP_TX_TCP_CKSUM | VNET_HW_IF_CAP_TX_UDP_CKSUM |
+		   VNET_HW_IF_CAP_TX_FIXED_OFFSET;
+
 	  pi->gso_enabled = 1;
-	  pi->gso_size = gso_size;
-	  if (coalesce_enabled)
+	  pi->gso_size = args->gso_size;
+	  if (args->flags & PG_INTERFACE_FLAG_GRO_COALESCE)
 	    {
 	      pg_interface_enable_disable_coalesce (pi, 1, hi->tx_node_index);
 	    }
 	}
+      else if (args->flags & PG_INTERFACE_FLAG_CSUM_OFFLOAD)
+	{
+	  cc.val = VNET_HW_IF_CAP_TX_IP4_CKSUM | VNET_HW_IF_CAP_TX_TCP_CKSUM |
+		   VNET_HW_IF_CAP_TX_UDP_CKSUM |
+		   VNET_HW_IF_CAP_TX_FIXED_OFFSET;
+	  pi->csum_offload_enabled = 1;
+	}
+
+      vnet_hw_if_change_caps (vnm, pi->hw_if_index, &cc);
       pi->sw_if_index = hi->sw_if_index;
 
-      hash_set (pg->if_index_by_if_id, if_id, i);
+      hash_set (pg->if_index_by_if_id, pi->id, i);
 
-      vec_validate (pg->if_id_by_sw_if_index, hi->sw_if_index);
-      pg->if_id_by_sw_if_index[hi->sw_if_index] = i;
+      vec_validate (pg->if_index_by_sw_if_index, hi->sw_if_index);
+      pg->if_index_by_sw_if_index[hi->sw_if_index] = i;
 
       if (vlib_num_workers ())
 	{
@@ -327,6 +310,76 @@ pg_interface_add_or_get (pg_main_t *pg, uword if_id, u8 gso_enabled,
     }
 
   return i;
+}
+
+int
+pg_interface_delete (u32 sw_if_index)
+{
+  vnet_main_t *vnm = vnet_get_main ();
+  pg_main_t *pm = &pg_main;
+  pg_interface_t *pi;
+  vnet_hw_interface_t *hw;
+  uword *p;
+
+  hw = vnet_get_sup_hw_interface_api_visible_or_null (vnm, sw_if_index);
+  if (hw == NULL || pg_dev_class.index != hw->dev_class_index)
+    return VNET_API_ERROR_INVALID_SW_IF_INDEX;
+
+  pi = pool_elt_at_index (pm->interfaces, hw->dev_instance);
+
+  vnet_hw_interface_set_flags (vnm, pi->hw_if_index, 0);
+  vnet_sw_interface_set_flags (vnm, pi->sw_if_index, 0);
+
+  if (pi->mode == PG_MODE_ETHERNET)
+    ethernet_delete_interface (vnm, pi->hw_if_index);
+  else
+    vnet_delete_hw_interface (vnm, pi->hw_if_index);
+
+  pi->hw_if_index = ~0;
+
+  if (pi->coalesce_enabled)
+    pg_interface_enable_disable_coalesce (pi, 0, ~0);
+
+  if (vlib_num_workers ())
+    {
+      clib_mem_free ((void *) pi->lockp);
+      pi->lockp = 0;
+    }
+
+  vec_del1 (pm->if_index_by_sw_if_index, sw_if_index);
+  p = hash_get (pm->if_index_by_if_id, pi->id);
+  if (p)
+    hash_unset (pm->if_index_by_if_id, pi->id);
+
+  clib_memset (pi, 0, sizeof (*pi));
+  pool_put (pm->interfaces, pi);
+  return 0;
+}
+
+int
+pg_interface_details (u32 sw_if_index, pg_interface_details_t *pid)
+{
+  vnet_main_t *vnm = vnet_get_main ();
+  pg_main_t *pm = &pg_main;
+  pg_interface_t *pi;
+  vnet_hw_interface_t *hw;
+
+  hw = vnet_get_sup_hw_interface_api_visible_or_null (vnm, sw_if_index);
+  if (hw == NULL || pg_dev_class.index != hw->dev_class_index)
+    return VNET_API_ERROR_INVALID_SW_IF_INDEX;
+
+  pi = pool_elt_at_index (pm->interfaces, hw->dev_instance);
+
+  pid->hw_if_index = pi->hw_if_index;
+  pid->id = pi->id;
+  pid->mode = pi->mode;
+  mac_address_from_bytes (&pid->hw_addr, pi->hw_addr.bytes);
+  pid->csum_offload_enabled = pi->csum_offload_enabled;
+  pid->gso_enabled = pi->gso_enabled;
+  pid->gso_size = pi->gso_size;
+  pid->coalesce_enabled = pi->coalesce_enabled;
+
+  return 0;
 }
 
 static void
@@ -487,6 +540,8 @@ pg_stream_add (pg_main_t * pg, pg_stream_t * s_init)
 {
   vlib_main_t *vm = vlib_get_main ();
   pg_stream_t *s;
+  pg_interface_flags_t flags = 0;
+  u32 gso_size = 0;
   uword *p;
 
   if (!pg->stream_index_by_name)
@@ -545,10 +600,27 @@ pg_stream_add (pg_main_t * pg, pg_stream_t * s_init)
     vec_resize (s->buffer_indices, n);
   }
 
+  if (s->buffer_flags & VNET_BUFFER_F_GSO)
+    {
+      flags = PG_INTERFACE_FLAG_GSO;
+      gso_size = s->gso_size;
+    }
+  else if (s->buffer_flags & VNET_BUFFER_F_OFFLOAD)
+    {
+      flags = PG_INTERFACE_FLAG_CSUM_OFFLOAD;
+    }
+
+  pg_interface_args_t args = {
+    .if_id = s->if_id,
+    .mode = PG_MODE_ETHERNET,
+    .flags =
+      flags, /* csum_offload_enabled, gso_enabled and/or coalesce_enabled */
+    .gso_size = gso_size, /* gso_size */
+    .hw_addr_set = 0,	  /* mac address set */
+  };
+
   /* Find an interface to use. */
-  s->pg_if_index = pg_interface_add_or_get (
-    pg, s->if_id, 0 /* gso_enabled */, 0 /* gso_size */,
-    0 /* coalesce_enabled */, PG_MODE_ETHERNET);
+  s->pg_if_index = pg_interface_add_or_get (pg, &args);
 
   if (s->sw_if_index[VLIB_RX] == ~0)
     {
@@ -560,6 +632,11 @@ pg_stream_add (pg_main_t * pg, pg_stream_t * s_init)
        */
       s->sw_if_index[VLIB_RX] = pi->sw_if_index;
     }
+  else if (vec_len (pg->if_index_by_sw_if_index) <= s->sw_if_index[VLIB_RX])
+    {
+      vec_validate (pg->if_index_by_sw_if_index, s->sw_if_index[VLIB_RX]);
+      pg->if_index_by_sw_if_index[s->sw_if_index[VLIB_RX]] = s->pg_if_index;
+    }
 
   /* Connect the graph. */
   s->next_index = vlib_node_add_next (vm, device_input_node.index,
@@ -570,17 +647,11 @@ void
 pg_stream_del (pg_main_t * pg, uword index)
 {
   pg_stream_t *s;
-  pg_buffer_index_t *bi;
 
   s = pool_elt_at_index (pg->streams, index);
 
   pg_stream_enable_disable (pg, s, /* want_enabled */ 0);
   hash_unset_mem (pg->stream_index_by_name, s->name);
-
-  vec_foreach (bi, s->buffer_indices)
-  {
-    clib_fifo_free (bi->buffer_fifo);
-  }
 
   pg_stream_free (s);
   pool_put (pg->streams, s);
@@ -610,12 +681,3 @@ pg_stream_change (pg_main_t * pg, pg_stream_t * s)
 
   s->last_increment_packet_size = s->min_packet_bytes;
 }
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

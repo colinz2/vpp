@@ -26,6 +26,21 @@ list(APPEND VNET_SOURCES
   config.c
   devices/devices.c
   devices/netlink.c
+  dev/api.c
+  dev/args.c
+  dev/bus/pci.c
+  dev/cli.c
+  dev/config.c
+  dev/counters.c
+  dev/dev.c
+  dev/dev_api.c
+  dev/error.c
+  dev/format.c
+  dev/handlers.c
+  dev/port.c
+  dev/process.c
+  dev/queue.c
+  dev/runtime.c
   error.c
   flow/flow.c
   flow/flow_cli.c
@@ -59,6 +74,17 @@ list(APPEND VNET_HEADERS
   config.h
   devices/devices.h
   devices/netlink.h
+  dev/api.h
+  dev/args.h
+  dev/bus/pci.h
+  dev/counters.h
+  dev/dev_funcs.h
+  dev/dev.h
+  dev/errors.h
+  dev/log.h
+  dev/mgmt.h
+  dev/process.h
+  dev/types.h
   flow/flow.h
   global_funcs.h
   interface/rx_queue_funcs.h
@@ -78,11 +104,13 @@ list(APPEND VNET_HEADERS
   format_fns.h
   ip/ip_format_fns.h
   ip/ip_sas.h
+  ip/vtep.h
   ethernet/ethernet_format_fns.h
   ethernet/ethernet_types_api.h
 )
 
 list(APPEND VNET_API_FILES
+  dev/dev.api
   interface.api
   interface_types.api
   ip/ip_types.api
@@ -132,6 +160,8 @@ list(APPEND VNET_SOURCES
   ethernet/node.c
   ethernet/pg.c
   ethernet/sfp.c
+  ethernet/sfp_sff8472.c
+  ethernet/sfp_sff8636.c
   ethernet/p2p_ethernet.c
   ethernet/p2p_ethernet_input.c
   ethernet/p2p_ethernet_api.c
@@ -149,6 +179,8 @@ list(APPEND VNET_HEADERS
   ethernet/packet.h
   ethernet/types.def
   ethernet/sfp.h
+  ethernet/sfp_sff8472.h
+  ethernet/sfp_sff8636.h
   ethernet/p2p_ethernet.h
   ethernet/arp_packet.h
 )
@@ -238,21 +270,6 @@ list(APPEND VNET_SOURCES
 list(APPEND VNET_HEADERS
   srp/packet.h
   srp/srp.h
-)
-
-##############################################################################
-# Layer 2 protocol: PPP
-##############################################################################
-list(APPEND VNET_SOURCES
-  ppp/node.c
-  ppp/pg.c
-  ppp/ppp.c
-)
-
-list(APPEND VNET_HEADERS
-  ppp/error.def
-  ppp/ppp.h
-  ppp/packet.h
 )
 
 ##############################################################################
@@ -446,6 +463,8 @@ list(APPEND VNET_HEADERS
   ip/punt.h
   ip/reass/ip4_sv_reass.h
   ip/reass/ip6_sv_reass.h
+  ip/reass/ip4_full_reass.h
+  ip/reass/ip6_full_reass.h
 )
 
 list(APPEND VNET_API_FILES
@@ -509,8 +528,10 @@ list(APPEND VNET_API_FILES bfd/bfd.api)
 
 list(APPEND VNET_SOURCES
   crypto/cli.c
+  crypto/config.c
   crypto/crypto.c
   crypto/format.c
+  crypto/main.c
   crypto/node.c
   crypto/crypto_api.c
 )
@@ -539,6 +560,7 @@ list(APPEND VNET_SOURCES
   ipsec/ipsec_spd_policy.c
   ipsec/ipsec_tun.c
   ipsec/ipsec_tun_in.c
+  ipsec/main.c
   ipsec/esp_format.c
   ipsec/esp_encrypt.c
   ipsec/esp_decrypt.c
@@ -574,21 +596,9 @@ list(APPEND VNET_HEADERS
   ipsec/ipsec_tun.h
   ipsec/ipsec_types_api.h
   ipsec/ipsec_punt.h
+  ipsec/ipsec_funcs.h
   ipsec/esp.h
   ipsec/ah.h
-)
-
-##############################################################################
-# Layer 3 protocol: osi
-##############################################################################
-list(APPEND VNET_SOURCES
-  osi/node.c
-  osi/osi.c
-  osi/pg.c
-)
-
-list(APPEND VNET_HEADERS
-  osi/osi.h
 )
 
 ##############################################################################
@@ -625,6 +635,7 @@ list(APPEND VNET_HEADERS
   tcp/tcp_debug.h
   tcp/tcp_inlines.h
   tcp/tcp_sack.h
+  tcp/tcp_sdl.h
   tcp/tcp_types.h
   tcp/tcp.h
   tcp/tcp_error.def
@@ -746,29 +757,6 @@ list(APPEND VNET_HEADERS
 list(APPEND VNET_API_FILES mpls/mpls.api)
 
 ##############################################################################
-# Tunnel protocol: vxlan-gpe
-##############################################################################
-
-list(APPEND VNET_SOURCES
-  vxlan-gpe/vxlan_gpe.c
-  vxlan-gpe/encap.c
-  vxlan-gpe/decap.c
-  vxlan-gpe/vxlan_gpe_api.c
-)
-
-list (APPEND VNET_MULTIARCH_SOURCES
-  vxlan-gpe/decap.c
-)
-
-list(APPEND VNET_HEADERS
-  vxlan-gpe/vxlan_gpe.h
-  vxlan-gpe/vxlan_gpe_packet.h
-  vxlan-gpe/vxlan_gpe_error.def
-)
-
-list(APPEND VNET_API_FILES vxlan-gpe/vxlan_gpe.api)
-
-##############################################################################
 # ipv6 segment routing
 ##############################################################################
 
@@ -793,24 +781,6 @@ list(APPEND VNET_API_FILES
   srv6/sr.api
   srv6/sr_types.api
   srv6/sr_pt.api
-)
-
-##############################################################################
-# mpls segment routing
-##############################################################################
-
-list(APPEND VNET_SOURCES
-  srmpls/sr_mpls_policy.c
-  srmpls/sr_mpls_steering.c
-  srmpls/sr_mpls_api.c
-)
-
-list(APPEND VNET_HEADERS
-  srmpls/sr_mpls.h
-)
-
-list(APPEND VNET_API_FILES
-  srmpls/sr_mpls.api
 )
 
 ##############################################################################
@@ -878,23 +848,6 @@ list(APPEND VNET_HEADERS
 )
 
 ##############################################################################
-# lawful intercept
-##############################################################################
-
-list(APPEND VNET_SOURCES
-  lawful-intercept/lawful_intercept.c
-  lawful-intercept/node.c
-)
-
-list(APPEND VNET_MULTIARCH_SOURCES
-  lawful-intercept/node.c
-)
-
-list(APPEND VNET_HEADERS
-  lawful-intercept/lawful_intercept.h
-)
-
-##############################################################################
 # SPAN (port mirroring)
 ##############################################################################
 
@@ -947,8 +900,7 @@ list(APPEND VNET_SOURCES
   devices/virtio/pci.c
   devices/virtio/virtio.c
   devices/virtio/virtio_api.c
-  devices/virtio/virtio_pci_legacy.c
-  devices/virtio/virtio_pci_modern.c
+  devices/virtio/virtio_pci.c
   devices/virtio/virtio_pre_input.c
   devices/virtio/virtio_types_api.c
 )
@@ -958,8 +910,7 @@ list(APPEND VNET_HEADERS
   devices/virtio/virtio.h
   devices/virtio/virtio_buffering.h
   devices/virtio/virtio_std.h
-  devices/virtio/virtio_pci_legacy.h
-  devices/virtio/virtio_pci_modern.h
+  devices/virtio/virtio_pci.h
   devices/virtio/vhost_std.h
   devices/virtio/virtio_types_api.h
 )
@@ -978,19 +929,15 @@ list(APPEND VNET_API_FILES
 # tap interface (with virtio backend)
 ##############################################################################
 
+if("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
 list(APPEND VNET_SOURCES
-  devices/tap/cli.c
-  devices/tap/tap.c
-  devices/tap/tapv2_api.c
+  dev/bus/platform.c
 )
 
 list(APPEND VNET_HEADERS
-  devices/tap/tap.h
+  dev/bus/platform.h
 )
-
-list(APPEND VNET_API_FILES
-  devices/tap/tapv2.api
-)
+endif()
 
 ##############################################################################
 # tap interface (with virtio backend)
@@ -1018,15 +965,19 @@ list(APPEND VNET_SOURCES
   session/session_rules_table.c
   session/session_lookup.c
   session/session_node.c
+  session/session_input.c
   session/transport.c
   session/application.c
   session/application_worker.c
   session/session_cli.c
+  session/application_eventing.c
   session/application_interface.c
   session/application_local.c
   session/application_namespace.c
+  session/application_crypto.c
   session/segment_manager.c
   session/session_api.c
+  session/session_sdl.c
 )
 
 list(APPEND VNET_HEADERS
@@ -1039,8 +990,10 @@ list(APPEND VNET_HEADERS
   session/transport.h
   session/transport_types.h
   session/application_interface.h
+  session/application_eventing.h
   session/application_local.h
   session/application_namespace.h
+  session/application_crypto.h
   session/session_debug.h
   session/segment_manager.h
   session/mma_template.h
@@ -1057,10 +1010,13 @@ list(APPEND VNET_API_FILES session/session.api)
 
 list(APPEND VNET_SOURCES
   tls/tls.c
+  tls/tls_record.c
 )
 
 list(APPEND VNET_HEADERS
   tls/tls.h
+  tls/tls_inlines.h
+  tls/tls_record.h
   tls/tls_test.h
 )
 
@@ -1087,6 +1043,7 @@ list(APPEND VNET_API_FILES feature/feature.api)
 
 # FIXME: unix/hgshm.c
 
+if("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
 list(APPEND VNET_SOURCES
   unix/gdb_funcs.c
   unix/tuntap.c
@@ -1095,6 +1052,7 @@ list(APPEND VNET_SOURCES
 list(APPEND VNET_HEADERS
   unix/tuntap.h
 )
+endif()
 
 ##############################################################################
 # FIB
@@ -1157,6 +1115,8 @@ list(APPEND VNET_HEADERS
   fib/fib_path_list.h
   fib/fib_sas.h
   fib/fib_source.h
+  fib/fib_urpf_list.h
+  fib/fib_walk.h
 )
 
 list(APPEND VNET_API_FILES
@@ -1404,6 +1364,7 @@ list (APPEND VNET_SOURCES
 
 list(APPEND VNET_HEADERS
   arp/arp.h
+  arp/arp_packet.h
 )
 
 list(APPEND VNET_API_FILES arp/arp.api)
@@ -1426,6 +1387,55 @@ list(APPEND VNET_HEADERS
 list(APPEND VNET_API_FILES
   ip6-nd/ip6_nd.api
   ip6-nd/rd_cp.api
+)
+
+##############################################################################
+# SFDP - StateFul Data Plane Infra
+##############################################################################
+list (APPEND VNET_SOURCES
+  sfdp/lookup/node.c
+  sfdp/lookup/icmp_error_node.c
+  sfdp/lookup/parser.c
+  sfdp/drop/node.c
+  sfdp/format.c
+  sfdp/sfdp.c
+  sfdp/service.c
+  sfdp/cli.c
+  sfdp/api.c
+  sfdp/timer/timer.c
+  sfdp/expiry/expiry.c
+  sfdp/expiry/expiry_cli.c
+  sfdp/callbacks.c
+)
+
+list (APPEND VNET_HEADERS
+  sfdp/sfdp.h
+  sfdp/callbacks.h
+  sfdp/service.h
+  sfdp/sfdp_funcs.h
+  sfdp/sfdp_types_funcs.h
+  sfdp/common.h
+  sfdp/lookup/sfdp_bihashes.h
+  sfdp/lookup/lookup.h
+  sfdp/lookup/lookup_common.h
+  sfdp/lookup/lookup_ip4.h
+  sfdp/lookup/lookup_ip6.h
+  sfdp/lookup/lookup_inlines.h
+  sfdp/lookup/parser.h
+  sfdp/lookup/parser_inlines.h
+  sfdp/timer/timer.h
+  sfdp/expiry/expiry.h
+)
+
+list (APPEND VNET_API_FILES
+  sfdp/sfdp_types.api
+  sfdp/sfdp.api
+)
+
+list (APPEND VNET_MULTIARCH_SOURCES
+  sfdp/lookup/node.c
+  sfdp/lookup/parser.c
+  sfdp/drop/node.c
 )
 
 ##############################################################################
@@ -1455,7 +1465,6 @@ add_vat_test_library(vnet
   ip/ip_test.c
   arp/arp_test.c
   ip6-nd/ip6_nd_test.c
-  srmpls/sr_mpls_test.c
   session/session_test.c
   l2/l2_test.c
   ipsec/ipsec_test.c

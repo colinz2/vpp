@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/ipsec/ipsec.h>
@@ -18,8 +8,8 @@
 #include <vnet/ipsec/ipsec_output.h>
 
 static clib_error_t *
-test_ipsec_command_fn (vlib_main_t * vm,
-		       unformat_input_t * input, vlib_cli_command_t * cmd)
+test_ipsec_command_fn (vlib_main_t *vm, unformat_input_t *input,
+		       vlib_cli_command_t *cmd)
 {
   u64 seq_num;
   u32 sa_id;
@@ -40,20 +30,33 @@ test_ipsec_command_fn (vlib_main_t * vm,
   if (~0 != sa_id)
     {
       ipsec_sa_t *sa;
+      ipsec_sa_inb_rt_t *irt;
+      ipsec_sa_outb_rt_t *ort;
       u32 sa_index;
 
       sa_index = ipsec_sa_find_and_lock (sa_id);
       sa = ipsec_sa_get (sa_index);
+      irt = ipsec_sa_get_inb_rt (sa);
+      ort = ipsec_sa_get_outb_rt (sa);
 
-      sa->seq = seq_num & 0xffffffff;
-      sa->seq_hi = seq_num >> 32;
+      if (ort)
+	ort->seq64 = seq_num;
+
+      if (irt)
+	{
+	  irt->seq64 = seq_num;
+
+	  /* clear the window */
+	  uword_bitmap_clear (irt->replay_window,
+			      irt->anti_replay_window_size / uword_bits);
+	}
 
       ipsec_sa_unlock (sa_index);
     }
   else
     {
-      return clib_error_return (0, "unknown SA `%U'",
-				format_unformat_error, input);
+      return clib_error_return (0, "unknown SA `%U'", format_unformat_error,
+				input);
     }
 
   return (NULL);
@@ -134,7 +137,7 @@ test_ipsec_spd_outbound_perf_command_fn (vlib_main_t *vm,
   /* creating a new SA */
   rv = ipsec_sa_add_and_lock (sa_id, spi, proto, crypto_alg, &ck, integ_alg,
 			      &ik, sa_flags, clib_host_to_net_u32 (salt),
-			      udp_src, udp_dst, &tun, &sai);
+			      udp_src, udp_dst, 0, &tun, &sai);
   if (rv)
     {
       err = clib_error_return (0, "create sa failure");
@@ -367,19 +370,8 @@ VLIB_CLI_COMMAND (test_ipsec_spd_perf_command, static) = {
   .function = test_ipsec_spd_outbound_perf_command_fn,
 };
 
-/* *INDENT-OFF* */
-VLIB_CLI_COMMAND (test_ipsec_command, static) =
-{
+VLIB_CLI_COMMAND (test_ipsec_command, static) = {
   .path = "test ipsec",
   .short_help = "test ipsec sa <ID> seq-num <VALUE>",
   .function = test_ipsec_command_fn,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

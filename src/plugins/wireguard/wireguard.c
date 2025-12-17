@@ -1,16 +1,5 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Doc.ai and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/vnet.h>
@@ -30,8 +19,6 @@ wg_async_post_next_t wg_decrypt_async_next;
 void
 wg_set_async_mode (u32 is_enabled)
 {
-  vnet_crypto_request_async_mode (is_enabled);
-
   if (is_enabled)
     wg_op_mode_set_ASYNC ();
   else
@@ -94,7 +81,6 @@ wg_init (vlib_main_t * vm)
 
 VLIB_INIT_FUNCTION (wg_init);
 
-/* *INDENT-OFF* */
 
 VNET_FEATURE_INIT (wg4_output_tun, static) = {
   .arc_name = "ip4-output",
@@ -108,17 +94,7 @@ VNET_FEATURE_INIT (wg6_output_tun, static) = {
   .runs_after = VNET_FEATURES ("gso-ip6"),
 };
 
-VLIB_PLUGIN_REGISTER () =
-{
+VLIB_PLUGIN_REGISTER () = {
   .version = VPP_BUILD_VER,
   .description = "Wireguard Protocol",
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,20 +1,8 @@
-/*
- * l2_fib.c : layer 2 forwarding table (aka mac table)
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2013 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
+/* l2_fib.c : layer 2 forwarding table (aka mac table) */
 
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
@@ -95,8 +83,7 @@ format_vnet_sw_if_index_name_with_NA (u8 * s, va_list * args)
   if (!swif)
     return format (s, "Stale");
 
-  return format (s, "%U", format_vnet_sw_interface_name, vnm,
-		 vnet_get_sw_interface_or_null (vnm, sw_if_index));
+  return format (s, "%U", format_vnet_sw_if_index_name, vnm, sw_if_index);
 }
 
 typedef struct l2fib_dump_walk_ctx_t_
@@ -353,13 +340,11 @@ show_l2fib (vlib_main_t * vm,
  * 3 l2fib entries
  * @cliexend
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_l2fib_cli, static) = {
   .path = "show l2fib",
   .short_help = "show l2fib [all] | [bd_id <nn> | bd_index <nn>] [learn | add] | [raw]",
   .function = show_l2fib,
 };
-/* *INDENT-ON* */
 
 void
 l2fib_table_init (void)
@@ -416,13 +401,11 @@ clear_l2fib (vlib_main_t * vm,
  * no l2fib entries
  * @cliexend
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (clear_l2fib_cli, static) = {
   .path = "clear l2fib",
   .short_help = "clear l2fib",
   .function = clear_l2fib,
 };
-/* *INDENT-ON* */
 
 static l2fib_seq_num_t
 l2fib_cur_seq_num (u32 bd_index, u32 sw_if_index)
@@ -593,13 +576,11 @@ done:
  * 3 l2fib entries
  * @cliexend
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (l2fib_add_cli, static) = {
   .path = "l2fib add",
   .short_help = "l2fib add <mac> <bridge-domain-id> filter | <intf> [static | bvi]",
   .function = l2fib_add,
 };
-/* *INDENT-ON* */
 
 
 static clib_error_t *
@@ -724,13 +705,11 @@ l2fib_test_command_fn (vlib_main_t * vm,
  * @cliexcmd{test l2fib del mac 52:54:00:53:00:00 count 4}
  * @endparblock
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (l2fib_test_command, static) = {
   .path = "test l2fib",
   .short_help = "test l2fib [add|del|check] mac <base-addr> count <nn>",
   .function = l2fib_test_command_fn,
 };
-/* *INDENT-ON* */
 
 
 /**
@@ -833,13 +812,11 @@ done:
  * Example of how to delete a MAC Address entry from the L2 FIB table of a bridge-domain (where 200 is the bridge-domain-id):
  * @cliexcmd{l2fib del 52:54:00:53:18:33 200}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (l2fib_del_cli, static) = {
   .path = "l2fib del",
   .short_help = "l2fib del <mac> <bridge-domain-id> []",
   .function = l2fib_del,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 l2fib_set_scan_delay (vlib_main_t *vm, unformat_input_t *input,
@@ -904,14 +881,22 @@ l2fib_flush_int_mac (vlib_main_t * vm, u32 sw_if_index)
   l2fib_start_ager_scan (vm);
 }
 
+static void
+l2fib_bd_seq_num_inc (u32 bd_index)
+{
+  l2_bridge_domain_t *bd_config = l2input_bd_config (bd_index);
+
+  bd_config->seq_num += 1;
+  bd_input_walk (bd_index, l2input_recache, NULL);
+}
+
 /**
     Flush all non static MACs in a bridge domain
 */
 void
 l2fib_flush_bd_mac (vlib_main_t * vm, u32 bd_index)
 {
-  l2_bridge_domain_t *bd_config = l2input_bd_config (bd_index);
-  bd_config->seq_num += 1;
+  l2fib_bd_seq_num_inc (bd_index);
   l2fib_start_ager_scan (vm);
 }
 
@@ -921,10 +906,16 @@ l2fib_flush_bd_mac (vlib_main_t * vm, u32 bd_index)
 void
 l2fib_flush_all_mac (vlib_main_t * vm)
 {
+  l2input_main_t *mp = &l2input_main;
   l2_bridge_domain_t *bd_config;
-  vec_foreach (bd_config, l2input_main.bd_configs)
+  u32 bd_index;
+
+  vec_foreach_index (bd_index, mp->bd_configs)
+  {
+    bd_config = vec_elt_at_index (mp->bd_configs, bd_index);
     if (bd_is_valid (bd_config))
-    bd_config->seq_num += 1;
+      l2fib_bd_seq_num_inc (bd_index);
+  }
 
   l2fib_start_ager_scan (vm);
 }
@@ -977,13 +968,11 @@ l2fib_flush_mac_all (vlib_main_t * vm,
  * Example of how to flush MAC Address entries learned on an interface from the L2 FIB table:
  * @cliexcmd{l2fib flush-mac interface GigabitEthernet2/1/0}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (l2fib_flush_mac_all_cli, static) = {
   .path = "l2fib flush-mac all",
   .short_help = "l2fib flush-mac all",
   .function = l2fib_flush_mac_all,
 };
-/* *INDENT-ON* */
 
 /*?
  * This command kick off ager to delete all existing MAC Address entries,
@@ -993,13 +982,11 @@ VLIB_CLI_COMMAND (l2fib_flush_mac_all_cli, static) = {
  * Example of how to flush MAC Address entries learned on an interface from the L2 FIB table:
  * @cliexcmd{l2fib flush-mac interface GigabitEthernet2/1/0}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (l2fib_flush_mac_int_cli, static) = {
   .path = "l2fib flush-mac interface",
   .short_help = "l2fib flush-mac interface <if-name>",
   .function = l2fib_flush_mac_int,
 };
-/* *INDENT-ON* */
 
 /**
     Flush bridge-domain MACs except static ones.
@@ -1042,13 +1029,11 @@ done:
  * Example of how to flush MAC Address entries learned in a bridge domain from the L2 FIB table:
  * @cliexcmd{l2fib flush-mac bridge-domain 1000}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (l2fib_flush_mac_bd_cli, static) = {
   .path = "l2fib flush-mac bridge-domain",
   .short_help = "l2fib flush-mac bridge-domain <bd-id>",
   .function = l2fib_flush_mac_bd,
 };
-/* *INDENT-ON* */
 
 clib_error_t *
 l2fib_sw_interface_up_down (vnet_main_t * vnm, u32 sw_if_index, u32 flags)
@@ -1366,13 +1351,11 @@ l2fib_mac_age_scanner_process (vlib_main_t * vm, vlib_node_runtime_t * rt,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (l2fib_mac_age_scanner_process_node) = {
     .function = l2fib_mac_age_scanner_process,
     .type = VLIB_NODE_TYPE_PROCESS,
     .name = "l2fib-mac-age-scanner-process",
 };
-/* *INDENT-ON* */
 
 clib_error_t *
 l2fib_init (vlib_main_t * vm)
@@ -1434,11 +1417,3 @@ lfib_config (vlib_main_t * vm, unformat_input_t * input)
 }
 
 VLIB_CONFIG_FUNCTION (lfib_config, "l2fib");
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

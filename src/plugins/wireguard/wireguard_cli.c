@@ -1,17 +1,6 @@
-/*
- * Copyright (c) 2020 Cisco and/or its affiliates.
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Doc.ai and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright (c) 2020 Cisco and/or its affiliates.
  */
 
 #include <wireguard/wireguard.h>
@@ -94,14 +83,12 @@ wg_if_create_cli (vlib_main_t * vm,
 /*?
  * Create a Wireguard interface.
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (wg_if_create_command, static) = {
   .path = "wireguard create",
   .short_help = "wireguard create listen-port <port> "
     "private-key <key> src <IP> [generate-key]",
   .function = wg_if_create_cli,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 wg_if_delete_cli (vlib_main_t * vm,
@@ -143,13 +130,11 @@ wg_if_delete_cli (vlib_main_t * vm,
 /*?
  * Delete a Wireguard interface.
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (wg_if_delete_command, static) = {
   .path = "wireguard delete",
   .short_help = "wireguard delete <interface>",
   .function = wg_if_delete_cli,
 };
-/* *INDENT-ON* */
 
 
 static clib_error_t *
@@ -251,7 +236,6 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (wg_peer_add_command, static) = {
   .path = "wireguard peer add",
   .short_help =
@@ -260,7 +244,6 @@ VLIB_CLI_COMMAND (wg_peer_add_command, static) = {
     "dst-port [port_dst] persistent-keepalive [keepalive_interval]",
   .function = wg_peer_add_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 wg_peer_remove_command_fn (vlib_main_t * vm,
@@ -299,14 +282,12 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (wg_peer_remove_command, static) =
 {
   .path = "wireguard peer remove",
   .short_help = "wireguard peer remove <index>",
   .function = wg_peer_remove_command_fn,
 };
-/* *INDENT-ON* */
 
 static walk_rc_t
 wg_peer_show_one (index_t peeri, void *arg)
@@ -325,14 +306,12 @@ wg_show_peer_command_fn (vlib_main_t * vm,
   return NULL;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (wg_show_peers_command, static) =
 {
   .path = "show wireguard peer",
   .short_help = "show wireguard peer",
   .function = wg_show_peer_command_fn,
 };
-/* *INDENT-ON* */
 
 static walk_rc_t
 wg_if_show_one (index_t itfi, void *arg)
@@ -355,7 +334,6 @@ wg_show_if_command_fn (vlib_main_t * vm,
   return NULL;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (wg_show_itfs_command, static) =
 {
   .path = "show wireguard interface",
@@ -416,13 +394,3 @@ VLIB_CLI_COMMAND (wg_show_modemode_command, static) = {
   .short_help = "show wireguard mode",
   .function = wg_show_mode_command_fn,
 };
-
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

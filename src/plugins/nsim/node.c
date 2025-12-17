@@ -1,19 +1,9 @@
-/*
- * node.c - skeleton vpp engine plug-in dual-loop node skeleton
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) <current-year> <your-organization>
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* node.c - skeleton vpp engine plug-in dual-loop node skeleton */
+
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
 #include <vppinfra/error.h>
@@ -135,20 +125,36 @@ nsim_buffer_fwd_lookup (nsim_main_t * nsm, vlib_buffer_t * b,
     }
 }
 
+#define NSIM_PKT_TAG 0xfefabeba
+
 always_inline void
 nsim_dispatch_buffer (vlib_main_t * vm, vlib_node_runtime_t * node,
 		      nsim_main_t * nsm, nsim_wheel_t * wp, vlib_buffer_t * b,
 		      u32 bi, nsim_node_ctx_t * ctx, u8 is_cross_connect,
 		      u8 is_trace)
 {
+  if (vnet_buffer (b)->ip.flow_hash == NSIM_PKT_TAG)
+    {
+      u32 next;
+      vnet_get_config_data (&ctx->fcm->config_main, &b->current_config_index,
+			    &next, 0);
+
+      ctx->fwd[0] = bi;
+      ctx->fwd_nexts[0] = next;
+      ctx->fwd += 1;
+      ctx->fwd_nexts += 1;
+
+      goto trace;
+    }
+
   if (PREDICT_TRUE (!(ctx->action[0] & NSIM_ACTION_DROP)))
     {
       if (PREDICT_FALSE (ctx->action[0] & NSIM_ACTION_REORDER))
 	{
 	  u32 next;
-	  ctx->reord[0] = bi;
 	  vnet_get_config_data (&ctx->fcm->config_main,
 				&b->current_config_index, &next, 0);
+	  ctx->reord[0] = bi;
 	  ctx->reord_nexts[0] = next;
 	  ctx->reord += 1;
 	  ctx->reord_nexts += 1;
@@ -163,11 +169,12 @@ nsim_dispatch_buffer (vlib_main_t * vm, vlib_node_runtime_t * node,
 
       ep->tx_time = ctx->expires;
       ep->rx_sw_if_index = vnet_buffer (b)->sw_if_index[VLIB_RX];
+      ep->tx_sw_if_index = vnet_buffer (b)->sw_if_index[VLIB_TX];
       nsim_buffer_fwd_lookup (nsm, b, &ep->output_next_index,
 			      is_cross_connect);
-      ep->tx_sw_if_index = vnet_buffer (b)->sw_if_index[VLIB_TX];
       ep->buffer_index = bi;
       ctx->n_buffered += 1;
+      vnet_buffer (b)->ip.flow_hash = NSIM_PKT_TAG;
     }
   else
     {
@@ -193,7 +200,8 @@ nsim_inline (vlib_main_t * vm,
   u32 n_left_from, *from, drops[VLIB_FRAME_SIZE], reorders[VLIB_FRAME_SIZE];
   nsim_wheel_t *wp = nsm->wheel_by_thread[vm->thread_index];
   vlib_buffer_t *bufs[VLIB_FRAME_SIZE], **b;
-  u16 reorders_nexts[VLIB_FRAME_SIZE];
+  u16 reorders_nexts[VLIB_FRAME_SIZE], fwds_nexts[VLIB_FRAME_SIZE];
+  u32 fwds[VLIB_FRAME_SIZE];
   u8 actions[VLIB_FRAME_SIZE];
   nsim_node_ctx_t ctx;
 
@@ -211,6 +219,8 @@ nsim_inline (vlib_main_t * vm,
   ctx.drop = drops;
   ctx.reord = reorders;
   ctx.reord_nexts = reorders_nexts;
+  ctx.fwd = fwds;
+  ctx.fwd_nexts = fwds_nexts;
   ctx.action = actions;
   ctx.expires = vlib_time_now (vm) + nsm->delay;
 
@@ -283,6 +293,10 @@ slow_path:
       vlib_node_increment_counter (vm, node->node_index, NSIM_ERROR_REORDERED,
 				   n_reordered);
     }
+  if (ctx.fwd > fwds)
+    {
+      vlib_buffer_enqueue_to_next (vm, node, fwds, fwds_nexts, ctx.fwd - fwds);
+    }
   vlib_node_increment_counter (vm, node->node_index,
 			       NSIM_ERROR_BUFFERED, ctx.n_buffered);
   return frame->n_vectors;
@@ -299,7 +313,6 @@ VLIB_NODE_FN (nsim_node) (vlib_main_t * vm, vlib_node_runtime_t * node,
 			0 /* is_trace */ , 1 /* is_cross_connect */ );
 }
 
-/* *INDENT-OFF* */
 #ifndef CLIB_MARCH_VARIANT
 VLIB_REGISTER_NODE (nsim_node) =
 {
@@ -319,7 +332,6 @@ VLIB_REGISTER_NODE (nsim_node) =
   },
 };
 #endif /* CLIB_MARCH_VARIANT */
-/* *INDENT-ON* */
 
 VLIB_NODE_FN (nsim_feature_node) (vlib_main_t * vm,
 				  vlib_node_runtime_t * node,
@@ -333,7 +345,6 @@ VLIB_NODE_FN (nsim_feature_node) (vlib_main_t * vm,
 			0 /* is_trace */ , 0 /* is_cross_connect */ );
 }
 
-/* *INDENT-OFF* */
 #ifndef CLIB_MARCH_VARIANT
 VLIB_REGISTER_NODE (nsim_feature_node) =
 {
@@ -353,12 +364,3 @@ VLIB_REGISTER_NODE (nsim_feature_node) =
   },
 };
 #endif /* CLIB_MARCH_VARIANT */
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2021 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include "pnat.h"
 #include <vnet/vnet.h>
 #include <pnat/pnat.api_enum.h>
@@ -93,6 +84,20 @@ static void vl_api_pnat_binding_del_t_handler(vl_api_pnat_binding_del_t *mp) {
     REPLY_MACRO_END(VL_API_PNAT_BINDING_DEL_REPLY);
 }
 
+static void vl_api_pnat_flow_lookup_t_handler(vl_api_pnat_flow_lookup_t *mp) {
+    pnat_main_t *pm = &pnat_main;
+    vl_api_pnat_flow_lookup_reply_t *rmp;
+    u32 binding_index;
+    int rv = 0;
+    binding_index =
+        pnat_flow_lookup(mp->sw_if_index, mp->attachment, &mp->match);
+    if (binding_index == ~0) {
+        rv = -1;
+    }
+    REPLY_MACRO2_END(VL_API_PNAT_FLOW_LOOKUP_REPLY,
+                     ({ rmp->binding_index = binding_index; }));
+}
+
 /*
  * Workaround for a bug in vppapigen that doesn't register the endian handler
  * for _details messages. When that's fixed it should be possible to use
@@ -116,7 +121,8 @@ static void send_bindings_details(u32 index, vl_api_registration_t *rp,
 
                              /* Endian hack until apigen registers _details
                               * endian functions */
-                             vl_api_pnat_bindings_details_t_endian(rmp);
+                             vl_api_pnat_bindings_details_t_endian(
+                                 rmp, 1 /* to network */);
                              rmp->_vl_msg_id = htons(rmp->_vl_msg_id);
                              rmp->context = htonl(rmp->context);
                          }));
@@ -158,7 +164,7 @@ static void send_interfaces_details(u32 index, vl_api_registration_t *rp,
 
             /* Endian hack until apigen registers _details
              * endian functions */
-            vl_api_pnat_interfaces_details_t_endian(rmp);
+            vl_api_pnat_interfaces_details_t_endian(rmp, 1 /* to network */);
             rmp->_vl_msg_id = htons(rmp->_vl_msg_id);
             rmp->context = htonl(rmp->context);
         }));

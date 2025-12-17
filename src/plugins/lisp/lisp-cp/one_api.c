@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * one_api.c - Overlay Network Engine API
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016-2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * one_api.c - Overlay Network Engine API
  */
 
 #include <vnet/vnet.h>
@@ -44,7 +33,6 @@ static u32 one_base_msg_id;
 #define REPLY_DETAILS(t, body)                                  	\
 do {                                                            	\
     vl_api_registration_t * reg;                             		\
-    rv = vl_msg_api_pd_handler (mp, rv);                        	\
     reg = vl_api_client_index_to_registration (mp->client_index);	\
     if (!reg)								\
       return;								\
@@ -161,12 +149,10 @@ static void
   int rv = 0;
 
   u32 ttl = vnet_lisp_map_register_get_ttl ();
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_SHOW_ONE_MAP_REGISTER_TTL_REPLY,
   ({
     rmp->ttl = clib_host_to_net_u32 (ttl);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -213,12 +199,10 @@ vl_api_one_add_del_locator_set_t_handler (vl_api_one_add_del_locator_set_t *
   vec_free (locator_name);
   vec_free (a->locators);
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_ONE_ADD_DEL_LOCATOR_SET_REPLY,
   ({
     rmp->ls_index = clib_host_to_net_u32 (ls_index);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -467,12 +451,10 @@ static void
   int rv = 0;
   vl_api_show_one_map_request_mode_reply_t *rmp;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_SHOW_ONE_MAP_REQUEST_MODE_REPLY,
   ({
     rmp->mode = vnet_lisp_get_map_request_mode ();
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -560,7 +542,6 @@ vl_api_show_one_use_petr_t_handler (vl_api_show_one_use_petr_t * mp)
 	}
     }
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_SHOW_ONE_USE_PETR_REPLY,
   {
     rmp->status = status;
@@ -568,7 +549,6 @@ vl_api_show_one_use_petr_t_handler (vl_api_show_one_use_petr_t * mp)
 
     ip_address_encode2 (ip, &rmp->ip_address);
   });
-  /* *INDENT-ON* */
 }
 
 static void
@@ -764,13 +744,19 @@ send_one_locator_set_details (lisp_cp_main_t * lcm,
   if (lsit->local)
     {
       ASSERT (lsit->name != NULL);
-      strncpy ((char *) rmp->ls_name, (char *) lsit->name,
-	       vec_len (lsit->name));
+      uword name_len =
+	clib_min (vec_len (lsit->name), ARRAY_LEN (rmp->ls_name) - 1);
+      if (name_len)
+	clib_memcpy_fast (rmp->ls_name, lsit->name, name_len);
+      rmp->ls_name[name_len] = 0;
     }
   else
     {
       str = format (0, "<remote-%d>", ls_index);
-      strncpy ((char *) rmp->ls_name, (char *) str, vec_len (str));
+      uword name_len = clib_min (vec_len (str), ARRAY_LEN (rmp->ls_name) - 1);
+      if (name_len)
+	clib_memcpy_fast (rmp->ls_name, str, name_len);
+      rmp->ls_name[name_len] = 0;
       vec_free (str);
     }
 
@@ -790,7 +776,6 @@ vl_api_one_locator_set_dump_t_handler (vl_api_one_locator_set_dump_t * mp)
     return;
 
   filter = mp->filter;
-  /* *INDENT-OFF* */
   pool_foreach (lsit, lcm->locator_set_pool)
    {
     if (filter && !((1 == filter && lsit->local) ||
@@ -801,7 +786,6 @@ vl_api_one_locator_set_dump_t_handler (vl_api_one_locator_set_dump_t * mp)
     send_one_locator_set_details (lcm, lsit, reg, mp->context,
                                    lsit - lcm->locator_set_pool);
   }
-  /* *INDENT-ON* */
 }
 
 static void
@@ -920,13 +904,11 @@ vl_api_one_eid_table_dump_t_handler (vl_api_one_eid_table_dump_t * mp)
     }
   else
     {
-      /* *INDENT-OFF* */
       pool_foreach (mapit, lcm->mapping_pool)
        {
         send_one_eid_table_details(mapit, reg, mp->context,
                                     mp->filter);
       }
-      /* *INDENT-ON* */
     }
 }
 
@@ -1035,12 +1017,10 @@ vl_api_one_eid_table_map_dump_t_handler (vl_api_one_eid_table_map_dump_t * mp)
       vni_table = lcm->table_id_by_vni;
     }
 
-  /* *INDENT-OFF* */
   hash_foreach_pair (p, vni_table,
   ({
     send_eid_table_map_pair (p, reg, mp->context);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -1113,12 +1093,10 @@ static void
   vl_api_show_one_rloc_probe_state_reply_t *rmp = 0;
   int rv = 0;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_SHOW_ONE_RLOC_PROBE_STATE_REPLY,
   {
     rmp->is_enable = vnet_lisp_rloc_probe_state_get ();
   });
-  /* *INDENT-ON* */
 }
 
 static void
@@ -1128,12 +1106,10 @@ static void
   vl_api_show_one_map_register_state_reply_t *rmp = 0;
   int rv = 0;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_SHOW_ONE_MAP_REGISTER_STATE_REPLY,
   {
     rmp->is_enable = vnet_lisp_map_register_state_get ();
   });
-  /* *INDENT-ON* */
 }
 
 static void
@@ -1148,13 +1124,11 @@ vl_api_one_adjacencies_get_t_handler (vl_api_one_adjacencies_get_t * mp)
   adjs = vnet_lisp_adjacencies_get_by_vni (vni);
   size = vec_len (adjs) * sizeof (vl_api_one_adjacency_t);
 
-  /* *INDENT-OFF* */
   REPLY_MACRO4 (VL_API_ONE_ADJACENCIES_GET_REPLY, size,
   {
     rmp->count = clib_host_to_net_u32 (vec_len (adjs));
     one_adjacency_copy (rmp->adjacencies, adjs);
   });
-  /* *INDENT-ON* */
 
   vec_free (adjs);
 }
@@ -1171,7 +1145,6 @@ vl_api_one_eid_table_vni_dump_t_handler (vl_api_one_eid_table_vni_dump_t * mp)
   if (!reg)
     return;
 
-  /* *INDENT-OFF* */
   hash_foreach_pair (p, lcm->table_id_by_vni,
   ({
     hash_set (vnis, p->key, 0);
@@ -1186,7 +1159,6 @@ vl_api_one_eid_table_vni_dump_t_handler (vl_api_one_eid_table_vni_dump_t * mp)
   ({
     send_eid_table_vni (p->key, reg, mp->context);
   }));
-  /* *INDENT-ON* */
 
   hash_free (vnis);
 }
@@ -1197,13 +1169,11 @@ vl_api_show_one_status_t_handler (vl_api_show_one_status_t * mp)
   vl_api_show_one_status_reply_t *rmp = NULL;
   int rv = 0;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_SHOW_ONE_STATUS_REPLY,
   ({
     rmp->gpe_status = vnet_lisp_gpe_enable_disable_status ();
     rmp->feature_status = vnet_lisp_enable_disable_status ();
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -1227,13 +1197,11 @@ static void
       tmp_str = format (0, "%s", loc_set->name);
     }
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_ONE_GET_MAP_REQUEST_ITR_RLOCS_REPLY,
   ({
     strncpy((char *) rmp->locator_set_name, (char *) tmp_str,
             ARRAY_LEN(rmp->locator_set_name) - 1);
   }));
-  /* *INDENT-ON* */
 
   vec_free (tmp_str);
 }
@@ -1270,14 +1238,12 @@ vl_api_show_one_nsh_mapping_t_handler (vl_api_show_one_nsh_mapping_t * mp)
     }
   vec_add1 (tmp_str, 0);
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_SHOW_ONE_NSH_MAPPING_REPLY,
   ({
     rmp->is_set = is_set;
     strncpy((char *) rmp->locator_set_name, (char *) tmp_str,
             ARRAY_LEN(rmp->locator_set_name) - 1);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -1313,14 +1279,12 @@ vl_api_show_one_pitr_t_handler (vl_api_show_one_pitr_t * mp)
     }
   vec_add1 (tmp_str, 0);
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_SHOW_ONE_PITR_REPLY,
   ({
     rmp->status = lcm->flags & LISP_FLAG_PITR_MODE;
     strncpy((char *) rmp->locator_set_name, (char *) tmp_str,
             ARRAY_LEN(rmp->locator_set_name) - 1);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -1330,12 +1294,10 @@ static void
   vl_api_show_one_stats_enable_disable_reply_t *rmp = NULL;
   vnet_api_error_t rv = 0;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_SHOW_ONE_STATS_ENABLE_DISABLE_REPLY,
   ({
     rmp->is_enable = vnet_lisp_stats_enable_disable_state ();
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -1363,12 +1325,10 @@ vl_api_one_stats_dump_t_handler (vl_api_one_stats_dump_t * mp)
 {
   vl_api_one_stats_details_t *rmp;
   lisp_api_stats_t *stats, *stat;
-  u8 rv = 0;
 
   stats = vnet_lisp_get_stats ();
   vec_foreach (stat, stats)
   {
-      /* *INDENT-OFF* */
       REPLY_DETAILS (VL_API_ONE_STATS_DETAILS,
       ({
         fid_to_api_eid (&stat->deid, &rmp->deid);
@@ -1381,7 +1341,6 @@ vl_api_one_stats_dump_t_handler (vl_api_one_stats_dump_t * mp)
         rmp->pkt_count = clib_host_to_net_u32 (stat->counters.packets);
         rmp->bytes = clib_host_to_net_u32 (stat->counters.bytes);
       }));
-      /* *INDENT-ON* */
   }
 }
 
@@ -1441,7 +1400,6 @@ vl_api_one_ndp_bd_get_t_handler (vl_api_one_ndp_bd_get_t * mp)
   u32 *bds = vnet_lisp_ndp_bds_get ();
   u32 size = hash_elts (bds) * sizeof (u32);
 
-  /* *INDENT-OFF* */
   REPLY_MACRO4 (VL_API_ONE_NDP_BD_GET_REPLY, size,
   {
     rmp->count = clib_host_to_net_u32 (hash_elts (bds));
@@ -1450,7 +1408,6 @@ vl_api_one_ndp_bd_get_t_handler (vl_api_one_ndp_bd_get_t * mp)
       rmp->bridge_domains[i++] = clib_host_to_net_u32 (p->key);
     }));
   });
-  /* *INDENT-ON* */
 
   hash_free (bds);
 }
@@ -1466,7 +1423,6 @@ vl_api_one_l2_arp_bd_get_t_handler (vl_api_one_l2_arp_bd_get_t * mp)
   u32 *bds = vnet_lisp_l2_arp_bds_get ();
   u32 size = hash_elts (bds) * sizeof (u32);
 
-  /* *INDENT-OFF* */
   REPLY_MACRO4 (VL_API_ONE_L2_ARP_BD_GET_REPLY, size,
   {
     rmp->count = clib_host_to_net_u32 (hash_elts (bds));
@@ -1475,7 +1431,6 @@ vl_api_one_l2_arp_bd_get_t_handler (vl_api_one_l2_arp_bd_get_t * mp)
       rmp->bridge_domains[i++] = clib_host_to_net_u32 (p->key);
     }));
   });
-  /* *INDENT-ON* */
 
   hash_free (bds);
 }
@@ -1493,7 +1448,6 @@ vl_api_one_l2_arp_entries_get_t_handler (vl_api_one_l2_arp_entries_get_t * mp)
   entries = vnet_lisp_l2_arp_entries_get_by_bd (bd);
   u32 size = vec_len (entries) * sizeof (vl_api_one_l2_arp_entry_t);
 
-  /* *INDENT-OFF* */
   REPLY_MACRO4 (VL_API_ONE_L2_ARP_ENTRIES_GET_REPLY, size,
   {
     rmp->count = clib_host_to_net_u32 (vec_len (entries));
@@ -1504,7 +1458,6 @@ vl_api_one_l2_arp_entries_get_t_handler (vl_api_one_l2_arp_entries_get_t * mp)
         i++;
       }
   });
-  /* *INDENT-ON* */
 
   vec_free (entries);
 }
@@ -1530,12 +1483,10 @@ static void
 
   u32 value = vnet_lisp_map_register_fallback_threshold_get ();
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_SHOW_ONE_MAP_REGISTER_FALLBACK_THRESHOLD_REPLY,
   ({
     rmp->value = clib_host_to_net_u32 (value);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -1558,12 +1509,10 @@ static void
   int rv = 0;
   u8 proto = (u8) vnet_lisp_get_transport_protocol ();
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_ONE_GET_TRANSPORT_PROTOCOL_REPLY,
   ({
     rmp->protocol = proto;
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -1579,7 +1528,6 @@ vl_api_one_ndp_entries_get_t_handler (vl_api_one_ndp_entries_get_t * mp)
   entries = vnet_lisp_ndp_entries_get_by_bd (bd);
   u32 size = vec_len (entries) * sizeof (vl_api_one_ndp_entry_t);
 
-  /* *INDENT-OFF* */
   REPLY_MACRO4 (VL_API_ONE_NDP_ENTRIES_GET_REPLY, size,
   {
     rmp->count = clib_host_to_net_u32 (vec_len (entries));
@@ -1590,7 +1538,6 @@ vl_api_one_ndp_entries_get_t_handler (vl_api_one_ndp_entries_get_t * mp)
         i++;
       }
   });
-  /* *INDENT-ON* */
 
   vec_free (entries);
 }
@@ -1611,12 +1558,10 @@ vl_api_one_show_xtr_mode_t_handler (vl_api_one_show_xtr_mode_t * mp)
   vl_api_one_show_xtr_mode_reply_t *rmp = 0;
   int rv = 0;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_ONE_SHOW_XTR_MODE_REPLY,
   {
     rmp->is_enable = vnet_lisp_get_xtr_mode ();
   });
-  /* *INDENT-ON* */
 }
 
 static void
@@ -1635,12 +1580,10 @@ vl_api_one_show_pitr_mode_t_handler (vl_api_one_show_pitr_mode_t * mp)
   vl_api_one_show_pitr_mode_reply_t *rmp = 0;
   int rv = 0;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_ONE_SHOW_PITR_MODE_REPLY,
   {
     rmp->is_enable = vnet_lisp_get_pitr_mode ();
   });
-  /* *INDENT-ON* */
 }
 
 static void
@@ -1659,12 +1602,10 @@ vl_api_one_show_petr_mode_t_handler (vl_api_one_show_petr_mode_t * mp)
   vl_api_one_show_petr_mode_reply_t *rmp = 0;
   int rv = 0;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_ONE_SHOW_PETR_MODE_REPLY,
   {
     rmp->is_enable = vnet_lisp_get_petr_mode ();
   });
-  /* *INDENT-ON* */
 }
 
 /*
@@ -1689,17 +1630,7 @@ VLIB_API_INIT_FUNCTION (one_api_hookup);
 #include <vlib/unix/plugin.h>
 #include <vpp/app/version.h>
 
-/* *INDENT-OFF* */
 VLIB_PLUGIN_REGISTER () = {
-    .version = VPP_BUILD_VER,
-    .description = "Locator ID Separation Protocol (LISP)",
+  .version = VPP_BUILD_VER,
+  .description = "Locator ID Separation Protocol (LISP)",
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

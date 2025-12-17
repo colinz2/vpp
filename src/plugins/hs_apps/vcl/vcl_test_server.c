@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017-2021 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <unistd.h>
@@ -27,6 +17,17 @@
 #include <sys/epoll.h>
 #include <vppinfra/mem.h>
 #include <pthread.h>
+
+/*
+ * XXX: Unfortunately libepoll-shim requires some hacks to work, one of these
+ * defines 'close' as a macro. This collides with vcl test callback 'close'.
+ * Undef the 'close' macro on FreeBSD if it exists.
+ */
+#ifdef __FreeBSD__
+#ifdef close
+#undef close
+#endif
+#endif /* __FreeBSD__ */
 
 typedef struct
 {
@@ -106,7 +107,7 @@ again:
 	  conn->endpt.ip = wrk->conn_pool[i].ip;
 	  conn->is_alloc = 1;
 	  conn->session_index = i;
-	  vcl_test_cfg_init (&conn->cfg);
+	  hs_test_cfg_init (&conn->cfg);
 	  return (&wrk->conn_pool[i]);
 	}
     }
@@ -130,7 +131,7 @@ conn_pool_free (vcl_test_session_t *ts)
 }
 
 static inline void
-sync_config_and_reply (vcl_test_session_t *conn, vcl_test_cfg_t *rx_cfg)
+sync_config_and_reply (vcl_test_session_t *conn, hs_test_cfg_t *rx_cfg)
 {
   conn->cfg = *rx_cfg;
   vcl_test_buf_alloc (&conn->cfg, 1 /* is_rxbuf */, (uint8_t **) &conn->rxbuf,
@@ -140,7 +141,7 @@ sync_config_and_reply (vcl_test_session_t *conn, vcl_test_cfg_t *rx_cfg)
   if (conn->cfg.verbose)
     {
       vtinf ("(fd %d): Replying to cfg message!\n", conn->fd);
-      vcl_test_cfg_dump (&conn->cfg, 0 /* is_client */ );
+      hs_test_cfg_dump (&conn->cfg, 0 /* is_client */);
     }
   (void) vcl_test_write (conn, &conn->cfg, sizeof (conn->cfg));
 }
@@ -185,14 +186,14 @@ vts_wrk_cleanup_all (vcl_test_server_worker_t *wrk)
 
 static void
 vts_test_cmd (vcl_test_server_worker_t *wrk, vcl_test_session_t *conn,
-	      vcl_test_cfg_t *rx_cfg)
+	      hs_test_cfg_t *rx_cfg)
 {
-  u8 is_bi = rx_cfg->test == VCL_TEST_TYPE_BI;
+  u8 is_bi = rx_cfg->test == HS_TEST_TYPE_BI;
   vcl_test_session_t *tc;
   char buf[64];
   int i;
 
-  if (rx_cfg->cmd == VCL_TEST_CMD_STOP)
+  if (rx_cfg->cmd == HS_TEST_CMD_STOP)
     {
       struct timespec stop;
       clock_gettime (CLOCK_REALTIME, &stop);
@@ -216,6 +217,7 @@ vts_test_cmd (vcl_test_server_worker_t *wrk, vcl_test_session_t *conn,
 	  if (tc->is_open)
 	    {
 	      vts_session_cleanup (tc);
+	      wrk->nfds--;
 	      continue;
 	    }
 	  /* Only relevant if all connections previously closed */
@@ -232,25 +234,25 @@ vts_test_cmd (vcl_test_server_worker_t *wrk, vcl_test_session_t *conn,
 
       vcl_test_stats_dump ("SERVER RESULTS", &conn->stats, 1 /* show_rx */ ,
 			   is_bi /* show_tx */ , conn->cfg.verbose);
-      vcl_test_cfg_dump (&conn->cfg, 0 /* is_client */ );
+      hs_test_cfg_dump (&conn->cfg, 0 /* is_client */);
       if (conn->cfg.verbose)
 	{
-	  vtinf ("  vcl server main\n" VCL_TEST_SEPARATOR_STRING
+	  vtinf ("  vcl server main\n" HS_TEST_SEPARATOR_STRING
 		 "       buf:  %p\n"
-		 "  buf size:  %u (0x%08x)\n" VCL_TEST_SEPARATOR_STRING,
+		 "  buf size:  %u (0x%08x)\n" HS_TEST_SEPARATOR_STRING,
 		 conn->rxbuf, conn->rxbuf_size, conn->rxbuf_size);
 	}
 
       sync_config_and_reply (conn, rx_cfg);
       memset (&conn->stats, 0, sizeof (conn->stats));
     }
-  else if (rx_cfg->cmd == VCL_TEST_CMD_SYNC)
+  else if (rx_cfg->cmd == HS_TEST_CMD_SYNC)
     {
       rx_cfg->ctrl_handle = conn->fd;
       vtinf ("Set control fd %d for test!", conn->fd);
       sync_config_and_reply (conn, rx_cfg);
     }
-  else if (rx_cfg->cmd == VCL_TEST_CMD_START)
+  else if (rx_cfg->cmd == HS_TEST_CMD_START)
     {
       vtinf ("Starting %s-directional Stream Test (fd %d)!",
 	     is_bi ? "Bi" : "Uni", conn->fd);
@@ -268,14 +270,10 @@ vts_server_process_rx (vcl_test_session_t *conn, int rx_bytes)
 {
   vcl_test_server_main_t *vsm = &vcl_server_main;
 
-  if (conn->cfg.test == VCL_TEST_TYPE_BI)
+  if (conn->cfg.test == HS_TEST_TYPE_BI)
     {
       if (vsm->use_ds)
-	{
-	  (void) vcl_test_write (conn, conn->ds[0].data, conn->ds[0].len);
-	  if (conn->ds[1].len)
-	    (void) vcl_test_write (conn, conn->ds[1].data, conn->ds[1].len);
-	}
+	(void) vcl_test_write_ds (conn);
       else
 	(void) vcl_test_write (conn, conn->rxbuf, rx_bytes);
     }
@@ -409,36 +407,41 @@ static void
 vcl_test_init_endpoint_addr (vcl_test_server_main_t * vsm)
 {
   struct sockaddr_storage *servaddr = &vsm->servaddr;
-  memset (servaddr, 0, sizeof (*servaddr));
-
-  if (vsm->server_cfg.address_ip6)
-    {
-      struct sockaddr_in6 *server_addr = (struct sockaddr_in6 *) servaddr;
-      server_addr->sin6_family = AF_INET6;
-      server_addr->sin6_addr = in6addr_any;
-      server_addr->sin6_port = htons (vsm->server_cfg.port);
-    }
-  else
-    {
-      struct sockaddr_in *server_addr = (struct sockaddr_in *) servaddr;
-      server_addr->sin_family = AF_INET;
-      server_addr->sin_addr.s_addr = htonl (INADDR_ANY);
-      server_addr->sin_port = htons (vsm->server_cfg.port);
-    }
 
   if (vsm->server_cfg.address_ip6)
     {
       struct sockaddr_in6 *server_addr = (struct sockaddr_in6 *) servaddr;
       vsm->server_cfg.endpt.is_ip4 = 0;
       vsm->server_cfg.endpt.ip = (uint8_t *) &server_addr->sin6_addr;
-      vsm->server_cfg.endpt.port = (uint16_t) server_addr->sin6_port;
+      vsm->server_cfg.endpt.port = htons (vsm->server_cfg.port);
     }
   else
     {
       struct sockaddr_in *server_addr = (struct sockaddr_in *) servaddr;
       vsm->server_cfg.endpt.is_ip4 = 1;
       vsm->server_cfg.endpt.ip = (uint8_t *) &server_addr->sin_addr;
-      vsm->server_cfg.endpt.port = (uint16_t) server_addr->sin_port;
+      vsm->server_cfg.endpt.port = htons (vsm->server_cfg.port);
+    }
+}
+
+static void
+vcl_test_clear_endpoint_addr (vcl_test_server_main_t *vsm)
+{
+  struct sockaddr_storage *servaddr = &vsm->servaddr;
+
+  memset (&vsm->servaddr, 0, sizeof (vsm->servaddr));
+
+  if (vsm->server_cfg.address_ip6)
+    {
+      struct sockaddr_in6 *server_addr = (struct sockaddr_in6 *) servaddr;
+      server_addr->sin6_family = AF_INET6;
+      server_addr->sin6_addr = in6addr_any;
+    }
+  else
+    {
+      struct sockaddr_in *server_addr = (struct sockaddr_in *) servaddr;
+      server_addr->sin_family = AF_INET;
+      server_addr->sin_addr.s_addr = htonl (INADDR_ANY);
     }
 }
 
@@ -449,9 +452,10 @@ vcl_test_server_process_opts (vcl_test_server_main_t * vsm, int argc,
   int v, c;
 
   vsm->server_cfg.proto = VPPCOM_PROTO_TCP;
+  vcl_test_clear_endpoint_addr (vsm);
 
   opterr = 0;
-  while ((c = getopt (argc, argv, "6DLsw:hp:S")) != -1)
+  while ((c = getopt (argc, argv, "6DLsw:hp:SB:")) != -1)
     switch (c)
       {
       case '6':
@@ -462,7 +466,22 @@ vcl_test_server_process_opts (vcl_test_server_main_t * vsm, int argc,
 	if (vppcom_unformat_proto (&vsm->server_cfg.proto, optarg))
 	  vtwrn ("Invalid vppcom protocol %s, defaulting to TCP", optarg);
 	break;
-
+      case 'B':
+	if (vsm->server_cfg.address_ip6)
+	  {
+	    if (inet_pton (
+		  AF_INET6, optarg,
+		  &((struct sockaddr_in6 *) &vsm->servaddr)->sin6_addr) != 1)
+	      vtwrn ("couldn't parse ipv6 addr %s", optarg);
+	  }
+	else
+	  {
+	    if (inet_pton (
+		  AF_INET, optarg,
+		  &((struct sockaddr_in *) &vsm->servaddr)->sin_addr) != 1)
+	      vtwrn ("couldn't parse ipv4 addr %s", optarg);
+	  }
+	break;
       case 'D':
 	vsm->server_cfg.proto = VPPCOM_PROTO_UDP;
 	break;
@@ -523,13 +542,13 @@ vcl_test_server_process_opts (vcl_test_server_main_t * vsm, int argc,
 }
 
 int
-vts_handle_ctrl_cfg (vcl_test_server_worker_t *wrk, vcl_test_cfg_t *rx_cfg,
+vts_handle_ctrl_cfg (vcl_test_server_worker_t *wrk, hs_test_cfg_t *rx_cfg,
 		     vcl_test_session_t *conn, int rx_bytes)
 {
   if (rx_cfg->verbose)
     {
       vtinf ("(fd %d): Received a cfg msg!", conn->fd);
-      vcl_test_cfg_dump (rx_cfg, 0 /* is_client */ );
+      hs_test_cfg_dump (rx_cfg, 0 /* is_client */);
     }
 
   if (rx_bytes != sizeof (*rx_cfg))
@@ -541,7 +560,7 @@ vts_handle_ctrl_cfg (vcl_test_server_worker_t *wrk, vcl_test_cfg_t *rx_cfg,
       if (conn->cfg.verbose)
 	{
 	  vtinf ("(fd %d): Replying to cfg msg", conn->fd);
-	  vcl_test_cfg_dump (rx_cfg, 0 /* is_client */ );
+	  hs_test_cfg_dump (rx_cfg, 0 /* is_client */);
 	}
       conn->write (conn, &conn->cfg, sizeof (conn->cfg));
       return -1;
@@ -549,17 +568,17 @@ vts_handle_ctrl_cfg (vcl_test_server_worker_t *wrk, vcl_test_cfg_t *rx_cfg,
 
   switch (rx_cfg->test)
     {
-    case VCL_TEST_TYPE_NONE:
-    case VCL_TEST_TYPE_ECHO:
+    case HS_TEST_TYPE_NONE:
+    case HS_TEST_TYPE_ECHO:
       sync_config_and_reply (conn, rx_cfg);
       break;
 
-    case VCL_TEST_TYPE_BI:
-    case VCL_TEST_TYPE_UNI:
+    case HS_TEST_TYPE_BI:
+    case HS_TEST_TYPE_UNI:
       vts_test_cmd (wrk, conn, rx_cfg);
       break;
 
-    case VCL_TEST_TYPE_EXIT:
+    case HS_TEST_TYPE_EXIT:
       vtinf ("Ctrl session fd %d closing!", conn->fd);
       vts_session_cleanup (conn);
       wrk->nfds--;
@@ -570,7 +589,7 @@ vts_handle_ctrl_cfg (vcl_test_server_worker_t *wrk, vcl_test_cfg_t *rx_cfg,
 
     default:
       vtwrn ("Unknown test type %d", rx_cfg->test);
-      vcl_test_cfg_dump (rx_cfg, 0 /* is_client */ );
+      hs_test_cfg_dump (rx_cfg, 0 /* is_client */);
       break;
     }
 
@@ -652,7 +671,7 @@ vts_worker_loop (void *arg)
   vcl_test_server_worker_t *wrk = arg;
   vcl_test_session_t *conn;
   int i, rx_bytes, num_ev;
-  vcl_test_cfg_t *rx_cfg;
+  hs_test_cfg_t *rx_cfg;
 
   if (wrk->wrk_index)
     vts_worker_init (wrk);
@@ -683,9 +702,13 @@ vts_worker_loop (void *arg)
 		{
 		  vtinf ("ctrl session went away");
 		  vsm->ctrl = 0;
+		  vts_wrk_cleanup_all (wrk);
 		}
-	      vts_session_cleanup (conn);
-	      wrk->nfds--;
+	      else
+		{
+		  vts_session_cleanup (conn);
+		  wrk->nfds--;
+		}
 	      continue;
 	    }
 
@@ -704,8 +727,9 @@ vts_worker_loop (void *arg)
 	      continue;
 	    }
 
-	  /* at this point ctrl session must be valid */
-	  ASSERT (vsm->ctrl);
+	  /* drop event if we don't have ctrl session in place first */
+	  if (!vsm->ctrl)
+	    continue;
 
 	  if (ep_evts[i].data.u32 == VCL_TEST_DATA_LISTENER)
 	    {
@@ -715,7 +739,8 @@ vts_worker_loop (void *arg)
 	    }
 	  else if (vppcom_session_is_connectable_listener (conn->fd))
 	    {
-	      vts_accept_client (wrk, conn->fd);
+	      while (vts_accept_client (wrk, conn->fd))
+		;
 	      continue;
 	    }
 
@@ -725,9 +750,10 @@ vts_worker_loop (void *arg)
 
 	  if (!wrk->wrk_index && conn->fd == vsm->ctrl->fd)
 	    {
-	      rx_bytes = conn->read (conn, conn->rxbuf, conn->rxbuf_size);
-	      rx_cfg = (vcl_test_cfg_t *) conn->rxbuf;
-	      if (rx_cfg->magic == VCL_TEST_CFG_CTRL_MAGIC)
+	      rx_bytes =
+		vppcom_session_read (conn->fd, conn->rxbuf, conn->rxbuf_size);
+	      rx_cfg = (hs_test_cfg_t *) conn->rxbuf;
+	      if (rx_cfg->magic == HS_TEST_CFG_CTRL_MAGIC)
 		{
 		  vts_handle_ctrl_cfg (wrk, rx_cfg, conn, rx_bytes);
 		  if (!wrk->nfds)
@@ -837,7 +863,6 @@ main (int argc, char **argv)
   vcl_test_main_t *vt = &vcl_test_main;
   int rv, i;
 
-  clib_mem_init_thread_safe (0, 64 << 20);
   vsm->server_cfg.port = VCL_TEST_SERVER_PORT;
   vsm->server_cfg.workers = 1;
   vsm->active_workers = 0;
@@ -855,13 +880,15 @@ main (int argc, char **argv)
   vts_ctrl_session_init (&vsm->workers[0]);
 
   /* Update ctrl port to data port */
-  vsm->server_cfg.endpt.port += 1;
+  vsm->server_cfg.endpt.port = hs_make_data_port (vsm->server_cfg.endpt.port);
   vts_worker_init (&vsm->workers[0]);
   for (i = 1; i < vsm->server_cfg.workers; i++)
     {
       vsm->workers[i].wrk_index = i;
       rv = pthread_create (&vsm->workers[i].thread_handle, NULL,
 			   vts_worker_loop, (void *) &vsm->workers[i]);
+      if (rv)
+	vtfail ("pthread_create()", rv);
     }
 
   vts_worker_loop (&vsm->workers[0]);
@@ -874,11 +901,3 @@ main (int argc, char **argv)
 
   return vsm->worker_fails;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

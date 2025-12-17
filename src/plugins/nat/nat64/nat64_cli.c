@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/fib/fib_table.h>
@@ -484,10 +474,8 @@ nat64_show_bib_command_fn (vlib_main_t * vm,
   else
     vlib_cli_output (vm, "NAT64 %U BIB entries:", format_nat_protocol, proto);
 
-  /* *INDENT-OFF* */
   vec_foreach (db, nm->db)
     nat64_db_bib_walk (db, p, nat64_cli_bib_walk, vm);
-  /* *INDENT-ON* */
 
 done:
   unformat_free (line_input);
@@ -586,13 +574,11 @@ nat64_show_st_command_fn (vlib_main_t * vm,
     vlib_cli_output (vm, "NAT64 sessions:");
   else
     vlib_cli_output (vm, "NAT64 %U sessions:", format_nat_protocol, proto);
-  /* *INDENT-OFF* */
   vec_foreach (db, nm->db)
     {
       ctx.db = db;
       nat64_db_st_walk (db, p, nat64_cli_st_walk, &ctx);
     }
-  /* *INDENT-ON* */
 
 done:
   unformat_free (line_input);
@@ -775,7 +761,6 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
 /*?
  * @cliexpar
  * @cliexstart{nat64 plugin}
@@ -979,16 +964,7 @@ VLIB_CLI_COMMAND (show_nat64_prefix_command, static) = {
  * @cliexend
 ?*/
 VLIB_CLI_COMMAND (nat64_add_interface_address_command, static) = {
-    .path = "nat64 add interface address",
-    .short_help = "nat64 add interface address <interface> [del]",
-    .function = nat64_add_interface_address_command_fn,
+  .path = "nat64 add interface address",
+  .short_help = "nat64 add interface address <interface> [del]",
+  .function = nat64_add_interface_address_command_fn,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

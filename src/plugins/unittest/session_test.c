@@ -1,25 +1,15 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
-#include <vnet/session/application_namespace.h>
-#include <vnet/session/application_interface.h>
+#include <arpa/inet.h>
 #include <vnet/session/application.h>
 #include <vnet/session/session.h>
-#include <vnet/session/session_rules_table.h>
-#include <vnet/tcp/tcp.h>
+#include <vnet/session/transport.h>
+#include <vnet/tcp/tcp_inlines.h>
 #include <sys/epoll.h>
+#include <vnet/session/session_rules_table.h>
 
 #define SESSION_TEST_I(_cond, _comment, _args...)		\
 ({								\
@@ -34,12 +24,15 @@
   _evald;							\
 })
 
-#define SESSION_TEST(_cond, _comment, _args...)			\
-{								\
-    if (!SESSION_TEST_I(_cond, _comment, ##_args)) {		\
-	return 1;                                               \
-    }								\
-}
+#define SESSION_TEST(_cond, _comment, _args...)                               \
+  do                                                                          \
+    {                                                                         \
+      if (!SESSION_TEST_I (_cond, _comment, ##_args))                         \
+	{                                                                     \
+	  return 1;                                                           \
+	}                                                                     \
+    }                                                                         \
+  while (0)
 
 #define ST_DBG(_comment, _args...)				\
     fformat(stderr,  _comment "\n",  ##_args);			\
@@ -52,6 +45,11 @@ placeholder_session_reset_callback (session_t * s)
 
 volatile u32 connected_session_index = ~0;
 volatile u32 connected_session_thread = ~0;
+static u32 placeholder_accept;
+volatile u32 accepted_session_index;
+volatile u32 accepted_session_thread;
+volatile int app_session_error = 0;
+
 int
 placeholder_session_connected_callback (u32 app_index, u32 api_context,
 					session_t * s, session_error_t err)
@@ -83,12 +81,21 @@ placeholder_del_segment_callback (u32 client_index, u64 segment_handle)
 void
 placeholder_session_disconnect_callback (session_t * s)
 {
-  clib_warning ("called...");
+  if (!(s->session_index == connected_session_index &&
+	s->thread_index == connected_session_thread) &&
+      !(s->session_index == accepted_session_index &&
+	s->thread_index == accepted_session_thread))
+    {
+      clib_warning (0, "unexpected disconnect s %u thread %u",
+		    s->session_index, s->thread_index);
+      app_session_error = 1;
+    }
+  vnet_disconnect_args_t da = {
+    .handle = session_handle (s),
+    .app_index = app_worker_get (s->app_wrk_index)->app_index
+  };
+  vnet_disconnect_session (&da);
 }
-
-static u32 placeholder_accept;
-volatile u32 accepted_session_index;
-volatile u32 accepted_session_thread;
 
 int
 placeholder_session_accept_callback (session_t * s)
@@ -107,17 +114,42 @@ placeholder_server_rx_callback (session_t * s)
   return -1;
 }
 
-/* *INDENT-OFF* */
+void
+placeholder_cleanup_callback (session_t *s, session_cleanup_ntf_t ntf)
+{
+  if (ntf == SESSION_CLEANUP_TRANSPORT)
+    return;
+
+  if (s->session_index == connected_session_index &&
+      s->thread_index == connected_session_thread)
+    {
+      connected_session_index = ~0;
+      connected_session_thread = ~0;
+    }
+  else if (s->session_index == accepted_session_index &&
+	   s->thread_index == accepted_session_thread)
+    {
+      accepted_session_index = ~0;
+      accepted_session_thread = ~0;
+    }
+  else
+    {
+      clib_warning (0, "unexpected cleanup s %u thread %u", s->session_index,
+		    s->thread_index);
+      app_session_error = 1;
+    }
+}
+
 static session_cb_vft_t placeholder_session_cbs = {
   .session_reset_callback = placeholder_session_reset_callback,
   .session_connected_callback = placeholder_session_connected_callback,
   .session_accept_callback = placeholder_session_accept_callback,
   .session_disconnect_callback = placeholder_session_disconnect_callback,
   .builtin_app_rx_callback = placeholder_server_rx_callback,
+  .session_cleanup_callback = placeholder_cleanup_callback,
   .add_segment_callback = placeholder_add_segment_callback,
   .del_segment_callback = placeholder_del_segment_callback,
 };
-/* *INDENT-ON* */
 
 static int
 session_create_lookpback (u32 table_id, u32 * sw_if_index,
@@ -135,7 +167,8 @@ session_create_lookpback (u32 table_id, u32 * sw_if_index,
 
   if (table_id != 0)
     {
-      ip_table_create (FIB_PROTOCOL_IP4, table_id, 0, 0);
+      ip_table_create (FIB_PROTOCOL_IP4, table_id, 0 /* is_api */,
+		       1 /* create_mfib */, 0);
       ip_table_bind (FIB_PROTOCOL_IP4, *sw_if_index, table_id);
     }
 
@@ -281,6 +314,7 @@ session_test_endpoint_cfg (vlib_main_t * vm, unformat_input_t * input)
   u64 options[APP_OPTIONS_N_OPTIONS], placeholder_secret = 1234;
   u16 placeholder_server_port = 1234, placeholder_client_port = 5678;
   session_endpoint_cfg_t server_sep = SESSION_ENDPOINT_CFG_NULL;
+  u32 client_vrf = 0, server_vrf = 1;
   ip4_address_t intf_addr[3];
   transport_connection_t *tc;
   session_t *s;
@@ -291,25 +325,25 @@ session_test_endpoint_cfg (vlib_main_t * vm, unformat_input_t * input)
    * Create the loopbacks
    */
   intf_addr[0].as_u32 = clib_host_to_net_u32 (0x01010101);
-  session_create_lookpback (0, &sw_if_index[0], &intf_addr[0]);
+  session_create_lookpback (client_vrf, &sw_if_index[0], &intf_addr[0]);
 
   intf_addr[1].as_u32 = clib_host_to_net_u32 (0x02020202);
-  session_create_lookpback (1, &sw_if_index[1], &intf_addr[1]);
+  session_create_lookpback (server_vrf, &sw_if_index[1], &intf_addr[1]);
 
-  session_add_del_route_via_lookup_in_table (0, 1, &intf_addr[1], 32,
-					     1 /* is_add */ );
-  session_add_del_route_via_lookup_in_table (1, 0, &intf_addr[0], 32,
-					     1 /* is_add */ );
+  session_add_del_route_via_lookup_in_table (
+    client_vrf, server_vrf, &intf_addr[1], 32, 1 /* is_add */);
+  session_add_del_route_via_lookup_in_table (
+    server_vrf, client_vrf, &intf_addr[0], 32, 1 /* is_add */);
 
   /*
    * Insert namespace
    */
-  appns_id = format (0, "appns1");
+  appns_id = format (0, "appns_server");
   vnet_app_namespace_add_del_args_t ns_args = {
     .ns_id = appns_id,
     .secret = placeholder_secret,
-    .sw_if_index = sw_if_index[1],
-    .ip4_fib_id = 0,
+    .sw_if_index = sw_if_index[1], /* server interface*/
+    .ip4_fib_id = 0,		   /* sw_if_index takes precedence */
     .is_add = 1
   };
   error = vnet_app_namespace_add_del (&ns_args);
@@ -360,10 +394,10 @@ session_test_endpoint_cfg (vlib_main_t * vm, unformat_input_t * input)
    * Connect and force lcl ip
    */
   client_sep.is_ip4 = 1;
-  client_sep.ip.ip4.as_u32 = clib_host_to_net_u32 (0x02020202);
+  client_sep.ip.ip4.as_u32 = intf_addr[1].as_u32;
   client_sep.port = placeholder_server_port;
   client_sep.peer.is_ip4 = 1;
-  client_sep.peer.ip.ip4.as_u32 = clib_host_to_net_u32 (0x01010101);
+  client_sep.peer.ip.ip4.as_u32 = intf_addr[0].as_u32;
   client_sep.peer.port = placeholder_client_port;
   client_sep.transport_proto = TRANSPORT_PROTO_TCP;
 
@@ -404,6 +438,35 @@ session_test_endpoint_cfg (vlib_main_t * vm, unformat_input_t * input)
   SESSION_TEST ((tc->lcl_port == placeholder_client_port),
 		"ports should be equal");
 
+  /* Disconnect server session, should lead to faster port cleanup on client */
+  vnet_disconnect_args_t disconnect_args = {
+    .handle =
+      session_make_handle (accepted_session_index, accepted_session_thread),
+    .app_index = server_index,
+  };
+
+  error = vnet_disconnect_session (&disconnect_args);
+  SESSION_TEST ((error == 0), "disconnect should work");
+
+  /* wait for stuff to happen */
+  tries = 0;
+  while (connected_session_index != ~0 && ++tries < 100)
+    {
+      vlib_worker_thread_barrier_release (vm);
+      vlib_process_suspend (vm, 100e-3);
+      vlib_worker_thread_barrier_sync (vm);
+    }
+
+  /* Active closes take longer to cleanup, don't wait */
+
+  clib_warning ("waited %.1f seconds for disconnect", tries / 10.0);
+  SESSION_TEST ((connected_session_index == ~0), "session should not exist");
+  SESSION_TEST ((connected_session_thread == ~0), "thread should not exist");
+  SESSION_TEST (transport_port_local_in_use () == 0,
+		"port should be cleaned up");
+  SESSION_TEST ((app_session_error == 0), "no app session errors");
+
+  /* Start cleanup by detaching apps */
   vnet_app_detach_args_t detach_args = {
     .app_index = server_index,
     .api_client_index = ~0,
@@ -419,13 +482,167 @@ session_test_endpoint_cfg (vlib_main_t * vm, unformat_input_t * input)
   /* Allow the disconnects to finish before removing the routes. */
   vlib_process_suspend (vm, 10e-3);
 
-  session_add_del_route_via_lookup_in_table (0, 1, &intf_addr[1], 32,
-					     0 /* is_add */ );
-  session_add_del_route_via_lookup_in_table (1, 0, &intf_addr[0], 32,
-					     0 /* is_add */ );
+  session_add_del_route_via_lookup_in_table (
+    client_vrf, server_vrf, &intf_addr[1], 32, 0 /* is_add */);
+  session_add_del_route_via_lookup_in_table (
+    server_vrf, client_vrf, &intf_addr[0], 32, 0 /* is_add */);
 
   session_delete_loopback (sw_if_index[0]);
   session_delete_loopback (sw_if_index[1]);
+
+  /*
+   * Redo the test but with client in the non-default namespace
+   */
+
+  /* Create the loopbacks */
+  client_vrf = 1;
+  server_vrf = 0;
+  session_create_lookpback (client_vrf, &sw_if_index[0], &intf_addr[0]);
+  session_create_lookpback (server_vrf, &sw_if_index[1], &intf_addr[1]);
+
+  session_add_del_route_via_lookup_in_table (
+    client_vrf, server_vrf, &intf_addr[1], 32, 1 /* is_add */);
+  session_add_del_route_via_lookup_in_table (
+    server_vrf, client_vrf, &intf_addr[0], 32, 1 /* is_add */);
+
+  /* Insert new client namespace */
+  vec_free (appns_id);
+  appns_id = format (0, "appns_client");
+  ns_args.ns_id = appns_id;
+  ns_args.sw_if_index = sw_if_index[0]; /* client interface*/
+  ns_args.is_add = 1;
+
+  error = vnet_app_namespace_add_del (&ns_args);
+  SESSION_TEST ((error == 0), "app ns insertion should succeed: %U",
+		format_session_error, error);
+
+  /* Attach client */
+  attach_args.name = format (0, "session_test_client");
+  attach_args.namespace_id = appns_id;
+  attach_args.options[APP_OPTIONS_ADD_SEGMENT_SIZE] = 0;
+  attach_args.options[APP_OPTIONS_NAMESPACE_SECRET] = placeholder_secret;
+  attach_args.api_client_index = ~0;
+
+  error = vnet_application_attach (&attach_args);
+  SESSION_TEST ((error == 0), "client app attached: %U", format_session_error,
+		error);
+  client_index = attach_args.app_index;
+  vec_free (attach_args.name);
+
+  /* Attach server */
+  attach_args.name = format (0, "session_test_server");
+  attach_args.namespace_id = 0;
+  attach_args.options[APP_OPTIONS_ADD_SEGMENT_SIZE] = 32 << 20;
+  attach_args.options[APP_OPTIONS_NAMESPACE_SECRET] = 0;
+  attach_args.api_client_index = ~0;
+  error = vnet_application_attach (&attach_args);
+  SESSION_TEST ((error == 0), "server app attached: %U", format_session_error,
+		error);
+  vec_free (attach_args.name);
+  server_index = attach_args.app_index;
+
+  /* Bind server */
+  clib_memset (&server_sep, 0, sizeof (server_sep));
+  server_sep.is_ip4 = 1;
+  server_sep.port = placeholder_server_port;
+  bind_args.sep_ext = server_sep;
+  bind_args.app_index = server_index;
+  error = vnet_listen (&bind_args);
+  SESSION_TEST ((error == 0), "server bind should work: %U",
+		format_session_error, error);
+
+  /* Connect client */
+  connected_session_index = connected_session_thread = ~0;
+  accepted_session_index = accepted_session_thread = ~0;
+  clib_memset (&client_sep, 0, sizeof (client_sep));
+  client_sep.is_ip4 = 1;
+  client_sep.ip.ip4.as_u32 = intf_addr[1].as_u32;
+  client_sep.port = placeholder_server_port;
+  client_sep.peer.is_ip4 = 1;
+  client_sep.peer.ip.ip4.as_u32 = intf_addr[0].as_u32;
+  client_sep.peer.port = placeholder_client_port;
+  client_sep.transport_proto = TRANSPORT_PROTO_TCP;
+
+  connect_args.sep_ext = client_sep;
+  connect_args.app_index = client_index;
+  error = vnet_connect (&connect_args);
+  SESSION_TEST ((error == 0), "connect should work");
+
+  /* wait for stuff to happen */
+  while (connected_session_index == ~0 && ++tries < 100)
+    {
+      vlib_worker_thread_barrier_release (vm);
+      vlib_process_suspend (vm, 100e-3);
+      vlib_worker_thread_barrier_sync (vm);
+    }
+  while (accepted_session_index == ~0 && ++tries < 100)
+    {
+      vlib_worker_thread_barrier_release (vm);
+      vlib_process_suspend (vm, 100e-3);
+      vlib_worker_thread_barrier_sync (vm);
+    }
+
+  clib_warning ("waited %.1f seconds for connections", tries / 10.0);
+  SESSION_TEST ((connected_session_index != ~0), "session should exist");
+  SESSION_TEST ((connected_session_thread != ~0), "thread should exist");
+  SESSION_TEST ((accepted_session_index != ~0), "session should exist");
+  SESSION_TEST ((accepted_session_thread != ~0), "thread should exist");
+  s = session_get (connected_session_index, connected_session_thread);
+  tc = session_get_transport (s);
+  SESSION_TEST ((tc != 0), "transport should exist");
+  SESSION_TEST (
+    (memcmp (&tc->lcl_ip, &client_sep.peer.ip, sizeof (tc->lcl_ip)) == 0),
+    "ips should be equal");
+  SESSION_TEST ((tc->lcl_port == placeholder_client_port),
+		"ports should be equal");
+
+  /* Disconnect server session, for faster port cleanup on client */
+  disconnect_args.app_index = server_index;
+  disconnect_args.handle =
+    session_make_handle (accepted_session_index, accepted_session_thread);
+
+  error = vnet_disconnect_session (&disconnect_args);
+  SESSION_TEST ((error == 0), "disconnect should work");
+
+  /* wait for stuff to happen */
+  tries = 0;
+  while (connected_session_index != ~0 && ++tries < 100)
+    {
+      vlib_worker_thread_barrier_release (vm);
+      vlib_process_suspend (vm, 100e-3);
+      vlib_worker_thread_barrier_sync (vm);
+    }
+
+  /* Active closes take longer to cleanup, don't wait */
+
+  clib_warning ("waited %.1f seconds for disconnect", tries / 10.0);
+  SESSION_TEST ((connected_session_index == ~0), "session should not exist");
+  SESSION_TEST ((connected_session_thread == ~0), "thread should not exist");
+  SESSION_TEST ((app_session_error == 0), "no app session errors");
+  SESSION_TEST (transport_port_local_in_use () == 0,
+		"port should be cleaned up");
+
+  /* Start cleanup by detaching apps */
+  detach_args.app_index = server_index;
+  vnet_application_detach (&detach_args);
+  detach_args.app_index = client_index;
+  vnet_application_detach (&detach_args);
+
+  ns_args.is_add = 0;
+  error = vnet_app_namespace_add_del (&ns_args);
+  SESSION_TEST ((error == 0), "app ns delete should succeed: %d", error);
+
+  /* Allow the disconnects to finish before removing the routes. */
+  vlib_process_suspend (vm, 10e-3);
+
+  session_add_del_route_via_lookup_in_table (
+    client_vrf, server_vrf, &intf_addr[1], 32, 0 /* is_add */);
+  session_add_del_route_via_lookup_in_table (
+    server_vrf, client_vrf, &intf_addr[0], 32, 0 /* is_add */);
+
+  session_delete_loopback (sw_if_index[0]);
+  session_delete_loopback (sw_if_index[1]);
+
   return 0;
 }
 
@@ -446,6 +663,11 @@ session_test_namespace (vlib_main_t * vm, unformat_input_t * input)
   session_t *s;
   u64 handle;
   int error = 0;
+
+  /* Make sure segment count and accept are reset before starting test
+   * in case tests are ran multiple times */
+  placeholder_segment_count = 0;
+  placeholder_accept = 0;
 
   ns_id = format (0, "appns1");
   server_name = format (0, "session_test");
@@ -527,7 +749,7 @@ session_test_namespace (vlib_main_t * vm, unformat_input_t * input)
 
   error = vnet_application_attach (&attach_args);
   SESSION_TEST ((error != 0), "app attachment should fail");
-  SESSION_TEST ((error == VNET_API_ERROR_APP_WRONG_NS_SECRET),
+  SESSION_TEST ((error == SESSION_E_WRONG_NS_SECRET),
 		"code should be wrong ns secret: %d", error);
 
   /*
@@ -776,10 +998,37 @@ session_test_namespace (vlib_main_t * vm, unformat_input_t * input)
   return 0;
 }
 
+static void
+session_test_disable_rt_backend_engine (vlib_main_t *vm)
+{
+  session_enable_disable_args_t args = { .is_en = 0,
+					 .rt_engine_type =
+					   RT_BACKEND_ENGINE_DISABLE };
+  vnet_session_enable_disable (vm, &args);
+}
+
+static void
+session_test_enable_rule_table_engine (vlib_main_t *vm)
+{
+  session_enable_disable_args_t args = { .is_en = 1,
+					 .rt_engine_type =
+					   RT_BACKEND_ENGINE_RULE_TABLE };
+  vnet_session_enable_disable (vm, &args);
+}
+
+static void
+session_test_enable_sdl_engine (vlib_main_t *vm)
+{
+  session_enable_disable_args_t args = { .is_en = 1,
+					 .rt_engine_type =
+					   RT_BACKEND_ENGINE_SDL };
+  vnet_session_enable_disable (vm, &args);
+}
+
 static int
 session_test_rule_table (vlib_main_t * vm, unformat_input_t * input)
 {
-  session_rules_table_t _srt, *srt = &_srt;
+  session_table_t *st = session_table_alloc ();
   u16 lcl_port = 1234, rmt_port = 4321;
   u32 action_index = 1, res;
   ip4_address_t lcl_lkup, rmt_lkup;
@@ -797,8 +1046,13 @@ session_test_rule_table (vlib_main_t * vm, unformat_input_t * input)
 	}
     }
 
-  clib_memset (srt, 0, sizeof (*srt));
-  session_rules_table_init (srt);
+  session_test_disable_rt_backend_engine (vm);
+  session_test_enable_rule_table_engine (vm);
+
+  session_table_init (st, FIB_PROTOCOL_MAX);
+  vec_add1 (st->appns_index,
+	    app_namespace_index (app_namespace_get_default ()));
+  session_rules_table_init (st, FIB_PROTOCOL_MAX);
 
   ip4_address_t lcl_ip = {
     .as_u32 = clib_host_to_net_u32 (0x01020304),
@@ -837,12 +1091,13 @@ session_test_rule_table (vlib_main_t * vm, unformat_input_t * input)
     .action_index = action_index++,
     .is_add = 1,
   };
-  error = session_rules_table_add_del (srt, &args);
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
   SESSION_TEST ((error == 0), "Add 1.2.3.4/16 1234 5.6.7.8/16 4321 action %d",
 		action_index - 1);
 
-  res =
-    session_rules_table_lookup4 (srt, &lcl_ip, &rmt_ip, lcl_port, rmt_port);
+  res = session_rules_table_lookup4 (st->srtg_handle, TRANSPORT_PROTO_TCP,
+				     &lcl_ip, &rmt_ip, lcl_port, rmt_port);
   SESSION_TEST ((res == 1),
 		"Lookup 1.2.3.4 1234 5.6.7.8 4321, action should " "be 1: %d",
 		res);
@@ -853,13 +1108,15 @@ session_test_rule_table (vlib_main_t * vm, unformat_input_t * input)
   args.lcl.fp_addr.ip4 = lcl_ip;
   args.lcl.fp_len = 24;
   args.action_index = action_index++;
-  error = session_rules_table_add_del (srt, &args);
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
   SESSION_TEST ((error == 0), "Add 1.2.3.4/24 1234 5.6.7.8/16 4321 action %d",
 		action_index - 1);
   args.rmt.fp_addr.ip4 = rmt_ip;
   args.rmt.fp_len = 24;
   args.action_index = action_index++;
-  error = session_rules_table_add_del (srt, &args);
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
   SESSION_TEST ((error == 0), "Add 1.2.3.4/24 1234 5.6.7.8/24 4321 action %d",
 		action_index - 1);
 
@@ -871,13 +1128,15 @@ session_test_rule_table (vlib_main_t * vm, unformat_input_t * input)
   args.rmt.fp_addr.ip4 = rmt_ip2;
   args.rmt.fp_len = 16;
   args.action_index = action_index++;
-  error = session_rules_table_add_del (srt, &args);
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
   SESSION_TEST ((error == 0), "Add 2.2.2.2/24 1234 6.6.6.6/16 4321 action %d",
 		action_index - 1);
   args.lcl.fp_addr.ip4 = lcl_ip3;
   args.rmt.fp_addr.ip4 = rmt_ip3;
   args.action_index = action_index++;
-  error = session_rules_table_add_del (srt, &args);
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
   SESSION_TEST ((error == 0), "Add 3.3.3.3/24 1234 7.7.7.7/16 4321 action %d",
 		action_index - 1);
 
@@ -887,7 +1146,8 @@ session_test_rule_table (vlib_main_t * vm, unformat_input_t * input)
   args.lcl.fp_addr.ip4 = lcl_ip3;
   args.rmt.fp_addr.ip4 = rmt_ip3;
   args.action_index = action_index++;
-  error = session_rules_table_add_del (srt, &args);
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
   SESSION_TEST ((error == 0), "overwrite 3.3.3.3/24 1234 7.7.7.7/16 4321 "
 		"action %d", action_index - 1);
 
@@ -895,23 +1155,22 @@ session_test_rule_table (vlib_main_t * vm, unformat_input_t * input)
    * Lookup 1.2.3.4/32 1234 5.6.7.8/32 4321, 1.2.2.4/32 1234 5.6.7.9/32 4321
    * and  3.3.3.3 1234 7.7.7.7 4321
    */
-  res =
-    session_rules_table_lookup4 (srt, &lcl_ip, &rmt_ip, lcl_port, rmt_port);
+  res = session_rules_table_lookup4 (st->srtg_handle, TRANSPORT_PROTO_TCP,
+				     &lcl_ip, &rmt_ip, lcl_port, rmt_port);
   SESSION_TEST ((res == 3),
 		"Lookup 1.2.3.4 1234 5.6.7.8 4321 action " "should be 3: %d",
 		res);
 
   lcl_lkup.as_u32 = clib_host_to_net_u32 (0x01020204);
   rmt_lkup.as_u32 = clib_host_to_net_u32 (0x05060709);
-  res =
-    session_rules_table_lookup4 (srt, &lcl_lkup,
-				 &rmt_lkup, lcl_port, rmt_port);
+  res = session_rules_table_lookup4 (st->srtg_handle, TRANSPORT_PROTO_TCP,
+				     &lcl_lkup, &rmt_lkup, lcl_port, rmt_port);
   SESSION_TEST ((res == 1),
 		"Lookup 1.2.2.4 1234 5.6.7.9 4321, action " "should be 1: %d",
 		res);
 
-  res =
-    session_rules_table_lookup4 (srt, &lcl_ip3, &rmt_ip3, lcl_port, rmt_port);
+  res = session_rules_table_lookup4 (st->srtg_handle, TRANSPORT_PROTO_TCP,
+				     &lcl_ip3, &rmt_ip3, lcl_port, rmt_port);
   SESSION_TEST ((res == 6),
 		"Lookup 3.3.3.3 1234 7.7.7.7 4321, action "
 		"should be 6 (updated): %d", res);
@@ -927,17 +1186,17 @@ session_test_rule_table (vlib_main_t * vm, unformat_input_t * input)
   args.lcl_port = 0;
   args.rmt_port = 0;
   args.action_index = action_index++;
-  error = session_rules_table_add_del (srt, &args);
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
   SESSION_TEST ((error == 0), "Add 1.2.3.4/24 * 5.6.7.8/24 * action %d",
 		action_index - 1);
-  res =
-    session_rules_table_lookup4 (srt, &lcl_ip, &rmt_ip, lcl_port, rmt_port);
+  res = session_rules_table_lookup4 (st->srtg_handle, TRANSPORT_PROTO_TCP,
+				     &lcl_ip, &rmt_ip, lcl_port, rmt_port);
   SESSION_TEST ((res == 7),
 		"Lookup 1.2.3.4 1234 5.6.7.8 4321, action should"
 		" be 7 (lpm dst): %d", res);
-  res =
-    session_rules_table_lookup4 (srt, &lcl_ip, &rmt_ip,
-				 lcl_port + 1, rmt_port);
+  res = session_rules_table_lookup4 (st->srtg_handle, TRANSPORT_PROTO_TCP,
+				     &lcl_ip, &rmt_ip, lcl_port + 1, rmt_port);
   SESSION_TEST ((res == 7),
 		"Lookup 1.2.3.4 1235 5.6.7.8 4321, action should " "be 7: %d",
 		res);
@@ -949,7 +1208,8 @@ session_test_rule_table (vlib_main_t * vm, unformat_input_t * input)
    * 1.2.3.4 1235 5.6.7.8 4322
    */
   args.is_add = 0;
-  error = session_rules_table_add_del (srt, &args);
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
   SESSION_TEST ((error == 0), "Del 1.2.3.4/24 * 5.6.7.8/24 *");
 
   args.lcl.fp_addr.ip4 = lcl_ip;
@@ -960,7 +1220,8 @@ session_test_rule_table (vlib_main_t * vm, unformat_input_t * input)
   args.rmt_port = 0;
   args.action_index = action_index++;
   args.is_add = 1;
-  error = session_rules_table_add_del (srt, &args);
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
   SESSION_TEST ((error == 0), "Add 1.2.3.4/16 * 5.6.7.8/16 * action %d",
 		action_index - 1);
 
@@ -972,27 +1233,28 @@ session_test_rule_table (vlib_main_t * vm, unformat_input_t * input)
   args.rmt_port = rmt_port;
   args.action_index = action_index++;
   args.is_add = 1;
-  error = session_rules_table_add_del (srt, &args);
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
   SESSION_TEST ((error == 0), "Add 1.2.3.4/24 1235 5.6.7.8/24 4321 action %d",
 		action_index - 1);
 
   if (verbose)
-    session_rules_table_cli_dump (vm, srt, FIB_PROTOCOL_IP4);
+    session_rules_table_cli_dump (vm, st->srtg_handle, TRANSPORT_PROTO_TCP,
+				  FIB_PROTOCOL_IP4);
 
-  res =
-    session_rules_table_lookup4 (srt, &lcl_ip, &rmt_ip, lcl_port, rmt_port);
+  res = session_rules_table_lookup4 (st->srtg_handle, TRANSPORT_PROTO_TCP,
+				     &lcl_ip, &rmt_ip, lcl_port, rmt_port);
   SESSION_TEST ((res == 3),
 		"Lookup 1.2.3.4 1234 5.6.7.8 4321, action should " "be 3: %d",
 		res);
-  res =
-    session_rules_table_lookup4 (srt, &lcl_ip, &rmt_ip,
-				 lcl_port + 1, rmt_port);
+  res = session_rules_table_lookup4 (st->srtg_handle, TRANSPORT_PROTO_TCP,
+				     &lcl_ip, &rmt_ip, lcl_port + 1, rmt_port);
   SESSION_TEST ((res == 9),
 		"Lookup 1.2.3.4 1235 5.6.7.8 4321, action should " "be 9: %d",
 		res);
   res =
-    session_rules_table_lookup4 (srt, &lcl_ip, &rmt_ip,
-				 lcl_port + 1, rmt_port + 1);
+    session_rules_table_lookup4 (st->srtg_handle, TRANSPORT_PROTO_TCP, &lcl_ip,
+				 &rmt_ip, lcl_port + 1, rmt_port + 1);
   SESSION_TEST ((res == 8),
 		"Lookup 1.2.3.4 1235 5.6.7.8 4322, action should " "be 8: %d",
 		res);
@@ -1006,10 +1268,11 @@ session_test_rule_table (vlib_main_t * vm, unformat_input_t * input)
   args.lcl.fp_len = 16;
   args.rmt.fp_len = 16;
   args.is_add = 0;
-  error = session_rules_table_add_del (srt, &args);
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
   SESSION_TEST ((error == 0), "Del 1.2.0.0/16 1234 5.6.0.0/16 4321");
-  res =
-    session_rules_table_lookup4 (srt, &lcl_ip, &rmt_ip, lcl_port, rmt_port);
+  res = session_rules_table_lookup4 (st->srtg_handle, TRANSPORT_PROTO_TCP,
+				     &lcl_ip, &rmt_ip, lcl_port, rmt_port);
   SESSION_TEST ((res == 3),
 		"Lookup 1.2.3.4 1234 5.6.7.8 4321, action should " "be 3: %d",
 		res);
@@ -1017,10 +1280,11 @@ session_test_rule_table (vlib_main_t * vm, unformat_input_t * input)
   args.lcl_port = 0;
   args.rmt_port = 0;
   args.is_add = 0;
-  error = session_rules_table_add_del (srt, &args);
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
   SESSION_TEST ((error == 0), "Del 1.2.0.0/16 * 5.6.0.0/16 *");
-  res =
-    session_rules_table_lookup4 (srt, &lcl_ip, &rmt_ip, lcl_port, rmt_port);
+  res = session_rules_table_lookup4 (st->srtg_handle, TRANSPORT_PROTO_TCP,
+				     &lcl_ip, &rmt_ip, lcl_port, rmt_port);
   SESSION_TEST ((res == 3),
 		"Lookup 1.2.3.4 1234 5.6.7.8 4321, action should " "be 3: %d",
 		res);
@@ -1035,11 +1299,14 @@ session_test_rule_table (vlib_main_t * vm, unformat_input_t * input)
   args.lcl_port = 1234;
   args.rmt_port = 4321;
   args.is_add = 0;
-  error = session_rules_table_add_del (srt, &args);
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
   SESSION_TEST ((error == 0), "Del 1.2.3.4/24 1234 5.6.7.5/24");
-  res =
-    session_rules_table_lookup4 (srt, &lcl_ip, &rmt_ip, lcl_port, rmt_port);
+  res = session_rules_table_lookup4 (st->srtg_handle, TRANSPORT_PROTO_TCP,
+				     &lcl_ip, &rmt_ip, lcl_port, rmt_port);
   SESSION_TEST ((res == 2), "Action should be 2: %d", res);
+
+  session_table_free (st, FIB_PROTOCOL_MAX);
 
   return 0;
 }
@@ -1075,6 +1342,9 @@ session_test_rules (vlib_main_t * vm, unformat_input_t * input)
 	  return -1;
 	}
     }
+
+  session_test_disable_rt_backend_engine (vm);
+  session_test_enable_rule_table_engine (vm);
 
   server_sep.is_ip4 = 1;
   server_sep.port = placeholder_port;
@@ -1625,6 +1895,7 @@ session_test_proxy (vlib_main_t * vm, unformat_input_t * input)
   u16 lcl_port = 1234, rmt_port = 4321;
   app_namespace_t *app_ns;
   int verbose = 0, error = 0;
+  app_listener_t *al;
 
   while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
     {
@@ -1699,8 +1970,9 @@ session_test_proxy (vlib_main_t * vm, unformat_input_t * input)
   SESSION_TEST ((tc != 0), "lookup 1.2.3.4 1234 5.6.7.8 4321 should be "
 		"successful");
   s = listen_session_get (tc->s_index);
-  SESSION_TEST ((s->app_index == server_index), "lookup should return"
-		" the server");
+  al = app_listener_get (s->al_index);
+  SESSION_TEST ((al->app_index == server_index), "lookup should return"
+						 " the server");
 
   tc = session_lookup_connection_wt4 (0, &rmt_ip, &rmt_ip, lcl_port, rmt_port,
 				      TRANSPORT_PROTO_TCP, 0, &is_filtered);
@@ -1734,6 +2006,11 @@ session_test_proxy (vlib_main_t * vm, unformat_input_t * input)
     unformat_free (&tmp_input);
   vec_free (attach_args.name);
   session_delete_loopback (sw_if_index);
+
+  /* Revert default appns sw_if_index */
+  app_ns = app_namespace_get_default ();
+  app_ns->sw_if_index = ~0;
+
   return 0;
 }
 
@@ -1769,6 +2046,74 @@ wait_for_event (svm_msg_q_t * mq, int fd, int epfd, u8 use_eventfd)
 	    break;
 	}
     }
+}
+
+/* Used to be part of application_worker.c prior to adding support for
+ * async rx
+ */
+static int
+test_mq_try_lock_and_alloc_msg (svm_msg_q_t *mq, session_mq_rings_e ring,
+				svm_msg_q_msg_t *msg)
+{
+  int rv, n_try = 0;
+
+  while (n_try < 75)
+    {
+      rv = svm_msg_q_lock_and_alloc_msg_w_ring (mq, ring, SVM_Q_NOWAIT, msg);
+      if (!rv)
+	return 0;
+      /*
+       * Break the loop if mq is full, usually this is because the
+       * app has crashed or is hanging on somewhere.
+       */
+      if (rv != -1)
+	break;
+      n_try += 1;
+      usleep (1);
+    }
+
+  return -1;
+}
+
+/* Used to be part of application_worker.c prior to adding support for
+ * async rx and was used for delivering io events over mq
+ * NB: removed handling of mq congestion
+ */
+static inline int
+test_app_send_io_evt_rx (app_worker_t *app_wrk, session_t *s)
+{
+  svm_msg_q_msg_t _mq_msg = { 0 }, *mq_msg = &_mq_msg;
+  session_event_t *evt;
+  svm_msg_q_t *mq;
+  u32 app_session;
+  int rv;
+
+  if (app_worker_application_is_builtin (app_wrk))
+    return app_worker_rx_notify (app_wrk, s);
+
+  if (svm_fifo_has_event (s->rx_fifo))
+    return 0;
+
+  app_session = s->rx_fifo->app_session_index;
+  mq = app_wrk->event_queue;
+
+  rv = test_mq_try_lock_and_alloc_msg (mq, SESSION_MQ_IO_EVT_RING, mq_msg);
+
+  if (PREDICT_FALSE (rv))
+    {
+      clib_warning ("failed to alloc mq message");
+      return -1;
+    }
+
+  evt = svm_msg_q_msg_data (mq, mq_msg);
+  evt->event_type = SESSION_IO_EVT_RX;
+  evt->session_index = app_session;
+
+  (void) svm_fifo_set_event (s->rx_fifo);
+
+  svm_msg_q_add_and_unlock (mq, mq_msg);
+
+  return 0;
 }
 
 static int
@@ -1885,7 +2230,7 @@ session_test_mq_speed (vlib_main_t * vm, unformat_input_t * input)
 	{
 	  while (svm_fifo_has_event (rx_fifo))
 	    ;
-	  app_worker_lock_and_send_event (app_wrk, &s, SESSION_IO_EVT_RX);
+	  test_app_send_io_evt_rx (app_wrk, &s);
 	}
     }
 
@@ -2005,13 +2350,548 @@ session_test_mq_basic (vlib_main_t * vm, unformat_input_t * input)
   return 0;
 }
 
+static f32
+session_get_memory_usage (void)
+{
+  clib_mem_heap_t *heap = clib_mem_get_heap ();
+  u8 *s = 0;
+  char *ss;
+  f32 used = 0.0;
+
+  s = format (s, "%U\n", format_clib_mem_heap, heap, 0);
+  ss = strstr ((char *) s, "used:");
+  if (ss)
+    {
+      if (sscanf (ss, "used: %f", &used) != 1)
+	clib_warning ("invalid 'used' value");
+    }
+  else
+    clib_warning ("substring 'used:' not found from show memory");
+  vec_free (s);
+  return (used);
+}
+
+static int
+session_test_enable_disable (vlib_main_t *vm, unformat_input_t *input)
+{
+  u32 iteration = 100, i, n_sessions = 0;
+  uword was_enabled;
+  f32 was_using, now_using;
+
+  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (input, "repeat %d", &iteration))
+	;
+      else
+	{
+	  vlib_cli_output (vm, "parse error: '%U'", format_unformat_error,
+			   input);
+	  return -1;
+	}
+    }
+
+  for (int thread_index = 0; thread_index <= vlib_num_workers ();
+       thread_index++)
+    n_sessions += pool_elts (session_main.wrk[thread_index].sessions);
+
+  was_enabled = clib_mem_trace_enable_disable (0);
+  /* warm up */
+  for (i = 0; i < 10; i++)
+    {
+      session_test_disable_rt_backend_engine (vm);
+      session_test_enable_sdl_engine (vm);
+      session_test_disable_rt_backend_engine (vm);
+      session_test_enable_rule_table_engine (vm);
+    }
+  was_using = session_get_memory_usage ();
+
+  for (i = 0; i < iteration; i++)
+    {
+      session_test_disable_rt_backend_engine (vm);
+      session_test_enable_sdl_engine (vm);
+      session_test_disable_rt_backend_engine (vm);
+      session_test_enable_rule_table_engine (vm);
+    }
+  now_using = session_get_memory_usage ();
+
+  clib_mem_trace_enable_disable (was_enabled);
+  if (n_sessions)
+    SESSION_TEST ((now_using < was_using + (1 << 15)),
+		  "was using %.2fM, now using %.2fM", was_using, now_using);
+  else
+    SESSION_TEST ((was_using == now_using), "was using %.2fM, now using %.2fM",
+		  was_using, now_using);
+
+  return 0;
+}
+
+static int
+session_test_sdl (vlib_main_t *vm, unformat_input_t *input)
+{
+  session_table_t *st = session_table_alloc ();
+  u16 lcl_port = 0, rmt_port = 0;
+  u32 action_index = 1, res;
+  int verbose = 0, error;
+  ip4_address_t rmt_ip;
+  const char ip_str_1234[] = "1.2.3.4";
+  inet_pton (AF_INET, ip_str_1234, &rmt_ip);
+  ip4_address_t lcl_ip = {
+    .as_u32 = clib_host_to_net_u32 (0x0),
+  };
+  ip6_address_t lcl_ip6 = {
+    .as_u64 = { 0, 0 },
+  };
+  fib_prefix_t rmt_pref = {
+    .fp_addr.ip4.as_u32 = rmt_ip.as_u32,
+    .fp_len = 16,
+    .fp_proto = FIB_PROTOCOL_IP4,
+  };
+  fib_prefix_t lcl_pref = {
+    .fp_addr.ip4.as_u32 = lcl_ip.as_u32,
+    .fp_len = 0,
+    .fp_proto = 0,
+  };
+  session_rule_table_add_del_args_t args = {
+    .lcl = lcl_pref,
+    .rmt = rmt_pref,
+    .lcl_port = lcl_port,
+    .rmt_port = rmt_port,
+    .action_index = action_index++,
+    .is_add = 1,
+  };
+  const char ip_str_1200[] = "1.2.0.0";
+  const char ip_str_1230[] = "1.2.3.0";
+  const char ip_str_1111[] = "1.1.1.1";
+  const char ip6_str[] = "2501:0db8:85a3:0000:0000:8a2e:0371:1";
+  const char ip6_str2[] = "2501:0db8:85a3:0000:0000:8a2e:0372:1";
+
+  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (input, "verbose"))
+	verbose = 1;
+      else
+	{
+	  vlib_cli_output (vm, "parse error: '%U'", format_unformat_error,
+			   input);
+	  return -1;
+	}
+    }
+
+  session_test_disable_rt_backend_engine (vm);
+  session_test_enable_sdl_engine (vm);
+
+  session_table_init (st, FIB_PROTOCOL_MAX);
+  vec_add1 (st->appns_index,
+	    app_namespace_index (app_namespace_get_default ()));
+  session_rules_table_init (st, FIB_PROTOCOL_MAX);
+
+  /* Add 1.2.0.0/16 */
+  args.rmt.fp_len = 16;
+  inet_pton (AF_INET, ip_str_1200, &args.rmt.fp_addr.ip4.as_u32);
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
+  SESSION_TEST ((error == 0), "Add %s/%d action %d", ip_str_1200,
+		args.rmt.fp_len, action_index - 1);
+
+  /* Lookup 1.2.3.4 */
+  res = session_rules_table_lookup4 (st->srtg_handle, TRANSPORT_PROTO_TCP,
+				     &lcl_ip, &rmt_ip, lcl_port, rmt_port);
+  SESSION_TEST ((res == action_index - 1),
+		"Lookup %s, action should "
+		"be 1: %d",
+		ip_str_1234, action_index - 1);
+
+  /*
+   * Add 1.2.3.0/24
+   */
+  args.rmt.fp_len = 24;
+  inet_pton (AF_INET, ip_str_1230, &args.rmt.fp_addr.ip4.as_u32);
+  args.action_index = action_index++;
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
+  SESSION_TEST ((error == 0), "Add %s/%d action %d", ip_str_1230,
+		args.rmt.fp_len, action_index - 1);
+
+  /* Lookup 1.2.3.4 */
+  res = session_rules_table_lookup4 (st->srtg_handle, TRANSPORT_PROTO_TCP,
+				     &lcl_ip, &rmt_ip, lcl_port, rmt_port);
+  SESSION_TEST ((res == action_index - 1),
+		"Lookup %s, action should "
+		"be 2: %d",
+		ip_str_1234, action_index - 1);
+
+  /* look up 1.1.1.1, should be -1 (invalid index) */
+  inet_pton (AF_INET, ip_str_1111, &rmt_ip);
+  res = session_rules_table_lookup4 (st->srtg_handle, TRANSPORT_PROTO_TCP,
+				     &lcl_ip, &rmt_ip, lcl_port, rmt_port);
+  SESSION_TEST ((res == SESSION_TABLE_INVALID_INDEX),
+		"Lookup %s, action should "
+		"be -1: %d",
+		ip_str_1111, res);
+
+  /* Add again 1.2.0.0/16, should be rejected */
+  args.rmt.fp_len = 16;
+  inet_pton (AF_INET, ip_str_1200, &args.rmt.fp_addr.ip4.as_u32);
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
+  SESSION_TEST ((error == SESSION_E_IPINUSE), "Add %s/%d action %d",
+		ip_str_1200, args.rmt.fp_len, error);
+  /*
+   * Add 0.0.0.0/0, should get an error
+   */
+  args.rmt.fp_len = 0;
+  args.rmt.fp_addr.ip4.as_u32 = 0;
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
+  SESSION_TEST ((error == SESSION_E_IPINUSE), "Add 0.0.0.0/%d action %d",
+		args.rmt.fp_len, error);
+
+  /* delete 0.0.0.0 should be rejected */
+  args.is_add = 0;
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
+  SESSION_TEST ((error == SESSION_E_NOROUTE), "Del 0.0.0.0/%d action %d",
+		args.rmt.fp_len, error);
+  if (verbose)
+    session_rules_table_cli_dump (vm, st->srtg_handle, TRANSPORT_PROTO_TCP,
+				  FIB_PROTOCOL_IP4);
+
+  /*
+   * Clean up
+   * Delete 1.2.0.0/16
+   * Delete 1.2.3.0/24
+   */
+  inet_pton (AF_INET, ip_str_1200, &args.rmt.fp_addr.ip4.as_u32);
+  args.rmt.fp_len = 16;
+  args.is_add = 0;
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
+  SESSION_TEST ((error == 0), "Del %s/%d should 0: %d", ip_str_1200,
+		args.rmt.fp_len, error);
+
+  inet_pton (AF_INET, ip_str_1230, &args.rmt.fp_addr.ip4.as_u32);
+  args.rmt.fp_len = 24;
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
+  SESSION_TEST ((error == 0), "Del %s/%d, should be 0: %d", ip_str_1230,
+		args.rmt.fp_len, error);
+  if (verbose)
+    session_rules_table_cli_dump (vm, st->srtg_handle, TRANSPORT_PROTO_TCP,
+				  FIB_PROTOCOL_IP4);
+
+  /* ip6 tests */
+
+  /*
+   * Add ip6 2001:0db8:85a3:0000:0000:8a2e:0371:1/124
+   */
+  ip6_address_t lcl_lkup;
+  inet_pton (AF_INET6, ip6_str, &args.rmt.fp_addr.ip6);
+  args.rmt.fp_len = 124;
+  args.rmt.fp_proto = FIB_PROTOCOL_IP6;
+  args.action_index = action_index++;
+  args.is_add = 1;
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
+  SESSION_TEST ((error == 0), "Add %s/%d action %d", ip6_str, args.rmt.fp_len,
+		action_index - 1);
+  if (verbose)
+    session_rules_table_cli_dump (vm, st->srtg_handle, TRANSPORT_PROTO_TCP,
+				  FIB_PROTOCOL_IP6);
+
+  /* Lookup 2001:0db8:85a3:0000:0000:8a2e:0371:1 */
+  res = session_rules_table_lookup6 (st->srtg_handle, TRANSPORT_PROTO_TCP,
+				     &lcl_ip6, &args.rmt.fp_addr.ip6, lcl_port,
+				     rmt_port);
+  SESSION_TEST ((res == action_index - 1),
+		"Lookup %s action should "
+		"be 3: %d",
+		ip6_str, action_index - 1);
+
+  /* Lookup 2001:0db8:85a3:0000:0000:8a2e:0372:1 */
+  inet_pton (AF_INET6, ip6_str2, &lcl_lkup);
+  res = session_rules_table_lookup6 (st->srtg_handle, TRANSPORT_PROTO_TCP,
+				     &lcl_ip6, &lcl_lkup, lcl_port, rmt_port);
+  SESSION_TEST ((res == SESSION_TABLE_INVALID_INDEX),
+		"Lookup %s action should "
+		"be -1: %d",
+		ip6_str2, res);
+
+  /*
+   * del ip6 2001:0db8:85a3:0000:0000:8a2e:0371:1/124
+   */
+  args.is_add = 0;
+  args.rmt.fp_len = 124;
+  error =
+    session_rules_table_add_del (st->srtg_handle, TRANSPORT_PROTO_TCP, &args);
+  SESSION_TEST ((error == 0), "del %s/%d, should be 0: %d", ip6_str,
+		args.rmt.fp_len, error);
+  if (verbose)
+    session_rules_table_cli_dump (vm, st->srtg_handle, TRANSPORT_PROTO_TCP,
+				  FIB_PROTOCOL_IP6);
+
+  session_table_free (st, FIB_PROTOCOL_MAX);
+
+  return 0;
+}
+
+static int
+session_test_ext_cfg (vlib_main_t *vm, unformat_input_t *input)
+{
+  session_endpoint_cfg_t sep = SESSION_ENDPOINT_CFG_NULL;
+  transport_endpt_ext_cfg_t *ext_cfg;
+
+  ext_cfg = session_endpoint_add_ext_cfg (&sep, TRANSPORT_ENDPT_EXT_CFG_HTTP,
+					  sizeof (ext_cfg->opaque));
+  ext_cfg->opaque = 60;
+
+  ext_cfg =
+    session_endpoint_add_ext_cfg (&sep, TRANSPORT_ENDPT_EXT_CFG_CRYPTO,
+				  sizeof (transport_endpt_crypto_cfg_t));
+  ext_cfg->crypto.ckpair_index = 1;
+
+  ext_cfg = session_endpoint_add_ext_cfg (&sep, TRANSPORT_ENDPT_EXT_CFG_NONE,
+					  sizeof (ext_cfg->opaque));
+  ext_cfg->opaque = 345;
+
+  ext_cfg = session_endpoint_get_ext_cfg (&sep, TRANSPORT_ENDPT_EXT_CFG_HTTP);
+  SESSION_TEST ((ext_cfg != 0),
+		"TRANSPORT_ENDPT_EXT_CFG_HTTP should be present");
+  SESSION_TEST ((ext_cfg->opaque == 60),
+		"TRANSPORT_ENDPT_EXT_CFG_HTTP opaque value should be 60: %u",
+		ext_cfg->opaque);
+  ext_cfg =
+    session_endpoint_get_ext_cfg (&sep, TRANSPORT_ENDPT_EXT_CFG_CRYPTO);
+  SESSION_TEST ((ext_cfg != 0),
+		"TRANSPORT_ENDPT_EXT_CFG_CRYPTO should be present");
+  SESSION_TEST (
+    (ext_cfg->crypto.ckpair_index == 1),
+    "TRANSPORT_ENDPT_EXT_CFG_HTTP ckpair_index value should be 1: %u",
+    ext_cfg->crypto.ckpair_index);
+  ext_cfg = session_endpoint_get_ext_cfg (&sep, TRANSPORT_ENDPT_EXT_CFG_NONE);
+  SESSION_TEST ((ext_cfg != 0),
+		"TRANSPORT_ENDPT_EXT_CFG_NONE should be present");
+  SESSION_TEST ((ext_cfg->opaque == 345),
+		"TRANSPORT_ENDPT_EXT_CFG_HTTP opaque value should be 345: %u",
+		ext_cfg->opaque);
+  session_endpoint_free_ext_cfgs (&sep);
+
+  return 0;
+}
+
+static int
+session_test_reconn_while_closed (vlib_main_t *vm, unformat_input_t *input)
+{
+  u64 options[APP_OPTIONS_N_OPTIONS], placeholder_secret = 1234;
+  u32 server_index, client_index, sw_if_index[2], tries = 0;
+  u16 placeholder_server_port = 1234, placeholder_client_port = 5678;
+  session_endpoint_cfg_t server_sep = SESSION_ENDPOINT_CFG_NULL;
+  session_endpoint_cfg_t client_sep = SESSION_ENDPOINT_CFG_NULL;
+  u32 client_vrf = 0, server_vrf = 1;
+  ip4_address_t intf_addr[2];
+  u8 *appns_id;
+  int error;
+
+  ST_DBG ("session_test_reconn_while_closed");
+
+  /* Reset global state */
+  connected_session_index = connected_session_thread = ~0;
+  accepted_session_index = accepted_session_thread = ~0;
+  placeholder_accept = 0;
+  app_session_error = 0;
+
+  /* Create the loopbacks */
+  intf_addr[0].as_u32 = clib_host_to_net_u32 (0x03030303);
+  session_create_lookpback (client_vrf, &sw_if_index[0], &intf_addr[0]);
+  intf_addr[1].as_u32 = clib_host_to_net_u32 (0x04040404);
+  session_create_lookpback (server_vrf, &sw_if_index[1], &intf_addr[1]);
+  session_add_del_route_via_lookup_in_table (
+    client_vrf, server_vrf, &intf_addr[1], 32, 1 /* is_add */);
+  session_add_del_route_via_lookup_in_table (
+    server_vrf, client_vrf, &intf_addr[0], 32, 1 /* is_add */);
+
+  /* Insert namespace */
+  appns_id = format (0, "appns_server");
+  vnet_app_namespace_add_del_args_t ns_args = { .ns_id = appns_id,
+						.secret = placeholder_secret,
+						.sw_if_index = sw_if_index[1],
+						.ip4_fib_id = 0,
+						.is_add = 1 };
+  error = vnet_app_namespace_add_del (&ns_args);
+  SESSION_TEST ((error == 0), "app ns insertion should succeed: %d", error);
+
+  /* Attach client/server */
+  clib_memset (options, 0, sizeof (options));
+  options[APP_OPTIONS_FLAGS] = APP_OPTIONS_FLAGS_IS_BUILTIN;
+  options[APP_OPTIONS_FLAGS] |= APP_OPTIONS_FLAGS_USE_GLOBAL_SCOPE;
+
+  vnet_app_attach_args_t attach_args = {
+    .api_client_index = ~0,
+    .options = options,
+    .namespace_id = 0,
+    .session_cb_vft = &placeholder_session_cbs,
+    .name = format (0, "session_test_client"),
+  };
+
+  error = vnet_application_attach (&attach_args);
+  SESSION_TEST ((error == 0), "client app attached: %U", format_session_error,
+		error);
+  client_index = attach_args.app_index;
+  vec_free (attach_args.name);
+
+  attach_args.name = format (0, "session_test_server");
+  attach_args.namespace_id = appns_id;
+  attach_args.options[APP_OPTIONS_ADD_SEGMENT_SIZE] = 32 << 20;
+  attach_args.options[APP_OPTIONS_NAMESPACE_SECRET] = placeholder_secret;
+  error = vnet_application_attach (&attach_args);
+  SESSION_TEST ((error == 0), "server app attached: %U", format_session_error,
+		error);
+  vec_free (attach_args.name);
+  server_index = attach_args.app_index;
+
+  /* Listen on server */
+  server_sep.is_ip4 = 1;
+  server_sep.port = placeholder_server_port;
+  vnet_listen_args_t bind_args = {
+    .sep_ext = server_sep,
+    .app_index = server_index,
+  };
+  error = vnet_listen (&bind_args);
+  SESSION_TEST ((error == 0), "server is listening");
+
+  /* First connection: Connect with fixed 5-tuple */
+  client_sep.is_ip4 = 1;
+  client_sep.ip.ip4.as_u32 = intf_addr[1].as_u32;
+  client_sep.port = placeholder_server_port;
+  client_sep.peer.is_ip4 = 1;
+  client_sep.peer.ip.ip4.as_u32 = intf_addr[0].as_u32;
+  client_sep.peer.port = placeholder_client_port;
+  client_sep.transport_proto = TRANSPORT_PROTO_TCP;
+
+  vnet_connect_args_t connect_args = {
+    .sep_ext = client_sep,
+    .app_index = client_index,
+  };
+
+  connected_session_index = connected_session_thread = ~0;
+  accepted_session_index = accepted_session_thread = ~0;
+  error = vnet_connect (&connect_args);
+  SESSION_TEST ((error == 0), "connecting first session");
+
+  /* Wait for connection establishment */
+  tries = 0;
+  while (placeholder_accept == 0 && ++tries < 100)
+    {
+      vlib_worker_thread_barrier_release (vm);
+      vlib_process_suspend (vm, 100e-3);
+      vlib_worker_thread_barrier_sync (vm);
+    }
+  SESSION_TEST ((accepted_session_index != ~0),
+		"first session is accepted: %u", accepted_session_index);
+  while (connected_session_index == ~0 && ++tries < 100)
+    {
+      vlib_worker_thread_barrier_release (vm);
+      vlib_process_suspend (vm, 100e-3);
+      vlib_worker_thread_barrier_sync (vm);
+    }
+  SESSION_TEST ((connected_session_index != ~0),
+		"first session is connected: %u", connected_session_index);
+
+  /* Acquire server side connections prior to disconnect for later use */
+  transport_connection_t *tc = session_get_transport (
+    session_get (accepted_session_index, accepted_session_thread));
+
+  /* Close the first connection from server side */
+  vnet_disconnect_args_t disconnect_args = {
+    .handle =
+      session_make_handle (accepted_session_index, accepted_session_thread),
+    .app_index = server_index,
+  };
+  error = vnet_disconnect_session (&disconnect_args);
+  SESSION_TEST ((error == 0), "first session is being disconnected by server");
+
+  /* Wait for disconnection of client */
+  tries = 0;
+  while (connected_session_index != ~0 && ++tries < 100)
+    {
+      vlib_worker_thread_barrier_release (vm);
+      vlib_process_suspend (vm, 100e-3);
+      vlib_worker_thread_barrier_sync (vm);
+    }
+  SESSION_TEST ((connected_session_index == ~0),
+		"the client connection is disconnected");
+
+  /* force server side to get CLOSED state */
+  transport_reset (tc->proto, tc->c_index, tc->thread_index);
+  tcp_connection_t *tcp = tcp_connection_get (tc->c_index, tc->thread_index);
+  SESSION_TEST ((tcp && tcp->state == TCP_STATE_CLOSED),
+		"the server connection is in CLOSED");
+
+  /* Second connection: attempt to reconnect with same 5-tuple */
+  ST_DBG ("Trying to reconnect to CLOSED Server session");
+  placeholder_accept = 0;
+
+  /* Use identical 5-tuple */
+  error = vnet_connect (&connect_args);
+  SESSION_TEST (error == 0, "immediate second connect should not fail: %U",
+		format_session_error, error);
+  /* If connect succeeds, wait a bit to see if connection actually establishes
+   */
+  tries = 0;
+  while (connected_session_index == ~0 && ++tries < 100)
+    {
+      vlib_worker_thread_barrier_release (vm);
+      vlib_process_suspend (vm, 10e-3);
+      vlib_worker_thread_barrier_sync (vm);
+    }
+  SESSION_TEST (connected_session_index != ~0,
+		"immediate second connection should establish");
+
+  /* Clean up the second connection */
+  if (connected_session_index != ~0)
+    {
+      disconnect_args.handle = session_make_handle (connected_session_index,
+						    connected_session_thread);
+      disconnect_args.app_index = client_index;
+      error = vnet_disconnect_session (&disconnect_args);
+      SESSION_TEST ((error == 0), "second disconnect should work");
+    }
+
+  /* Cleanup */
+  vnet_app_detach_args_t detach_args = {
+    .app_index = server_index,
+    .api_client_index = ~0,
+  };
+  vnet_application_detach (&detach_args);
+  detach_args.app_index = client_index;
+  vnet_application_detach (&detach_args);
+
+  ns_args.is_add = 0;
+  error = vnet_app_namespace_add_del (&ns_args);
+  SESSION_TEST ((error == 0), "app ns delete should succeed: %d", error);
+
+  /* Allow cleanup to finish */
+  vlib_process_suspend (vm, 100e-3);
+
+  session_add_del_route_via_lookup_in_table (
+    client_vrf, server_vrf, &intf_addr[1], 32, 0 /* is_add */);
+  session_add_del_route_via_lookup_in_table (
+    server_vrf, client_vrf, &intf_addr[0], 32, 0 /* is_add */);
+
+  session_delete_loopback (sw_if_index[0]);
+  session_delete_loopback (sw_if_index[1]);
+
+  vec_free (appns_id);
+
+  return 0;
+}
+
 static clib_error_t *
 session_test (vlib_main_t * vm,
 	      unformat_input_t * input, vlib_cli_command_t * cmd_arg)
 {
   int res = 0;
 
-  vnet_session_enable_disable (vm, 1);
+  session_test_enable_rule_table_engine (vm);
 
   while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
     {
@@ -2031,6 +2911,14 @@ session_test (vlib_main_t * vm,
 	res = session_test_mq_speed (vm, input);
       else if (unformat (input, "mq-basic"))
 	res = session_test_mq_basic (vm, input);
+      else if (unformat (input, "enable-disable"))
+	res = session_test_enable_disable (vm, input);
+      else if (unformat (input, "sdl"))
+	res = session_test_sdl (vm, input);
+      else if (unformat (input, "ext-cfg"))
+	res = session_test_ext_cfg (vm, input);
+      else if (unformat (input, "reconn-while-closed"))
+	res = session_test_reconn_while_closed (vm, input);
       else if (unformat (input, "all"))
 	{
 	  if ((res = session_test_basic (vm, input)))
@@ -2049,6 +2937,12 @@ session_test (vlib_main_t * vm,
 	    goto done;
 	  if ((res = session_test_mq_basic (vm, input)))
 	    goto done;
+	  if ((res = session_test_sdl (vm, input)))
+	    goto done;
+	  if ((res = session_test_ext_cfg (vm, input)))
+	    goto done;
+	  if ((res = session_test_enable_disable (vm, input)))
+	    goto done;
 	}
       else
 	break;
@@ -2057,22 +2951,13 @@ session_test (vlib_main_t * vm,
 done:
   if (res)
     return clib_error_return (0, "Session unit test failed");
+
+  vlib_cli_output (vm, "SUCCESS");
   return 0;
 }
 
-/* *INDENT-OFF* */
-VLIB_CLI_COMMAND (tcp_test_command, static) =
-{
+VLIB_CLI_COMMAND (session_test_command, static) = {
   .path = "test session",
   .short_help = "internal session unit tests",
   .function = session_test,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

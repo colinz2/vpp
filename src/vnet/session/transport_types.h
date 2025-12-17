@@ -1,23 +1,13 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef VNET_VNET_URI_TRANSPORT_TYPES_H_
 #define VNET_VNET_URI_TRANSPORT_TYPES_H_
 
 #include <vnet/vnet.h>
-#include <vnet/ip/ip.h>
+#include <vnet/ip/ip_types.h>
 #include <vnet/tcp/tcp_debug.h>
 #include <vppinfra/bihash_24_8.h>
 
@@ -34,9 +24,8 @@ typedef enum transport_dequeue_type_
 
 typedef enum transport_service_type_
 {
-  TRANSPORT_SERVICE_VC,		/**< virtual circuit service */
-  TRANSPORT_SERVICE_CL,		/**< connectionless service */
-  TRANSPORT_SERVICE_APP,	/**< app transport service */
+  TRANSPORT_SERVICE_VC, /**< virtual circuit service */
+  TRANSPORT_SERVICE_CL, /**< connectionless service */
   TRANSPORT_N_SERVICES
 } transport_service_type_t;
 
@@ -69,7 +58,7 @@ typedef enum transport_connection_flags_
   TRANSPORT_CONNECTION_F_##sym = 1 << TRANSPORT_CONNECTION_F_BIT_##sym,
   foreach_transport_connection_flag
 #undef _
-} transport_connection_flags_t;
+} __clib_packed transport_connection_flags_t;
 
 typedef struct _spacer
 {
@@ -111,11 +100,11 @@ typedef struct _transport_connection
     u8 opaque_conn_id[TRANSPORT_CONN_ID_LEN];
   };
 
-  u32 s_index;			/**< Parent session index */
-  u32 c_index;			/**< Connection index in transport pool */
-  u32 thread_index;		/**< Worker-thread index */
-  u8 flags;			/**< Transport specific flags */
-  u8 dscp;			/**< Differentiated Services Code Point */
+  u32 s_index;			    /**< Parent session index */
+  u32 c_index;			    /**< Connection index in transport pool */
+  clib_thread_index_t thread_index; /**< Worker-thread index */
+  transport_connection_flags_t flags; /**< Transport specific flags */
+  u8 dscp; /**< Differentiated Services Code Point */
 
   /*fib_node_index_t rmt_fei;
      dpo_id_t rmt_dpo; */
@@ -171,7 +160,7 @@ STATIC_ASSERT (sizeof (transport_connection_t) <= 128,
 #define foreach_transport_proto                                               \
   _ (TCP, "tcp", "T")                                                         \
   _ (UDP, "udp", "U")                                                         \
-  _ (NONE, "ct", "C")                                                         \
+  _ (CT, "ct", "C")                                                           \
   _ (TLS, "tls", "J")                                                         \
   _ (QUIC, "quic", "Q")                                                       \
   _ (DTLS, "dtls", "D")                                                       \
@@ -185,6 +174,8 @@ typedef enum _transport_proto
 #undef _
 } transport_proto_t;
 
+#define TRANSPORT_PROTO_NONE TRANSPORT_PROTO_CT
+
 u8 *format_transport_proto (u8 * s, va_list * args);
 u8 *format_transport_proto_short (u8 * s, va_list * args);
 u8 *format_transport_flags (u8 *s, va_list *args);
@@ -194,6 +185,7 @@ u8 *format_transport_half_open_connection (u8 * s, va_list * args);
 
 uword unformat_transport_proto (unformat_input_t * input, va_list * args);
 u8 *format_transport_protos (u8 * s, va_list * args);
+u8 *format_transport_state (u8 *s, va_list *args);
 
 #define foreach_transport_endpoint_fields				\
   _(ip46_address_t, ip) /**< ip address in net order */			\
@@ -257,7 +249,8 @@ typedef enum transport_endpt_attr_flag_
   _ (u64, next_output_node, NEXT_OUTPUT_NODE)                                 \
   _ (u16, mss, MSS)                                                           \
   _ (u8, flags, FLAGS)                                                        \
-  _ (u8, cc_algo, CC_ALGO)
+  _ (u8, cc_algo, CC_ALGO)                                                    \
+  _ (transport_endpoint_t, ext_endpt, EXT_ENDPT)
 
 typedef enum transport_endpt_attr_type_
 {
@@ -281,13 +274,103 @@ typedef enum transport_endpt_ext_cfg_type_
 {
   TRANSPORT_ENDPT_EXT_CFG_NONE,
   TRANSPORT_ENDPT_EXT_CFG_CRYPTO,
+  TRANSPORT_ENDPT_EXT_CFG_HTTP,
 } transport_endpt_ext_cfg_type_t;
+
+#define foreach_tls_verify_cfg                                                \
+  _ (NONE, "none")                                                            \
+  _ (PEER, "peer")                                                            \
+  _ (PEER_CERT, "peer-cert")                                                  \
+  _ (HOSTNAME, "hostname")                                                    \
+  _ (HOSTNAME_STRICT, "hostname-strict")
+
+enum tls_verify_cfg_bit_
+{
+#define _(sym, name) TLS_VERIFY_CFG_BIT_##sym,
+  foreach_tls_verify_cfg
+#undef _
+};
+
+typedef enum tls_verify_cfg_
+{
+#define _(sym, name) TLS_VERIFY_F_##sym = 1 << TLS_VERIFY_CFG_BIT_##sym,
+  foreach_tls_verify_cfg
+#undef _
+} tls_verify_cfg_t;
+
+#define foreach_tls_alpn_protos                                               \
+  _ (NONE, "none")                                                            \
+  _ (HTTP_1_1, "http/1.1")                                                    \
+  _ (HTTP_2, "h2")                                                            \
+  _ (HTTP_3, "h3")                                                            \
+  _ (IMAP, "imap")                                                            \
+  _ (POP3, "pop3")                                                            \
+  _ (SMB2, "smb")                                                             \
+  _ (TURN, "stun.turn")                                                       \
+  _ (STUN, "stun.nat-discovery")                                              \
+  _ (WEBRTC, "webrtc")                                                        \
+  _ (CWEBRTC, "c-webrtc")                                                     \
+  _ (FTP, "ftp")                                                              \
+  _ (MANAGE_SIEVE, "managesieve")                                             \
+  _ (COAP_TLS, "coap")                                                        \
+  _ (COAP_DSTL, "co")                                                         \
+  _ (XMPP_CLIENT, "xmpp-client")                                              \
+  _ (XMPP_SERVER, "xmpp-server")                                              \
+  _ (ACME_TLS_1, "acme-tls/1")                                                \
+  _ (MQTT, "mqtt")                                                            \
+  _ (DNS_OVER_TLS, "dot")                                                     \
+  _ (NTSKE_1, "ntske/1")                                                      \
+  _ (SUN_RPC, "sunrpc")                                                       \
+  _ (IRC, "irc")                                                              \
+  _ (NNTP, "nntp")                                                            \
+  _ (NNSP, "nnsp")                                                            \
+  _ (DOQ, "doq")                                                              \
+  _ (SIP_2, "sip/2")                                                          \
+  _ (TDS_8_0, "tds/8.0")                                                      \
+  _ (DICOM, "dicom")                                                          \
+  _ (POSTGRESQL, "postgresql")                                                \
+  _ (RADIUS_1_0, "radius/1.0")                                                \
+  _ (RADIUS_1_1, "radius/1.1")
+
+typedef enum tls_alpn_proto_
+{
+#define _(sym, str) TLS_ALPN_PROTO_##sym,
+  foreach_tls_alpn_protos
+#undef _
+} __clib_packed tls_alpn_proto_t;
+
+typedef struct tls_alpn_proto_id_
+{
+  u8 len;
+  u8 *base;
+} tls_alpn_proto_id_t;
+
+static const tls_alpn_proto_id_t tls_alpn_proto_ids[] = {
+#define _(sym, str) { (u8) (sizeof (str) - 1), (u8 *) str },
+  foreach_tls_alpn_protos
+#undef _
+};
+
+static_always_inline u8
+tls_alpn_proto_id_eq (tls_alpn_proto_id_t *actual,
+		      tls_alpn_proto_id_t *expected)
+{
+  if (actual->len != expected->len)
+    return 0;
+  return memcmp (actual->base, expected->base, expected->len) == 0 ? 1 : 0;
+}
+
+tls_alpn_proto_t tls_alpn_proto_by_str (tls_alpn_proto_id_t *alpn_id);
+format_function_t format_tls_alpn_proto;
 
 typedef struct transport_endpt_crypto_cfg_
 {
-  u32 ckpair_index;
-  u8 crypto_engine;
-  u8 hostname[256]; /**< full domain len is 255 as per rfc 3986 */
+  u32 ckpair_index;   /**< index of ck pair in application crypto layer */
+  u32 ca_trust_index; /**< index of ca trust in application crypto layer */
+  u8 alpn_protos[4];  /**< ordered by preference for server */
+  u8 crypto_engine;   /**< crypto engine requested */
+  tls_verify_cfg_t verify_cfg; /**< cert verification mode */
+  u8 hostname[256];	       /**< full domain len is 255 as per rfc 3986 */
 } transport_endpt_crypto_cfg_t;
 
 typedef struct transport_endpt_ext_cfg_
@@ -297,9 +380,26 @@ typedef struct transport_endpt_ext_cfg_
   union
   {
     transport_endpt_crypto_cfg_t crypto;
+    u32 opaque; /**< For general use */
     u8 data[0];
   };
 } transport_endpt_ext_cfg_t;
+
+#define TRANSPORT_ENDPT_EXT_CFG_HEADER_SIZE 4
+
+typedef struct transport_endpt_ext_cfgs_
+{
+  u32 len;	   /**< length of config data chunk */
+  u32 tail_offset; /**< current tail in config data chunk */
+  u8 *data;	   /**< start of config data chunk */
+} transport_endpt_ext_cfgs_t;
+
+#define TRANSPORT_ENDPT_EXT_CFGS_CHUNK_SIZE 512
+
+#define TRANSPORT_ENDPT_EXT_CFGS_NULL                                         \
+  {                                                                           \
+    .len = 0, .tail_offset = 0, .data = 0,                                    \
+  }
 
 typedef clib_bihash_24_8_t transport_endpoint_table_t;
 
@@ -322,11 +422,3 @@ transport_service_type_t transport_protocol_service_type (transport_proto_t);
 transport_tx_fn_type_t transport_protocol_tx_fn_type (transport_proto_t tp);
 
 #endif /* VNET_VNET_URI_TRANSPORT_TYPES_H_ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

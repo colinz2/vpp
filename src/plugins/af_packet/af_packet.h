@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * af_packet.h - linux kernel packet interface header file
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * af_packet.h - linux kernel packet interface header file
  */
 
 #include <linux/if_packet.h>
@@ -47,6 +36,28 @@ typedef enum
   AF_PACKET_IF_FLAGS_FANOUT = 4,
   AF_PACKET_IF_FLAGS_VERSION_2 = 8,
 } af_packet_if_flags_t;
+
+#define foreach_af_packet_offload_flag                                        \
+  _ (RXCKSUM, 0, "rx checksum")                                               \
+  _ (TXCKSUM, 1, "tx checksum")                                               \
+  _ (SG, 2, "scatter-gather")                                                 \
+  _ (TSO, 3, "tcp segmentation offload")                                      \
+  _ (UFO, 4, "udp fragmentation offload")                                     \
+  _ (GSO, 5, "generic segmentation offload")                                  \
+  _ (GRO, 6, "generic receive offload")
+
+typedef enum
+{
+#define _(o, n, s) AF_PACKET_OFFLOAD_FLAG_##o = (1 << n),
+  foreach_af_packet_offload_flag
+#undef _
+} af_packet_offload_flag_t;
+
+#define AF_PACKET_OFFLOAD_FLAG_MASK                                           \
+  (AF_PACKET_OFFLOAD_FLAG_RXCKSUM | AF_PACKET_OFFLOAD_FLAG_TXCKSUM |          \
+   AF_PACKET_OFFLOAD_FLAG_SG | AF_PACKET_OFFLOAD_FLAG_TSO |                   \
+   AF_PACKET_OFFLOAD_FLAG_UFO | AF_PACKET_OFFLOAD_FLAG_GSO |                  \
+   AF_PACKET_OFFLOAD_FLAG_GRO)
 
 typedef struct
 {
@@ -121,6 +132,8 @@ typedef struct
   af_packet_ring_t *rings;
   u8 is_qdisc_bypass_enabled;
   u8 is_fanout_enabled;
+  int *fds;
+  af_packet_offload_flag_t host_interface_oflags;
 } af_packet_if_t;
 
 typedef struct
@@ -164,16 +177,10 @@ extern vlib_node_registration_t af_packet_input_node;
 int af_packet_create_if (af_packet_create_if_arg_t *arg);
 int af_packet_delete_if (u8 *host_if_name);
 int af_packet_set_l4_cksum_offload (u32 sw_if_index, u8 set);
+int af_packet_enable_disable_qdisc_bypass (u32 sw_if_index, u8 enable_disable);
 int af_packet_dump_ifs (af_packet_if_detail_t ** out_af_packet_ifs);
+u32 af_packet_get_if_capabilities (u8 *host_if_name);
 
 format_function_t format_af_packet_device_name;
 
-#define MIN(x,y) (((x)<(y))?(x):(y))
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+#define MIN(x, y) (((x) < (y)) ? (x) : (y))

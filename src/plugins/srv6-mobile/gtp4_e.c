@@ -1,19 +1,8 @@
-/*
- * srv6_end_m_gtp4_e.c
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2019 Arrcus Inc and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* srv6_end_m_gtp4_e.c */
 
 #include <vnet/vnet.h>
 #include <vnet/adj/adj.h>
@@ -80,11 +69,26 @@ clb_format_srv6_end_m_gtp4_e (u8 * s, va_list * args)
   return s;
 }
 
+void
+alloc_param_srv6_end_m_gtp4_e (void **plugin_mem_p, const void *v4src_addr,
+			       const u32 v4src_position, const u32 fib_table)
+{
+  srv6_end_gtp4_e_param_t *ls_mem;
+  ls_mem = clib_mem_alloc (sizeof *ls_mem);
+  clib_memset (ls_mem, 0, sizeof *ls_mem);
+  *plugin_mem_p = ls_mem;
+  ls_mem->v4src_position = v4src_position;
+  memcpy (&ls_mem->v4src_addr, v4src_addr, sizeof (ip4_address_t));
+
+  ls_mem->fib_table = fib_table;
+  ls_mem->fib4_index = ip4_fib_index_from_table_id (fib_table);
+  ls_mem->fib6_index = ip6_fib_index_from_table_id (fib_table);
+}
+
 static uword
 clb_unformat_srv6_end_m_gtp4_e (unformat_input_t * input, va_list * args)
 {
   void **plugin_mem_p = va_arg (*args, void **);
-  srv6_end_gtp4_e_param_t *ls_mem;
   ip4_address_t v4src_addr;
   u32 v4src_position = 0;
   u32 fib_table;
@@ -113,16 +117,8 @@ clb_unformat_srv6_end_m_gtp4_e (unformat_input_t * input, va_list * args)
   if (!config)
     return 0;
 
-  ls_mem = clib_mem_alloc (sizeof *ls_mem);
-  clib_memset (ls_mem, 0, sizeof *ls_mem);
-  *plugin_mem_p = ls_mem;
-
-  ls_mem->v4src_position = v4src_position;
-  memcpy (&ls_mem->v4src_addr, &v4src_addr, sizeof (ip4_address_t));
-
-  ls_mem->fib_table = fib_table;
-  ls_mem->fib4_index = ip4_fib_index_from_table_id (fib_table);
-  ls_mem->fib6_index = ip6_fib_index_from_table_id (fib_table);
+  alloc_param_srv6_end_m_gtp4_e (plugin_mem_p, &v4src_addr, v4src_position,
+				 fib_table);
 
   return 1;
 }
@@ -196,7 +192,6 @@ srv6_end_m_gtp4_e_init (vlib_main_t * vm)
   return 0;
 }
 
-/* *INDENT-OFF* */
 VNET_FEATURE_INIT (srv6_end_m_gtp4_e, static) =
 {
   .arc_name = "ip6-unicast",
@@ -210,12 +205,3 @@ VLIB_PLUGIN_REGISTER () = {
   .version = VPP_BUILD_VER,
   .description = "SRv6 GTP Endpoint Functions",
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

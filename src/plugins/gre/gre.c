@@ -1,19 +1,8 @@
-/*
- * gre.c: gre
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2012 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* gre.c: gre */
 
 #include <vnet/vnet.h>
 #include <gre/gre.h>
@@ -232,7 +221,11 @@ gre_build_rewrite (vnet_main_t *vnm, u32 sw_if_index, vnet_link_t link_type,
 
   if (!is_ipv6)
     {
-      vec_validate (rewrite, sizeof (*h4) - 1);
+      /* Allocate space for maximum header size including key */
+      if (gre_key_is_valid (t->gre_key))
+	vec_validate (rewrite, sizeof (*h4) + sizeof (gre_key_t) - 1);
+      else
+	vec_validate (rewrite, sizeof (*h4) - 1);
       h4 = (ip4_and_gre_header_t *) rewrite;
       gre = &h4->gre;
       h4->ip4.ip_version_and_header_length = 0x45;
@@ -245,7 +238,11 @@ gre_build_rewrite (vnet_main_t *vnm, u32 sw_if_index, vnet_link_t link_type,
     }
   else
     {
-      vec_validate (rewrite, sizeof (*h6) - 1);
+      /* Allocate space for maximum header size including key */
+      if (gre_key_is_valid (t->gre_key))
+	vec_validate (rewrite, sizeof (*h6) + sizeof (gre_key_t) - 1);
+      else
+	vec_validate (rewrite, sizeof (*h6) - 1);
       h6 = (ip6_and_gre_header_t *) rewrite;
       gre = &h6->gre;
       h6->ip6.ip_version_traffic_class_and_flow_label =
@@ -265,9 +262,18 @@ gre_build_rewrite (vnet_main_t *vnm, u32 sw_if_index, vnet_link_t link_type,
       gre->flags_and_version = clib_host_to_net_u16 (GRE_FLAGS_SEQUENCE);
     }
   else
-    gre->protocol =
-      clib_host_to_net_u16 (gre_proto_from_vnet_link (link_type));
-
+    {
+      gre->protocol =
+	clib_host_to_net_u16 (gre_proto_from_vnet_link (link_type));
+      gre->flags_and_version = 0; // Clear flags first
+      /* Add key only for non-ERSPAN tunnels */
+      if (gre_key_is_valid (t->gre_key))
+	{
+	  gre_header_with_key_t *grek = (gre_header_with_key_t *) gre;
+	  grek->flags_and_version = clib_host_to_net_u16 (GRE_FLAGS_KEY);
+	  grek->key = clib_host_to_net_u32 (t->gre_key);
+	}
+    }
   return (rewrite);
 }
 
@@ -666,7 +672,6 @@ VLIB_NODE_FN (gre_erspan_encap_node)
   return (gre_encap_inline (vm, node, frame, GRE_TUNNEL_TYPE_ERSPAN));
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (gre_teb_encap_node) =
 {
   .name = "gre-teb-encap",
@@ -693,7 +698,6 @@ VLIB_REGISTER_NODE (gre_erspan_encap_node) =
     [GRE_ENCAP_NEXT_L2_MIDCHAIN] = "adj-l2-midchain",
   },
 };
-/* *INDENT-ON* */
 
 #ifndef CLIB_MARCH_VARIANT
 static u8 *
@@ -743,7 +747,6 @@ gre_tunnel_desc (u32 sw_if_index, ip46_address_t *src, ip46_address_t *dst,
   return (0);
 }
 
-/* *INDENT-OFF* */
 VNET_DEVICE_CLASS (gre_device_class) = {
   .name = "GRE tunnel device",
   .format_device_name = format_gre_tunnel_name,
@@ -774,7 +777,6 @@ VNET_HW_INTERFACE_CLASS (mgre_hw_interface_class) = {
   .update_adjacency = mgre_update_adj,
   .flags = VNET_HW_INTERFACE_CLASS_FLAG_NBMA,
 };
-/* *INDENT-ON* */
 #endif /* CLIB_MARCH_VARIANT */
 
 static void
@@ -836,11 +838,3 @@ gre_init (vlib_main_t *vm)
 }
 
 VLIB_INIT_FUNCTION (gre_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

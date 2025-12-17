@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 /**
@@ -21,6 +11,7 @@
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
 #include <vnet/ip/ip.h>
+#include <vnet/ip/ip4_to_ip6.h>
 #include <vnet/fib/ip4_fib.h>
 #include <vppinfra/error.h>
 #include <vppinfra/elog.h>
@@ -29,7 +20,6 @@
 #include <nat/det44/det44_inlines.h>
 
 #include <nat/lib/lib.h>
-#include <nat/lib/inlines.h>
 #include <nat/lib/nat_inlines.h>
 
 typedef enum
@@ -818,7 +808,6 @@ VLIB_NODE_FN (det44_out2in_node) (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (det44_out2in_node) = {
   .name = "det44-out2in",
   .vector_size = sizeof (u32),
@@ -835,12 +824,3 @@ VLIB_REGISTER_NODE (det44_out2in_node) = {
     [DET44_OUT2IN_NEXT_ICMP_ERROR] = "ip4-icmp-error",
   },
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

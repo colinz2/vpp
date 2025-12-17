@@ -3,10 +3,12 @@
 import ipaddress
 import unittest
 
-from framework import VppTestCase, VppTestRunner
+from framework import VppTestCase
+from asfframework import VppTestRunner
 from vpp_ip import DpoProto
 from vpp_ip_route import VppIpRoute, VppRoutePath
 from util import fragment_rfc791, fragment_rfc8200
+from config import config
 
 import scapy.compat
 from scapy.layers.l2 import Ether
@@ -21,6 +23,7 @@ from scapy.layers.inet6 import (
 )
 
 
+@unittest.skipIf("map" in config.excluded_plugins, "Exclude MAP plugin tests")
 class TestMAP(VppTestCase):
     """MAP Test Case"""
 
@@ -53,7 +56,12 @@ class TestMAP(VppTestCase):
 
     def tearDown(self):
         super(TestMAP, self).tearDown()
+
         for i in self.pg_interfaces:
+            for t in (0, 1):
+                self.vapi.map_if_enable_disable(
+                    is_enable=0, sw_if_index=i.sw_if_index, is_translation=t
+                )
             i.unconfig_ip4()
             i.unconfig_ip6()
             i.admin_down()
@@ -488,7 +496,7 @@ class TestMAP(VppTestCase):
         #
         # Send a v4 packet that will be encapped.
         #
-        p_ether = Ether(dst=self.pg0.local_mac, src=self.pg0.remote_mac)
+        p_ether = Ether(dst=self.pg1.local_mac, src=self.pg1.remote_mac)
         p_ip4 = IP(src=self.pg0.remote_ip4, dst="192.168.1.1")
         p_tcp = TCP(sport=20000, dport=30000, flags="S", options=[("MSS", 1455)])
         p4 = p_ether / p_ip4 / p_tcp
@@ -653,7 +661,7 @@ class TestMAP(VppTestCase):
         p4 = p_ether / ip4_ttl_expired / payload
 
         icmp4_reply = (
-            IP(id=0, ttl=254, src=self.pg0.local_ip4, dst=self.pg0.remote_ip4)
+            IP(id=0, ttl=255, src=self.pg0.local_ip4, dst=self.pg0.remote_ip4)
             / ICMP(type="time-exceeded", code="ttl-zero-during-transit")
             / IP(src=self.pg0.remote_ip4, dst="192.168.0.1", ttl=0)
             / payload
@@ -667,7 +675,7 @@ class TestMAP(VppTestCase):
         p4 = p_ether / ip4_ttl_expired / payload
 
         icmp4_reply = (
-            IP(id=0, ttl=254, src=self.pg0.local_ip4, dst=self.pg0.remote_ip4)
+            IP(id=0, ttl=255, src=self.pg0.local_ip4, dst=self.pg0.remote_ip4)
             / ICMP(type="time-exceeded", code="ttl-zero-during-transit")
             / IP(src=self.pg0.remote_ip4, dst="192.168.0.1", ttl=1)
             / payload

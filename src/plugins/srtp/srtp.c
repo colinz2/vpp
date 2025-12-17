@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2021 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <srtp/srtp.h>
@@ -19,11 +9,11 @@
 
 static srtp_main_t srtp_main;
 
-static void srtp_disconnect (u32 ctx_handle, u32 thread_index);
+static void srtp_disconnect (u32 ctx_handle, clib_thread_index_t thread_index);
 static void srtp_disconnect_transport (srtp_tc_t *ctx);
 
 static inline u32
-srtp_ctx_alloc_w_thread (u32 thread_index)
+srtp_ctx_alloc_w_thread (clib_thread_index_t thread_index)
 {
   srtp_tc_t *ctx;
   pool_get_aligned_safe (srtp_main.ctx_pool[thread_index], ctx,
@@ -36,7 +26,7 @@ srtp_ctx_alloc_w_thread (u32 thread_index)
 }
 
 static inline srtp_tc_t *
-srtp_ctx_get_w_thread (u32 ctx_index, u32 thread_index)
+srtp_ctx_get_w_thread (u32 ctx_index, clib_thread_index_t thread_index)
 {
   return pool_elt_at_index (srtp_main.ctx_pool[thread_index], ctx_index);
 }
@@ -82,7 +72,7 @@ srtp_ctx_free (srtp_tc_t *ctx)
 }
 
 static inline u32
-srtp_ctx_attach (u32 thread_index, void *ctx_ptr)
+srtp_ctx_attach (clib_thread_index_t thread_index, void *ctx_ptr)
 {
   srtp_tc_t *ctx;
 
@@ -154,6 +144,7 @@ srtp_ctx_init_client (srtp_tc_t *ctx)
   app_session = session_get (ctx->c_s_index, ctx->c_thread_index);
   app_session->app_wrk_index = ctx->parent_app_wrk_index;
   app_session->connection_index = ctx->srtp_ctx_handle;
+  app_session->opaque = ctx->parent_app_api_context;
   app_session->session_type =
     session_type_from_proto_and_ip (TRANSPORT_PROTO_SRTP, ctx->udp_is_ip4);
 
@@ -290,7 +281,7 @@ done:
   if (n_wrote)
     {
       if (svm_fifo_set_event (us->tx_fifo))
-	session_send_io_evt_to_thread (us->tx_fifo, SESSION_IO_EVT_TX);
+	session_program_tx_io_evt (us->handle, SESSION_IO_EVT_TX);
     }
 
   if (PREDICT_FALSE (ctx->app_closed &&
@@ -309,8 +300,7 @@ done:
 int
 srtp_add_vpp_q_builtin_rx_evt (session_t *s)
 {
-  if (svm_fifo_set_event (s->rx_fifo))
-    session_send_io_evt_to_thread (s->rx_fifo, SESSION_IO_EVT_BUILTIN_RX);
+  session_enqueue_notify (s);
   return 0;
 }
 
@@ -320,7 +310,7 @@ srtp_notify_app_enqueue (srtp_tc_t *ctx, session_t *app_session)
   app_worker_t *app_wrk;
   app_wrk = app_worker_get_if_valid (app_session->app_wrk_index);
   if (PREDICT_TRUE (app_wrk != 0))
-    app_worker_lock_and_send_event (app_wrk, app_session, SESSION_IO_EVT_RX);
+    app_worker_rx_notify (app_wrk, app_session);
 }
 
 static inline int
@@ -360,6 +350,7 @@ srtp_ctx_read (srtp_tc_t *ctx, session_t *us)
 
       hdr.data_length = len;
       hdr.data_offset = 0;
+      hdr.gso_size = 0;
 
       svm_fifo_seg_t segs[2] = { { (u8 *) &hdr, sizeof (hdr) }, { buf, len } };
 
@@ -538,7 +529,7 @@ srtp_migrate_ctx (void *arg)
   us->opaque = ctx_handle;
   us->flags &= ~SESSION_F_IS_MIGRATING;
   if (svm_fifo_max_dequeue (us->tx_fifo))
-    session_send_io_evt_to_thread (us->tx_fifo, SESSION_IO_EVT_TX);
+    session_program_tx_io_evt (us->handle, SESSION_IO_EVT_TX);
 
   /* Migrate app session as well */
   session_dgram_connect_notify (&ctx->connection, old_thread_index,
@@ -641,10 +632,12 @@ srtp_connect (transport_endpoint_cfg_t *tep)
   application_t *app;
   srtp_tc_t *ctx;
   u32 ctx_index;
+  transport_endpt_ext_cfg_t *ext_cfg;
   int rv;
 
   sep = (session_endpoint_cfg_t *) tep;
-  if (!sep->ext_cfg)
+  ext_cfg = session_endpoint_get_ext_cfg (sep, TRANSPORT_ENDPT_EXT_CFG_NONE);
+  if (!ext_cfg)
     return SESSION_E_NOEXTCFG;
 
   app_wrk = app_worker_get (sep->app_wrk_index);
@@ -658,7 +651,7 @@ srtp_connect (transport_endpoint_cfg_t *tep)
   ctx->srtp_ctx_handle = ctx_index;
   ctx->c_flags |= TRANSPORT_CONNECTION_F_NO_LOOKUP;
 
-  srtp_init_policy (ctx, (transport_endpt_cfg_srtp_t *) sep->ext_cfg->data);
+  srtp_init_policy (ctx, (transport_endpt_cfg_srtp_t *) ext_cfg->data);
 
   clib_memcpy_fast (&cargs->sep, sep, sizeof (session_endpoint_t));
   cargs->sep.transport_proto = TRANSPORT_PROTO_UDP;
@@ -670,7 +663,7 @@ srtp_connect (transport_endpoint_cfg_t *tep)
     return rv;
 
   SRTP_DBG (1, "New connect request %u", ctx_index);
-  return 0;
+  return ctx_index;
 }
 
 static void
@@ -686,7 +679,7 @@ srtp_disconnect_transport (srtp_tc_t *ctx)
 }
 
 static void
-srtp_disconnect (u32 ctx_handle, u32 thread_index)
+srtp_disconnect (u32 ctx_handle, clib_thread_index_t thread_index)
 {
   session_t *app_session;
   srtp_tc_t *ctx;
@@ -723,9 +716,11 @@ srtp_start_listen (u32 app_listener_index, transport_endpoint_cfg_t *tep)
   app_listener_t *al;
   srtp_tc_t *lctx;
   u32 lctx_index;
+  transport_endpt_ext_cfg_t *ext_cfg;
 
   sep = (session_endpoint_cfg_t *) tep;
-  if (!sep->ext_cfg)
+  ext_cfg = session_endpoint_get_ext_cfg (sep, TRANSPORT_ENDPT_EXT_CFG_NONE);
+  if (!ext_cfg)
     return SESSION_E_NOEXTCFG;
 
   app_wrk = app_worker_get (sep->app_wrk_index);
@@ -756,7 +751,7 @@ srtp_start_listen (u32 app_listener_index, transport_endpoint_cfg_t *tep)
   lctx->c_s_index = app_listener_index;
   lctx->c_flags |= TRANSPORT_CONNECTION_F_NO_LOOKUP;
 
-  srtp_init_policy (lctx, (transport_endpt_cfg_srtp_t *) sep->ext_cfg->data);
+  srtp_init_policy (lctx, (transport_endpt_cfg_srtp_t *) ext_cfg->data);
 
   SRTP_DBG (1, "Started listening %d", lctx_index);
   return lctx_index;
@@ -797,7 +792,7 @@ srtp_stop_listen (u32 lctx_index)
 }
 
 transport_connection_t *
-srtp_connection_get (u32 ctx_index, u32 thread_index)
+srtp_connection_get (u32 ctx_index, clib_thread_index_t thread_index)
 {
   srtp_tc_t *ctx;
   ctx = srtp_ctx_get_w_thread (ctx_index, thread_index);
@@ -891,7 +886,7 @@ u8 *
 format_srtp_connection (u8 *s, va_list *args)
 {
   u32 ctx_index = va_arg (*args, u32);
-  u32 thread_index = va_arg (*args, u32);
+  clib_thread_index_t thread_index = va_arg (*args, u32);
   u32 verbose = va_arg (*args, u32);
   srtp_tc_t *ctx;
 
@@ -931,19 +926,21 @@ format_srtp_half_open (u8 *s, va_list *args)
 }
 
 static void
-srtp_transport_endpoint_get (u32 ctx_handle, u32 thread_index,
-			     transport_endpoint_t *tep, u8 is_lcl)
+srtp_transport_endpoint_get (u32 ctx_handle, clib_thread_index_t thread_index,
+			     transport_endpoint_t *tep_rmt,
+			     transport_endpoint_t *tep_lcl)
 {
   srtp_tc_t *ctx = srtp_ctx_get_w_thread (ctx_handle, thread_index);
   session_t *udp_session;
 
   udp_session = session_get_from_handle (ctx->srtp_session_handle);
-  session_get_endpoint (udp_session, tep, is_lcl);
+  session_get_endpoint (udp_session, tep_rmt, tep_lcl);
 }
 
 static void
 srtp_transport_listener_endpoint_get (u32 ctx_handle,
-				      transport_endpoint_t *tep, u8 is_lcl)
+				      transport_endpoint_t *tep_rmt,
+				      transport_endpoint_t *tep_lcl)
 {
   session_t *srtp_listener;
   app_listener_t *al;
@@ -951,7 +948,7 @@ srtp_transport_listener_endpoint_get (u32 ctx_handle,
 
   al = app_listener_get_w_handle (ctx->srtp_session_handle);
   srtp_listener = app_listener_get_session (al);
-  session_get_endpoint (srtp_listener, tep, is_lcl);
+  session_get_endpoint (srtp_listener, tep_rmt, tep_lcl);
 }
 
 static const transport_proto_vft_t srtp_proto = {
@@ -972,7 +969,7 @@ static const transport_proto_vft_t srtp_proto = {
     .name = "srtp",
     .short_name = "R",
     .tx_type = TRANSPORT_TX_INTERNAL,
-    .service_type = TRANSPORT_SERVICE_APP,
+    .service_type = TRANSPORT_SERVICE_CL,
   },
 };
 
@@ -993,11 +990,3 @@ VLIB_PLUGIN_REGISTER () = {
   .description = "Secure Real-time Transport Protocol (SRTP)",
   .default_disabled = 1,
 };
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,19 +1,8 @@
-/*
- * ah_decrypt.c : IPSec AH decrypt node
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* ah_decrypt.c : IPSec AH decrypt node */
 
 #include <vnet/vnet.h>
 #include <vnet/api_errno.h>
@@ -118,7 +107,7 @@ ah_decrypt_inline (vlib_main_t * vm,
 		   int is_ip6)
 {
   u32 n_left, *from;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   u16 buffer_data_size = vlib_buffer_get_default_data_size (vm);
   ah_decrypt_packet_data_t pkt_data[VLIB_FRAME_SIZE], *pd = pkt_data;
   vlib_buffer_t *bufs[VLIB_FRAME_SIZE], **b = bufs;
@@ -127,13 +116,14 @@ ah_decrypt_inline (vlib_main_t * vm,
   ipsec_per_thread_data_t *ptd = vec_elt_at_index (im->ptd, thread_index);
   from = vlib_frame_vector_args (from_frame);
   n_left = from_frame->n_vectors;
-  ipsec_sa_t *sa0 = 0;
+  ipsec_sa_inb_rt_t *irt = 0;
+  bool anti_replay_result;
   u32 current_sa_index = ~0, current_sa_bytes = 0, current_sa_pkts = 0;
 
   clib_memset (pkt_data, 0, VLIB_FRAME_SIZE * sizeof (pkt_data[0]));
   vlib_get_buffers (vm, from, b, n_left);
   clib_memset_u16 (nexts, -1, n_left);
-  vec_reset_length (ptd->integ_ops);
+  vec_reset_length (ptd->crypto_ops);
 
   while (n_left > 0)
     {
@@ -148,25 +138,25 @@ ah_decrypt_inline (vlib_main_t * vm,
 					     current_sa_index, current_sa_pkts,
 					     current_sa_bytes);
 	  current_sa_index = vnet_buffer (b[0])->ipsec.sad_index;
-	  sa0 = ipsec_sa_get (current_sa_index);
+	  irt = ipsec_sa_get_inb_rt_by_index (current_sa_index);
 
 	  current_sa_bytes = current_sa_pkts = 0;
 	  vlib_prefetch_combined_counter (&ipsec_sa_counters,
 					  thread_index, current_sa_index);
 	}
 
-      if (PREDICT_FALSE ((u16) ~0 == sa0->thread_index))
+      if (PREDICT_FALSE ((u16) ~0 == irt->thread_index))
 	{
 	  /* this is the first packet to use this SA, claim the SA
 	   * for this thread. this could happen simultaneously on
 	   * another thread */
-	  clib_atomic_cmp_and_swap (&sa0->thread_index, ~0,
+	  clib_atomic_cmp_and_swap (&irt->thread_index, ~0,
 				    ipsec_sa_assign_thread (thread_index));
 	}
 
-      if (PREDICT_TRUE (thread_index != sa0->thread_index))
+      if (PREDICT_TRUE (thread_index != irt->thread_index))
 	{
-	  vnet_buffer (b[0])->ipsec.thread_index = sa0->thread_index;
+	  vnet_buffer (b[0])->ipsec.thread_index = irt->thread_index;
 	  next[0] = AH_DECRYPT_NEXT_HANDOFF;
 	  goto next;
 	}
@@ -201,8 +191,9 @@ ah_decrypt_inline (vlib_main_t * vm,
       pd->seq = clib_host_to_net_u32 (ah0->seq_no);
 
       /* anti-replay check */
-      if (ipsec_sa_anti_replay_and_sn_advance (sa0, pd->seq, ~0, false,
-					       &pd->seq_hi))
+      anti_replay_result = ipsec_sa_anti_replay_and_sn_advance (
+	irt, pd->seq, ~0, false, &pd->seq_hi);
+      if (anti_replay_result)
 	{
 	  ah_decrypt_set_next_index (b[0], node, vm->thread_index,
 				     AH_DECRYPT_ERROR_REPLAY, 0, next,
@@ -213,13 +204,14 @@ ah_decrypt_inline (vlib_main_t * vm,
       current_sa_bytes += b[0]->current_length;
       current_sa_pkts += 1;
 
-      pd->icv_size = sa0->integ_icv_size;
+      pd->icv_size = irt->integ_icv_size;
       pd->nexthdr_cached = ah0->nexthdr;
-      if (PREDICT_TRUE (sa0->integ_alg != IPSEC_INTEG_ALG_NONE))
+      if (PREDICT_TRUE (irt->integ_icv_size))
 	{
-	  if (PREDICT_FALSE (ipsec_sa_is_set_USE_ESN (sa0) &&
-			     pd->current_data + b[0]->current_length
-			     + sizeof (u32) > buffer_data_size))
+	  if (PREDICT_FALSE (irt->use_esn && pd->current_data +
+						 b[0]->current_length +
+						 sizeof (u32) >
+					       buffer_data_size))
 	    {
 	      ah_decrypt_set_next_index (
 		b[0], node, vm->thread_index, AH_DECRYPT_ERROR_NO_TAIL_SPACE,
@@ -228,22 +220,26 @@ ah_decrypt_inline (vlib_main_t * vm,
 	    }
 
 	  vnet_crypto_op_t *op;
-	  vec_add2_aligned (ptd->integ_ops, op, 1, CLIB_CACHE_LINE_BYTES);
-	  vnet_crypto_op_init (op, sa0->integ_op_id);
+	  vec_add2_aligned (ptd->crypto_ops, op, 1, CLIB_CACHE_LINE_BYTES);
+	  vnet_crypto_key_t *key = vnet_crypto_get_key (irt->key_index);
+	  if (key->is_link)
+	    key = vnet_crypto_get_key (key->index_integ);
+	  vnet_crypto_op_id_t *op_ids = vnet_crypto_ops_from_alg (key->alg);
+	  vnet_crypto_op_init (op, op_ids[VNET_CRYPTO_OP_TYPE_HMAC]);
 
-	  op->src = (u8 *) ih4;
-	  op->len = b[0]->current_length;
+	  op->integ_src = (u8 *) ih4;
+	  op->integ_len = b[0]->current_length;
 	  op->digest = (u8 *) ih4 - pd->icv_size;
 	  op->flags = VNET_CRYPTO_OP_FLAG_HMAC_CHECK;
 	  op->digest_len = pd->icv_size;
-	  op->key_index = sa0->integ_key_index;
+	  op->key_index = key->index;
 	  op->user_data = b - bufs;
-	  if (ipsec_sa_is_set_USE_ESN (sa0))
+	  if (irt->use_esn)
 	    {
 	      u32 seq_hi = clib_host_to_net_u32 (pd->seq_hi);
 
-	      op->len += sizeof (seq_hi);
-	      clib_memcpy (op->src + b[0]->current_length, &seq_hi,
+	      op->integ_len += sizeof (seq_hi);
+	      clib_memcpy (op->integ_src + b[0]->current_length, &seq_hi,
 			   sizeof (seq_hi));
 	    }
 	  clib_memcpy (op->digest, ah0->auth_data, pd->icv_size);
@@ -290,7 +286,7 @@ ah_decrypt_inline (vlib_main_t * vm,
 				   current_sa_index, current_sa_pkts,
 				   current_sa_bytes);
 
-  ah_process_ops (vm, node, ptd->integ_ops, bufs, nexts);
+  ah_process_ops (vm, node, ptd->crypto_ops, bufs, nexts);
 
   while (n_left > 0)
     {
@@ -301,12 +297,12 @@ ah_decrypt_inline (vlib_main_t * vm,
       if (next[0] < AH_DECRYPT_N_NEXT)
 	goto trace;
 
-      sa0 = ipsec_sa_get (pd->sa_index);
+      irt = ipsec_sa_get_inb_rt_by_index (pd->sa_index);
 
-      if (PREDICT_TRUE (sa0->integ_alg != IPSEC_INTEG_ALG_NONE))
+      if (PREDICT_TRUE (irt->integ_icv_size))
 	{
 	  /* redo the anti-reply check. see esp_decrypt for details */
-	  if (ipsec_sa_anti_replay_and_sn_advance (sa0, pd->seq, pd->seq_hi,
+	  if (ipsec_sa_anti_replay_and_sn_advance (irt, pd->seq, pd->seq_hi,
 						   true, NULL))
 	    {
 	      ah_decrypt_set_next_index (b[0], node, vm->thread_index,
@@ -314,7 +310,7 @@ ah_decrypt_inline (vlib_main_t * vm,
 					 AH_DECRYPT_NEXT_DROP, pd->sa_index);
 	      goto trace;
 	    }
-	  n_lost = ipsec_sa_anti_replay_advance (sa0, thread_index, pd->seq,
+	  n_lost = ipsec_sa_anti_replay_advance (irt, thread_index, pd->seq,
 						 pd->seq_hi);
 	  vlib_prefetch_simple_counter (
 	    &ipsec_sa_err_counters[IPSEC_SA_ERROR_LOST], thread_index,
@@ -325,8 +321,10 @@ ah_decrypt_inline (vlib_main_t * vm,
 	+ pd->icv_padding_len;
       vlib_buffer_advance (b[0], pd->ip_hdr_size + ah_hdr_len);
       b[0]->flags |= VLIB_BUFFER_TOTAL_LENGTH_VALID;
+      b[0]->flags &= ~(VNET_BUFFER_F_L4_CHECKSUM_COMPUTED |
+		       VNET_BUFFER_F_L4_CHECKSUM_CORRECT);
 
-      if (PREDICT_TRUE (ipsec_sa_is_set_IS_TUNNEL (sa0)))
+      if (PREDICT_TRUE (irt->is_tunnel))
 	{			/* tunnel mode */
 	  if (PREDICT_TRUE (pd->nexthdr_cached == IP_PROTOCOL_IP_IN_IP))
 	    next[0] = AH_DECRYPT_NEXT_IP4_INPUT;
@@ -396,10 +394,10 @@ ah_decrypt_inline (vlib_main_t * vm,
     trace:
       if (PREDICT_FALSE (b[0]->flags & VLIB_BUFFER_IS_TRACED))
 	{
-	  sa0 = ipsec_sa_get (vnet_buffer (b[0])->ipsec.sad_index);
+	  ipsec_sa_t *sa = ipsec_sa_get (vnet_buffer (b[0])->ipsec.sad_index);
 	  ah_decrypt_trace_t *tr =
 	    vlib_add_trace (vm, node, b[0], sizeof (*tr));
-	  tr->integ_alg = sa0->integ_alg;
+	  tr->integ_alg = sa->integ_alg;
 	  tr->seq_num = pd->seq;
 	}
 
@@ -422,7 +420,6 @@ VLIB_NODE_FN (ah4_decrypt_node) (vlib_main_t * vm,
   return ah_decrypt_inline (vm, node, from_frame, 0 /* is_ip6 */ );
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ah4_decrypt_node) = {
   .name = "ah4-decrypt",
   .vector_size = sizeof (u32),
@@ -440,7 +437,6 @@ VLIB_REGISTER_NODE (ah4_decrypt_node) = {
     [AH_DECRYPT_NEXT_HANDOFF] = "ah4-decrypt-handoff",
   },
 };
-/* *INDENT-ON* */
 
 VLIB_NODE_FN (ah6_decrypt_node) (vlib_main_t * vm,
 				 vlib_node_runtime_t * node,
@@ -449,7 +445,6 @@ VLIB_NODE_FN (ah6_decrypt_node) (vlib_main_t * vm,
   return ah_decrypt_inline (vm, node, from_frame, 1 /* is_ip6 */ );
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ah6_decrypt_node) = {
   .name = "ah6-decrypt",
   .vector_size = sizeof (u32),
@@ -467,7 +462,6 @@ VLIB_REGISTER_NODE (ah6_decrypt_node) = {
     [AH_DECRYPT_NEXT_HANDOFF] = "ah6-decrypt-handoff",
   },
 };
-/* *INDENT-ON* */
 
 #ifndef CLIB_MARCH_VARIANT
 
@@ -476,10 +470,10 @@ ah_decrypt_init (vlib_main_t *vm)
 {
   ipsec_main_t *im = &ipsec_main;
 
-  im->ah4_dec_fq_index =
-    vlib_frame_queue_main_init (ah4_decrypt_node.index, 0);
-  im->ah6_dec_fq_index =
-    vlib_frame_queue_main_init (ah6_decrypt_node.index, 0);
+  im->ah4_dec_fq_index = vlib_frame_queue_main_init (ah4_decrypt_node.index,
+						     im->handoff_queue_size);
+  im->ah6_dec_fq_index = vlib_frame_queue_main_init (ah6_decrypt_node.index,
+						     im->handoff_queue_size);
 
   return 0;
 }
@@ -487,11 +481,3 @@ ah_decrypt_init (vlib_main_t *vm)
 VLIB_INIT_FUNCTION (ah_decrypt_init);
 
 #endif
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

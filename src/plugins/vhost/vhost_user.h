@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef __VIRTIO_VHOST_USER_H__
 #define __VIRTIO_VHOST_USER_H__
 
@@ -62,11 +53,13 @@
 	   dev->hw_if_index, ##__VA_ARGS__);                                  \
 };
 
-#define UNIX_GET_FD(unixfd_idx) ({ \
-    typeof(unixfd_idx) __unixfd_idx = (unixfd_idx); \
-    (__unixfd_idx != ~0) ? \
-        pool_elt_at_index (file_main.file_pool, \
-                           __unixfd_idx)->file_descriptor : -1; })
+#define UNIX_GET_FD(unixfd_idx)                                               \
+  ({                                                                          \
+    typeof (unixfd_idx) __unixfd_idx = (unixfd_idx);                          \
+    (__unixfd_idx != ~0) ?                                                    \
+      clib_file_get (&file_main, __unixfd_idx)->file_descriptor :             \
+      -1;                                                                     \
+  })
 
 #define foreach_virtio_trace_flags \
   _ (SIMPLE_CHAINED, 0, "Simple descriptor chaining") \
@@ -122,7 +115,6 @@ int vhost_user_modify_if (vnet_main_t * vnm, vlib_main_t * vm,
 int vhost_user_delete_if (vnet_main_t * vnm, vlib_main_t * vm,
 			  u32 sw_if_index);
 
-/* *INDENT-OFF* */
 typedef struct vhost_user_memory_region
 {
   u64 guest_phys_addr;
@@ -175,7 +167,6 @@ typedef struct vhost_user_msg {
       vhost_user_log_t log;
     };
 } __attribute ((packed)) vhost_user_msg_t;
-/* *INDENT-ON* */
 
 typedef struct
 {
@@ -231,7 +222,7 @@ typedef struct
   u16 last_kick;
   u8 first_kick;
   u32 queue_index;
-  u32 thread_index;
+  clib_thread_index_t thread_index;
 } vhost_user_vring_t;
 
 #define VHOST_USER_EVENT_START_TIMER 1
@@ -378,11 +369,3 @@ extern vlib_node_registration_t vhost_user_input_node;
 extern vhost_user_main_t vhost_user_main;
 
 #endif
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

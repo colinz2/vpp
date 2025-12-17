@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef __included_ikev2_h__
 #define __included_ikev2_h__
 
@@ -32,7 +23,6 @@
 
 typedef u8 v8;
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   u64 ispi;
   u64 rspi;
@@ -42,14 +32,12 @@ typedef CLIB_PACKED (struct {
   u8 flags;
   u32 msgid; u32 length; u8 payload[0];
 }) ike_header_t;
-/* *INDENT-ON* */
 
 #define ike_hdr_is_response(_h) ((_h)->flags & IKEV2_HDR_FLAG_RESPONSE)
 #define ike_hdr_is_request(_h) (!ike_hdr_is_response(_h))
 #define ike_hdr_is_initiator(_h) ((_h)->flags & IKEV2_HDR_FLAG_INITIATOR)
 #define ike_hdr_is_responder(_h) (!(ike_hdr_is_initiator(_h)))
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   u8 nextpayload;
   u8 flags;
@@ -58,17 +46,13 @@ typedef CLIB_PACKED (struct {
   u8 reserved[2];
   u8 payload[0];
 }) ike_ke_payload_header_t;
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   u8 nextpayload;
   u8 flags;
   u16 length; u8 payload[0];
 }) ike_payload_header_t;
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   u8 nextpayload;
   u8 flags;
@@ -77,9 +61,7 @@ typedef CLIB_PACKED (struct {
   u8 reserved[3];
   u8 payload[0];
 }) ike_auth_payload_header_t;
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   u8 nextpayload;
   u8 flags;
@@ -87,7 +69,6 @@ typedef CLIB_PACKED (struct {
   u8 id_type;
   u8 reserved[3]; u8 payload[0];
 }) ike_id_payload_header_t;
-/* *INDENT-ON* */
 
 #define IKE_VERSION_2                    0x20
 
@@ -454,13 +435,8 @@ uword unformat_ikev2_transform_esn_type (unformat_input_t * input,
 
 clib_error_t *ikev2_set_liveness_params (u32 period, u32 max_retries);
 
+clib_error_t *ikev2_set_sleep_interval (f64 interval);
+
+f64 ikev2_get_sleep_interval ();
+
 #endif /* __included_ikev2_h__ */
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

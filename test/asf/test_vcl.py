@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-""" Vpp VCL tests """
+"""Vpp VCL tests"""
 
 import unittest
 import os
@@ -7,8 +7,8 @@ import subprocess
 import signal
 import glob
 from config import config
-from asfframework import VppTestCase, VppTestRunner, Worker
-from vpp_ip_route import VppIpTable, VppIpRoute, VppRoutePath, FibPathProto
+from asfframework import VppAsfTestCase, VppTestRunner, Worker
+from vpp_ip_route import VppIpTable, VppIpRoute, VppRoutePath
 
 iperf3 = "/usr/bin/iperf3"
 
@@ -58,16 +58,16 @@ class VCLAppWorker(Worker):
         super(VCLAppWorker, self).__init__(self.args, logger, env, *args, **kwargs)
 
 
-class VCLTestCase(VppTestCase):
+class VCLTestCase(VppAsfTestCase):
     """VCL Test Class"""
 
-    session_startup = ["poll-main"]
+    session_startup = ["poll-main", "use-app-socket-api"]
 
     @classmethod
     def setUpClass(cls):
         if cls.session_startup:
             conf = "session {" + " ".join(cls.session_startup) + "}"
-            cls.extra_vpp_punt_config = [conf]
+            cls.extra_vpp_config = [conf]
         super(VCLTestCase, cls).setUpClass()
 
     @classmethod
@@ -84,9 +84,9 @@ class VCLTestCase(VppTestCase):
         self.timeout = 20
         self.echo_phrase = "Hello, world! Jenny is a friend of mine."
         self.pre_test_sleep = 0.3
-        self.post_test_sleep = 0.2
-        self.sapi_client_sock = ""
-        self.sapi_server_sock = ""
+        self.post_test_sleep = 1
+        self.sapi_client_sock = "default"
+        self.sapi_server_sock = "default"
 
         if os.path.isfile("/tmp/ldp_server_af_unix_socket"):
             os.remove("/tmp/ldp_server_af_unix_socket")
@@ -187,8 +187,16 @@ class VCLTestCase(VppTestCase):
         ip_t01.add_vpp_config()
         ip_t10.add_vpp_config()
         self.logger.debug(self.vapi.cli("show ip fib"))
+        self.sapi_server_sock = "1"
+        self.sapi_client_sock = "2"
 
     def thru_host_stack_tear_down(self):
+        self.vapi.app_namespace_add_del_v4(
+            is_add=0, namespace_id="1", secret=1234, sw_if_index=self.loop0.sw_if_index
+        )
+        self.vapi.app_namespace_add_del_v4(
+            is_add=0, namespace_id="2", secret=5678, sw_if_index=self.loop1.sw_if_index
+        )
         for i in self.lo_interfaces:
             i.unconfig_ip4()
             i.set_table_ip4(0)
@@ -238,8 +246,16 @@ class VCLTestCase(VppTestCase):
         ip_t10.add_vpp_config()
         self.logger.debug(self.vapi.cli("show interface addr"))
         self.logger.debug(self.vapi.cli("show ip6 fib"))
+        self.sapi_server_sock = "1"
+        self.sapi_client_sock = "2"
 
     def thru_host_stack_ipv6_tear_down(self):
+        self.vapi.app_namespace_add_del_v4(
+            is_add=0, namespace_id="1", secret=1234, sw_if_index=self.loop0.sw_if_index
+        )
+        self.vapi.app_namespace_add_del_v4(
+            is_add=0, namespace_id="2", secret=5678, sw_if_index=self.loop1.sw_if_index
+        )
         for i in self.lo_interfaces:
             i.unconfig_ip6()
             i.set_table_ip6(0)
@@ -304,7 +320,6 @@ class LDPCutThruTestCase(VCLTestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.session_startup = ["poll-main", "use-app-socket-api"]
         super(LDPCutThruTestCase, cls).setUpClass()
 
     @classmethod
@@ -403,6 +418,9 @@ class LDPCutThruTestCase(VCLTestCase):
         )
 
 
+@unittest.skipIf(
+    "hs_apps" in config.excluded_plugins, "Exclude tests requiring hs_apps plugin"
+)
 class VCLCutThruTestCase(VCLTestCase):
     """VCL Cut Thru Tests"""
 
@@ -489,6 +507,9 @@ class VCLCutThruTestCase(VCLTestCase):
         )
 
 
+@unittest.skipIf(
+    "hs_apps" in config.excluded_plugins, "Exclude tests requiring hs_apps plugin"
+)
 class VCLThruHostStackEcho(VCLTestCase):
     """VCL Thru Host Stack Echo"""
 
@@ -543,12 +564,216 @@ class VCLThruHostStackEcho(VCLTestCase):
         self.logger.debug(self.vapi.cli("show app mq"))
 
 
+@unittest.skipIf(
+    "hs_apps" in config.excluded_plugins, "Exclude tests requiring hs_apps plugin"
+)
+class VCLThruHostStackCLUDPEcho(VCLTestCase):
+    """VCL Thru Host Stack CL UDP Echo"""
+
+    @classmethod
+    def setUpClass(cls):
+        super(VCLThruHostStackCLUDPEcho, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(VCLThruHostStackCLUDPEcho, cls).tearDownClass()
+
+    def setUp(self):
+        super(VCLThruHostStackCLUDPEcho, self).setUp()
+
+        self.sapi_server_sock = "1"
+        self.sapi_client_sock = "2"
+        self.thru_host_stack_setup()
+        self.pre_test_sleep = 2
+        self.timeout = 5
+
+    def tearDown(self):
+        self.thru_host_stack_tear_down()
+        super(VCLThruHostStackCLUDPEcho, self).tearDown()
+
+    def test_vcl_thru_host_stack_cl_udp_echo(self):
+        """run VCL IPv4 thru host stack CL UDP echo test"""
+        server_args = ["-s", self.loop0.local_ip4]
+        client_args = ["-c", self.loop0.local_ip4]
+        self.thru_host_stack_test(
+            "vcl_test_cl_udp",
+            server_args,
+            "vcl_test_cl_udp",
+            client_args,
+        )
+
+    def test_vcl_thru_host_stack_cl_udp_mt_echo(self):
+        """run VCL IPv4 thru host stack CL UDP MT echo test"""
+        server_args = ["-s", self.loop0.local_ip4, "-w", "2"]
+        client_args = ["-c", self.loop0.local_ip4, "-w", "2"]
+        self.thru_host_stack_test(
+            "vcl_test_cl_udp",
+            server_args,
+            "vcl_test_cl_udp",
+            client_args,
+        )
+
+    def show_commands_at_teardown(self):
+        self.logger.debug(self.vapi.cli("show app server"))
+        self.logger.debug(self.vapi.cli("show session verbose"))
+        self.logger.debug(self.vapi.cli("show app mq"))
+
+
+@unittest.skipIf(
+    "hs_apps" in config.excluded_plugins, "Exclude tests requiring hs_apps plugin"
+)
+class VCLProgrammaticConfig(VCLTestCase):
+    """VCL Programmatic Configuration Tests"""
+
+    @classmethod
+    def setUpClass(cls):
+        super(VCLProgrammaticConfig, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(VCLProgrammaticConfig, cls).tearDownClass()
+
+    def setUp(self):
+        self.sapi_server_sock = "default"
+        self.cfg_timeout = "3"
+        self.test_timeout = 5
+
+        self.vapi.session_enable_disable(is_enable=1)
+        self.create_loopback_interfaces(2)
+        for i in self.lo_interfaces:
+            i.admin_up()
+            i.config_ip4()
+
+    def tearDown(self):
+        for i in self.lo_interfaces:
+            i.unconfig_ip4()
+            i.admin_down()
+            i.remove_vpp_config()
+        super(VCLProgrammaticConfig, self).tearDown()
+
+    def test_vcl_cfg_test_programmatic_config(self):
+        """run VCL configuration test with programmatic config and session creation"""
+        # Test the vcl_cfg_test application which uses programmatic VCL configuration
+        # and creates a session to test the configuration-based app creation
+
+        # Set up minimal VCL environment - let vcl_cfg_test handle all configs programmatically
+        sapi_sock = "%s/app_ns_sockets/%s" % (self.tempdir, self.sapi_server_sock)
+        server_args = [
+            "-s",
+            self.loop0.local_ip4,
+            "-t",
+            self.cfg_timeout,
+            "-a",
+            sapi_sock,
+            "-d",
+            "2",
+        ]
+
+        worker_cfg_test = VCLAppWorker(
+            "vcl_cfg_test", server_args, self.logger, None, "server"
+        )
+        worker_cfg_test.start()
+        self.sleep(0.5)
+
+        # Check with VPP CLI that the session is bound in VPP
+        session_output = self.vapi.cli("show session verbose")
+        self.logger.debug(session_output)
+        self.assertIn(self.loop0.local_ip4, session_output)
+        self.assertIn("[U]", session_output)
+        self.assertIn("LISTEN", session_output)
+
+        worker_cfg_test.join(self.test_timeout)
+
+
+@unittest.skipIf(
+    "hs_apps" in config.excluded_plugins, "Exclude tests requiring hs_apps plugin"
+)
+class VCLThruHostStackCLUDPBinds(VCLTestCase):
+    """VCL Thru Host Stack CL UDP Binds"""
+
+    @classmethod
+    def setUpClass(cls):
+        super(VCLThruHostStackCLUDPBinds, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(VCLThruHostStackCLUDPBinds, cls).tearDownClass()
+
+    def setUp(self):
+        super(VCLThruHostStackCLUDPBinds, self).setUp()
+
+        self.sapi_server_sock = "default"
+        self.timeout = 5
+
+        self.vapi.session_enable_disable(is_enable=1)
+        self.create_loopback_interfaces(2)
+        for i in self.lo_interfaces:
+            i.admin_up()
+            i.config_ip4()
+
+    def tearDown(self):
+        for i in self.lo_interfaces:
+            i.unconfig_ip4()
+            i.admin_down()
+            i.remove_vpp_config()
+        super(VCLThruHostStackCLUDPBinds, self).tearDown()
+
+    def test_vcl_thru_host_stack_cl_udp_multiple_binds(self):
+        """run VCL IPv4 thru host stack CL UDP multiple binds test"""
+
+        # 2 CL UDP servers bound to the same port but different IPs
+        server1_args = ["-s", self.loop0.local_ip4, "-w", "2"]
+        server2_args = ["-s", self.loop1.local_ip4, "-w", "2"]
+
+        sapi_sock = "%s/app_ns_sockets/%s" % (self.tempdir, self.sapi_server_sock)
+        self.vcl_app_env = {
+            "VCL_APP_SCOPE_GLOBAL": "true",
+            "VCL_VPP_SAPI_SOCKET": sapi_sock,
+        }
+
+        worker_server1 = VCLAppWorker(
+            "vcl_test_cl_udp", server1_args, self.logger, self.vcl_app_env, "server1"
+        )
+        worker_server1.start()
+        self.sleep(0.5)
+
+        worker_server2 = VCLAppWorker(
+            "vcl_test_cl_udp", server2_args, self.logger, self.vcl_app_env, "server2"
+        )
+        worker_server2.start()
+        self.sleep(0.5)
+
+        session_output = self.vapi.cli("show session verbose")
+        self.logger.debug(session_output)
+        self.assertIn(self.loop0.local_ip4, session_output)
+        self.assertIn(self.loop1.local_ip4, session_output)
+        self.assertIn("[U]", session_output)
+        self.assertIn("LISTEN", session_output)
+
+        try:
+            worker_server1.process.send_signal(signal.SIGUSR1)
+            worker_server2.process.send_signal(signal.SIGUSR1)
+        except (AttributeError, OSError) as e:
+            self.logger.warning(f"Failed to send SIGUSR1: {e}")
+
+        self.sleep(0.5)
+
+        worker_server2.join(self.timeout)
+
+    def show_commands_at_teardown(self):
+        self.logger.debug(self.vapi.cli("show app server"))
+        self.logger.debug(self.vapi.cli("show session verbose"))
+        self.logger.debug(self.vapi.cli("show app mq"))
+
+
+@unittest.skipIf(
+    "hs_apps" in config.excluded_plugins, "Exclude tests requiring hs_apps plugin"
+)
 class VCLThruHostStackTLS(VCLTestCase):
     """VCL Thru Host Stack TLS"""
 
     @classmethod
     def setUpClass(cls):
-        cls.session_startup = ["poll-main", "use-app-socket-api"]
         super(VCLThruHostStackTLS, cls).setUpClass()
 
     @classmethod
@@ -594,6 +819,9 @@ class VCLThruHostStackTLS(VCLTestCase):
         self.logger.debug(self.vapi.cli("show app mq"))
 
 
+@unittest.skipIf(
+    "hs_apps" in config.excluded_plugins, "Exclude tests requiring hs_apps plugin"
+)
 class VCLThruHostStackEchoInterruptMode(VCLThruHostStackEcho):
     """VCL Thru Host Stack Echo interrupt mode"""
 
@@ -625,6 +853,9 @@ class VCLThruHostStackTLSInterruptMode(VCLThruHostStackTLS):
         super(VCLThruHostStackTLS, cls).setUpClass()
 
 
+@unittest.skipIf(
+    "hs_apps" in config.excluded_plugins, "Exclude tests requiring hs_apps plugin"
+)
 class VCLThruHostStackDTLS(VCLTestCase):
     """VCL Thru Host Stack DTLS"""
 
@@ -675,12 +906,16 @@ class VCLThruHostStackDTLS(VCLTestCase):
         self.logger.debug(self.vapi.cli("show app mq"))
 
 
+@unittest.skipIf(
+    "hs_apps" in config.excluded_plugins, "Exclude tests requiring hs_apps plugin"
+)
 class VCLThruHostStackQUIC(VCLTestCase):
     """VCL Thru Host Stack QUIC"""
 
     @classmethod
     def setUpClass(cls):
         cls.extra_vpp_plugin_config.append("plugin quic_plugin.so { enable }")
+        cls.extra_vpp_plugin_config.append("plugin quic_quicly_plugin.so { enable }")
         super(VCLThruHostStackQUIC, cls).setUpClass()
 
     @classmethod
@@ -703,6 +938,20 @@ class VCLThruHostStackQUIC(VCLTestCase):
             self.loop0.local_ip4,
             self.server_port,
         ]
+        self.client_bi_dir_multi_stream_quic_test_args = [
+            "-N",
+            "1000",
+            "-B",
+            "-X",
+            "-p",
+            "quic",
+            "-s",
+            "10",
+            "-q",
+            "10",
+            self.loop0.local_ip4,
+            self.server_port,
+        ]
 
     @unittest.skipUnless(config.extended, "part of extended tests")
     def test_vcl_thru_host_stack_quic_uni_dir(self):
@@ -716,6 +965,18 @@ class VCLThruHostStackQUIC(VCLTestCase):
             self.client_uni_dir_quic_test_args,
         )
 
+    @unittest.skipUnless(config.extended, "part of extended tests")
+    def test_vcl_thru_host_stack_quic_bi_dir_multi_stream(self):
+        """run VCL thru host stack bi-directional multi stream QUIC test"""
+
+        self.timeout = self.client_uni_dir_quic_timeout
+        self.thru_host_stack_test(
+            "vcl_test_server",
+            self.server_quic_args,
+            "vcl_test_client",
+            self.client_bi_dir_multi_stream_quic_test_args,
+        )
+
     def tearDown(self):
         self.thru_host_stack_tear_down()
         super(VCLThruHostStackQUIC, self).tearDown()
@@ -726,6 +987,62 @@ class VCLThruHostStackQUIC(VCLTestCase):
         self.logger.debug(self.vapi.cli("show app mq"))
 
 
+@unittest.skipIf(
+    "hs_apps" in config.excluded_plugins, "Exclude tests requiring hs_apps plugin"
+)
+class VCLThruHostStackHTTPPost(VCLTestCase):
+    """VCL Thru Host Stack HTTP Post"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.extra_vpp_plugin_config.append("plugin http_plugin.so { enable }")
+        super(VCLThruHostStackHTTPPost, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(VCLThruHostStackHTTPPost, cls).tearDownClass()
+
+    def setUp(self):
+        super(VCLThruHostStackHTTPPost, self).setUp()
+
+        self.thru_host_stack_setup()
+        self.client_uni_dir_http_post_timeout = 20
+        self.server_http_post_args = ["-p", "http", self.server_port]
+        self.client_uni_dir_http_post_test_args = [
+            "-N",
+            "10000",
+            "-U",
+            "-X",
+            "-p",
+            "http",
+            self.loop0.local_ip4,
+            self.server_port,
+        ]
+
+    def test_vcl_thru_host_stack_http_post_uni_dir(self):
+        """run VCL thru host stack uni-directional HTTP POST test"""
+
+        self.timeout = self.client_uni_dir_http_post_timeout
+        self.thru_host_stack_test(
+            "vcl_test_server",
+            self.server_http_post_args,
+            "vcl_test_client",
+            self.client_uni_dir_http_post_test_args,
+        )
+
+    def tearDown(self):
+        self.thru_host_stack_tear_down()
+        super(VCLThruHostStackHTTPPost, self).tearDown()
+
+    def show_commands_at_teardown(self):
+        self.logger.debug(self.vapi.cli("show app server"))
+        self.logger.debug(self.vapi.cli("show session verbose 2"))
+        self.logger.debug(self.vapi.cli("show app mq"))
+
+
+@unittest.skipIf(
+    "hs_apps" in config.excluded_plugins, "Exclude tests requiring hs_apps plugin"
+)
 class VCLThruHostStackBidirNsock(VCLTestCase):
     """VCL Thru Host Stack Bidir Nsock"""
 
@@ -780,6 +1097,9 @@ class VCLThruHostStackBidirNsock(VCLTestCase):
         )
 
 
+@unittest.skipIf(
+    "hs_apps" in config.excluded_plugins, "Exclude tests requiring hs_apps plugin"
+)
 class LDPThruHostStackBidirNsock(VCLTestCase):
     """LDP Thru Host Stack Bidir Nsock"""
 
@@ -830,6 +1150,9 @@ class LDPThruHostStackBidirNsock(VCLTestCase):
         )
 
 
+@unittest.skipIf(
+    "hs_apps" in config.excluded_plugins, "Exclude tests requiring hs_apps plugin"
+)
 class LDPThruHostStackNsock(VCLTestCase):
     """LDP Thru Host Stack Nsock"""
 
@@ -879,6 +1202,9 @@ class LDPThruHostStackNsock(VCLTestCase):
         )
 
 
+@unittest.skipIf(
+    "hs_apps" in config.excluded_plugins, "Exclude tests requiring hs_apps plugin"
+)
 class VCLThruHostStackNsock(VCLTestCase):
     """VCL Thru Host Stack Nsock"""
 
@@ -996,6 +1322,7 @@ class LDPThruHostStackIperfUdp(VCLTestCase):
             "-t 2",
             "-u",
             "-l 1400",
+            "-P 2",
             "-c",
             self.loop0.local_ip4,
         ]
@@ -1124,6 +1451,9 @@ class LDPIpv6CutThruTestCase(VCLTestCase):
         )
 
 
+@unittest.skipIf(
+    "hs_apps" in config.excluded_plugins, "Exclude tests requiring hs_apps plugin"
+)
 class VCLIpv6CutThruTestCase(VCLTestCase):
     """VCL IPv6 Cut Thru Tests"""
 
@@ -1219,6 +1549,9 @@ class VCLIpv6CutThruTestCase(VCLTestCase):
         )
 
 
+@unittest.skipIf(
+    "hs_apps" in config.excluded_plugins, "Exclude tests requiring hs_apps plugin"
+)
 class VCLIpv6ThruHostStackEcho(VCLTestCase):
     """VCL IPv6 Thru Host Stack Echo"""
 
@@ -1255,6 +1588,53 @@ class VCLIpv6ThruHostStackEcho(VCLTestCase):
             self.server_ipv6_args,
             "vcl_test_client",
             self.client_ipv6_echo_test_args,
+        )
+
+
+@unittest.skipIf(
+    "hs_apps" in config.excluded_plugins, "Exclude tests requiring hs_apps plugin"
+)
+class VCLCutThruTestCaseBAPI(VCLTestCase):
+    """VCL Cut Thru BAPI Test"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.session_startup = ["poll-main", "use-bapi-socket-api"]
+        super(VCLCutThruTestCaseBAPI, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(VCLCutThruTestCaseBAPI, cls).tearDownClass()
+
+    def setUp(self):
+        super(VCLCutThruTestCaseBAPI, self).setUp()
+
+        self.cut_thru_setup()
+        self.client_uni_dir_test_args = [
+            "-N",
+            "1000",
+            self.server_addr,
+            self.server_port,
+        ]
+        self.sapi_client_sock = ""
+        self.sapi_server_sock = ""
+
+    def tearDown(self):
+        super(VCLCutThruTestCaseBAPI, self).tearDown()
+
+    def show_commands_at_teardown(self):
+        self.logger.debug(self.vapi.cli("show session verbose 2"))
+        self.logger.debug(self.vapi.cli("show app mq"))
+
+    def test_vcl_cut_thru_tcp_bapi(self):
+        """run VCL cut thru tcp test bapi"""
+
+        # Single binary api test after switching to app socket api as default
+        self.cut_thru_test(
+            "vcl_test_server",
+            self.server_args,
+            "vcl_test_client",
+            self.client_uni_dir_test_args,
         )
 
 

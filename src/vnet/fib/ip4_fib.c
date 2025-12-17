@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/fib/fib_table.h>
@@ -201,10 +191,7 @@ ip4_fib_table_destroy (u32 fib_index)
     /*
      * validate no more routes.
      */
-#if CLIB_DEBUG > 0
-    if (0 != fib_table->ft_total_route_counts)
-        fib_table_assert_empty(fib_table);
-#endif
+    fib_table_assert_empty(fib_table);
 
     vec_foreach(n_locks, fib_table->ft_src_route_counts)
     {
@@ -357,8 +344,7 @@ ip4_show_fib (vlib_main_t * vm,
 	else if (unformat (input, "mtrie"))
 	    mtrie = 1;
 
-        else if (unformat (input, "mem") ||
-                 unformat (input, "memory"))
+        else if (unformat (input, "memory") || unformat (input, "mem"))
 	    memory = 1;
 
 	else if (unformat (input, "%U/%d",
@@ -621,10 +607,29 @@ ip4_show_fib (vlib_main_t * vm,
  *                   32               4
  * @cliexend
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (ip4_show_fib_command, static) = {
     .path = "show ip fib",
-    .short_help = "show ip fib [summary] [table <table-id>] [index <fib-id>] [<ip4-addr>[/<mask>]] [mtrie] [detail]",
+    .short_help = "show ip fib [summary] [table <table-id>] [index <fib-id>] [<ip4-addr>[/<mask>]] [mtrie] [detail] [memory]",
     .function = ip4_show_fib,
 };
-/* *INDENT-ON* */
+
+static clib_error_t *
+ip_config (vlib_main_t * vm, unformat_input_t * input)
+{
+    char *default_name = 0;
+
+    while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
+    {
+	if (unformat (input, "default-table-name %s", &default_name))
+	    ;
+	else
+	    return clib_error_return (0, "unknown input '%U'",
+				      format_unformat_error, input);
+    }
+
+    fib_table_default_names[FIB_PROTOCOL_IP4] = default_name;
+
+    return 0;
+}
+
+VLIB_EARLY_CONFIG_FUNCTION (ip_config, "ip");

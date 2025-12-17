@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016-2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <stddef.h>
 #include <netinet/in.h>
 
@@ -136,16 +127,17 @@ fa_session_get_list_timeout (acl_main_t * am, fa_session_t * sess)
 }
 
 static u64
-acl_fa_get_list_head_expiry_time (acl_main_t * am,
-				  acl_fa_per_worker_data_t * pw, u64 now,
-				  u16 thread_index, int timeout_type)
+acl_fa_get_list_head_expiry_time (acl_main_t *am, acl_fa_per_worker_data_t *pw,
+				  u64 now, clib_thread_index_t thread_index,
+				  int timeout_type)
 {
   return pw->fa_conn_list_head_expiry_time[timeout_type];
 }
 
 static int
-acl_fa_conn_time_to_check (acl_main_t * am, acl_fa_per_worker_data_t * pw,
-			   u64 now, u16 thread_index, u32 session_index)
+acl_fa_conn_time_to_check (acl_main_t *am, acl_fa_per_worker_data_t *pw,
+			   u64 now, clib_thread_index_t thread_index,
+			   u32 session_index)
 {
   if (session_index == FA_SESSION_BOGUS_INDEX)
     return 0;
@@ -162,7 +154,8 @@ acl_fa_conn_time_to_check (acl_main_t * am, acl_fa_per_worker_data_t * pw,
  * return the total number of sessions reclaimed.
  */
 static int
-acl_fa_check_idle_sessions (acl_main_t * am, u16 thread_index, u64 now)
+acl_fa_check_idle_sessions (acl_main_t *am, clib_thread_index_t thread_index,
+			    u64 now)
 {
   acl_fa_per_worker_data_t *pw = &am->per_worker_data[thread_index];
   fa_full_session_id_t fsid;
@@ -328,7 +321,6 @@ acl_fa_check_idle_sessions (acl_main_t * am, u16 thread_index, u64 now)
  */
 
 
-/* *INDENT-OFF* */
 #define foreach_acl_fa_cleaner_error \
 _(UNKNOWN_EVENT, "unknown event received")  \
 /* end  of errors */
@@ -347,7 +339,6 @@ static char *acl_fa_cleaner_error_strings[] = {
 #undef _
 };
 
-/* *INDENT-ON* */
 
 static vlib_node_registration_t acl_fa_session_cleaner_process_node;
 static vlib_node_registration_t acl_fa_worker_session_cleaner_process_node;
@@ -373,8 +364,9 @@ send_one_worker_interrupt (vlib_main_t * vm, acl_main_t * am,
 }
 
 void
-aclp_post_session_change_request (acl_main_t * am, u32 target_thread,
-				  u32 target_session, u32 request_type)
+aclp_post_session_change_request (acl_main_t *am, u32 target_thread,
+				  u32 target_session,
+				  acl_fa_sess_req_t request_type)
 {
   acl_fa_per_worker_data_t *pw_me =
     &am->per_worker_data[os_get_thread_index ()];
@@ -430,7 +422,7 @@ acl_fa_worker_conn_cleaner_process (vlib_main_t * vm,
 {
   acl_main_t *am = &acl_main;
   u64 now = clib_cpu_time_now ();
-  u16 thread_index = os_get_thread_index ();
+  clib_thread_index_t thread_index = os_get_thread_index ();
   acl_fa_per_worker_data_t *pw = &am->per_worker_data[thread_index];
   int num_expired;
   elog_acl_maybe_trace_X1 (am,
@@ -927,7 +919,6 @@ show_fa_sessions_hash (vlib_main_t * vm, u32 verbose)
 }
 
 
-/* *INDENT-OFF* */
 
 VLIB_REGISTER_NODE (acl_fa_worker_session_cleaner_process_node, static) = {
   .function = acl_fa_worker_conn_cleaner_process,
@@ -945,14 +936,3 @@ VLIB_REGISTER_NODE (acl_fa_session_cleaner_process_node, static) = {
   .n_next_nodes = 0,
   .next_nodes = {},
 };
-
-
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

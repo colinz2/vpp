@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 /**
@@ -91,7 +81,7 @@ typedef union
   struct
   {
     u32 reass_index;
-    u32 memory_owner_thread_index;
+    clib_thread_index_t memory_owner_thread_index;
   };
   u64 as_u64;
 } ip4_full_reass_val_t;
@@ -147,10 +137,10 @@ typedef struct
   // number of fragments in this reassembly
   u32 fragments_n;
   // thread owning memory for this context (whose pool contains this ctx)
-  u32 memory_owner_thread_index;
+  clib_thread_index_t memory_owner_thread_index;
   // thread which received fragment with offset 0 and which sends out the
   // completed reassembly
-  u32 sendout_thread_index;
+  clib_thread_index_t sendout_thread_index;
 } ip4_full_reass_t;
 
 typedef struct
@@ -246,8 +236,8 @@ typedef struct
   ip4_full_reass_range_trace_t trace_range;
   u32 size_diff;
   u32 op_id;
-  u32 thread_id;
-  u32 thread_id_to;
+  clib_thread_index_t thread_id;
+  clib_thread_index_t thread_id_to;
   u32 fragment_first;
   u32 fragment_last;
   u32 total_data_len;
@@ -345,10 +335,10 @@ format_ip4_full_reass_trace (u8 * s, va_list * args)
 }
 
 static void
-ip4_full_reass_add_trace (vlib_main_t * vm, vlib_node_runtime_t * node,
-			  ip4_full_reass_t * reass, u32 bi,
+ip4_full_reass_add_trace (vlib_main_t *vm, vlib_node_runtime_t *node,
+			  ip4_full_reass_t *reass, u32 bi,
 			  ip4_full_reass_trace_operation_e action,
-			  u32 size_diff, u32 thread_id_to)
+			  u32 size_diff, clib_thread_index_t thread_id_to)
 {
   vlib_buffer_t *b = vlib_get_buffer (vm, bi);
   vnet_buffer_opaque_t *vnb = vnet_buffer (b);
@@ -917,11 +907,12 @@ ip4_full_reass_remove_range_from_chain (vlib_main_t * vm,
 }
 
 always_inline ip4_full_reass_rc_t
-ip4_full_reass_update (vlib_main_t * vm, vlib_node_runtime_t * node,
-		       ip4_full_reass_main_t * rm,
-		       ip4_full_reass_per_thread_t * rt,
-		       ip4_full_reass_t * reass, u32 * bi0, u32 * next0,
-		       u32 * error0, bool is_custom, u32 * handoff_thread_idx)
+ip4_full_reass_update (vlib_main_t *vm, vlib_node_runtime_t *node,
+		       ip4_full_reass_main_t *rm,
+		       ip4_full_reass_per_thread_t *rt,
+		       ip4_full_reass_t *reass, u32 *bi0, u32 *next0,
+		       u32 *error0, bool is_custom,
+		       clib_thread_index_t *handoff_thread_idx)
 {
   vlib_buffer_t *fb = vlib_get_buffer (vm, *bi0);
   vnet_buffer_opaque_t *fvnb = vnet_buffer (fb);
@@ -1256,7 +1247,7 @@ ip4_full_reass_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
 	}
       else if (reass)
 	{
-	  u32 handoff_thread_idx;
+	  clib_thread_index_t handoff_thread_idx;
 	  u32 counter = ~0;
 	  switch (ip4_full_reass_update (vm, node, rm, rt, reass, &bi0, &next0,
 					 &error0, CUSTOM == type,
@@ -1424,11 +1415,11 @@ VLIB_REGISTER_NODE (ip4_full_reass_node_feature) = {
 };
 
 VNET_FEATURE_INIT (ip4_full_reass_feature, static) = {
-    .arc_name = "ip4-unicast",
-    .node_name = "ip4-full-reassembly-feature",
-    .runs_before = VNET_FEATURES ("ip4-lookup",
-                                  "ipsec4-input-feature"),
-    .runs_after = 0,
+  .arc_name = "ip4-unicast",
+  .node_name = "ip4-full-reassembly-feature",
+  .runs_before = VNET_FEATURES ("ip4-lookup", "ipsec4-input-feature",
+				"ip4-sv-reassembly-feature"),
+  .runs_after = 0,
 };
 
 VLIB_NODE_FN (ip4_full_reass_node_custom) (vlib_main_t * vm,
@@ -1452,15 +1443,6 @@ VLIB_REGISTER_NODE (ip4_full_reass_node_custom) = {
                 [IP4_FULL_REASS_NEXT_HANDOFF] = "ip4-full-reass-custom-hoff",
         },
 };
-
-VNET_FEATURE_INIT (ip4_full_reass_custom, static) = {
-    .arc_name = "ip4-unicast",
-    .node_name = "ip4-full-reassembly-feature",
-    .runs_before = VNET_FEATURES ("ip4-lookup",
-                                  "ipsec4-input-feature"),
-    .runs_after = 0,
-};
-
 
 #ifndef CLIB_MARCH_VARIANT
 uword
@@ -2068,7 +2050,7 @@ ip4_full_reass_enable_disable_with_refcnt (u32 sw_if_index, int is_enable)
 					    "ip4-full-reassembly-feature",
 					    sw_if_index, 0, 0, 0);
     }
-  return -1;
+  return 0;
 }
 
 void
@@ -2091,11 +2073,3 @@ ip4_local_full_reass_enabled ()
 }
 
 #endif
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

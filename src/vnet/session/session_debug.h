@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef SRC_VNET_SESSION_SESSION_DEBUG_H_
 #define SRC_VNET_SESSION_SESSION_DEBUG_H_
 
@@ -149,21 +140,23 @@ extern session_dbg_main_t session_dbg_main;
 
 #define SESSION_DBG(_fmt, _args...) clib_warning (_fmt, ##_args)
 
-#define DEC_SESSION_ETD(_s, _e, _size)					\
-  struct								\
-  {									\
-    u32 data[_size];							\
-  } * ed;								\
-  transport_connection_t *_tc = session_get_transport (_s);		\
-  ed = ELOG_TRACK_DATA (&vlib_global_main.elog_main,			\
-			_e, _tc->elog_track)
+#define DEC_SESSION_ETD(_s, _e, _size)                                        \
+  struct                                                                      \
+  {                                                                           \
+    u32 data[_size];                                                          \
+  } *ed;                                                                      \
+  transport_connection_t *_tc = session_get_transport (_s);                   \
+  if (_tc->elog_track.name == 0)                                              \
+    ed = ELOG_DATA (vlib_get_elog_main (), _e);                               \
+  else                                                                        \
+    ed = ELOG_TRACK_DATA (vlib_get_elog_main (), _e, _tc->elog_track)
 
-#define DEC_SESSION_ED(_e, _size)					\
-  struct								\
-  {									\
-    u32 data[_size];							\
-  } * ed;								\
-  ed = ELOG_DATA (&vlib_global_main.elog_main, _e)
+#define DEC_SESSION_ED(_e, _size)                                             \
+  struct                                                                      \
+  {                                                                           \
+    u32 data[_size];                                                          \
+  } *ed;                                                                      \
+  ed = ELOG_DATA (vlib_get_elog_main (), _e)
 
 #if SESSION_SM
 #define SESSION_EVT_STATE_CHANGE_HANDLER(_s)                                  \
@@ -396,9 +389,13 @@ extern session_dbg_main_t session_dbg_main;
 #define session_evt_grp_dbg_lvl(_evt)                                         \
   session_dbg_main.grp_dbg_lvl[session_evt_grp (_evt)]
 #define SESSION_EVT(_evt, _args...)                                           \
-  if (PREDICT_FALSE (session_evt_grp_dbg_lvl (_evt) >=                        \
-		     session_evt_lvl (_evt)))                                 \
-  CC (_evt, _HANDLER) (_args)
+  do                                                                          \
+    {                                                                         \
+      if (PREDICT_FALSE (session_evt_grp_dbg_lvl (_evt) >=                    \
+			 session_evt_lvl (_evt)))                             \
+	CC (_evt, _HANDLER) (_args);                                          \
+    }                                                                         \
+  while (0)
 #else
 #define SESSION_EVT(_evt, _args...)
 #define SESSION_DBG(_fmt, _args...)
@@ -407,10 +404,3 @@ extern session_dbg_main_t session_dbg_main;
 void session_debug_init (void);
 
 #endif /* SRC_VNET_SESSION_SESSION_DEBUG_H_ */
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

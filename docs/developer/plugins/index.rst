@@ -19,9 +19,10 @@ For more on plugins please refer to :ref:`add_plugin`.
 
     quic
     cnat
+    npol
+    dev_armada
     lcp
     srv6/index
-    marvell
     lldp
     nat64
     nat44_ei_ha
@@ -30,6 +31,7 @@ For more on plugins please refer to :ref:`add_plugin`.
     lb
     lacp
     flowprobe
+    sflow
     map_lw4o6
     mdata
     dhcp6_pd
@@ -41,3 +43,5 @@ For more on plugins please refer to :ref:`add_plugin`.
     acl_lookup_context
     bufmon_doc
     ip_session_redirect_doc
+    bpf_trace_filter
+    http

@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef included_gro_func_h
@@ -394,7 +384,10 @@ gro_fixup_header (vlib_main_t *vm, vlib_buffer_t *b0, u32 ack_number, u8 is_l2)
 	clib_host_to_net_u16 (vlib_buffer_length_in_chain (vm, b0) -
 			      gho0.l3_hdr_offset);
       vnet_buffer (b0)->l3_hdr_offset = (u8 *) ip4 - b0->data;
-      b0->flags |= (VNET_BUFFER_F_GSO | VNET_BUFFER_F_IS_IP4);
+      b0->flags |= (VNET_BUFFER_F_GSO | VNET_BUFFER_F_IS_IP4 |
+		    VNET_BUFFER_F_L2_HDR_OFFSET_VALID |
+		    VNET_BUFFER_F_L3_HDR_OFFSET_VALID |
+		    VNET_BUFFER_F_L4_HDR_OFFSET_VALID);
       vnet_buffer_offload_flags_set (b0, (VNET_BUFFER_OFFLOAD_F_TCP_CKSUM |
 					  VNET_BUFFER_OFFLOAD_F_IP_CKSUM));
     }
@@ -406,7 +399,10 @@ gro_fixup_header (vlib_main_t *vm, vlib_buffer_t *b0, u32 ack_number, u8 is_l2)
 	clib_host_to_net_u16 (vlib_buffer_length_in_chain (vm, b0) -
 			      gho0.l4_hdr_offset);
       vnet_buffer (b0)->l3_hdr_offset = (u8 *) ip6 - b0->data;
-      b0->flags |= (VNET_BUFFER_F_GSO | VNET_BUFFER_F_IS_IP6);
+      b0->flags |= (VNET_BUFFER_F_GSO | VNET_BUFFER_F_IS_IP6 |
+		    VNET_BUFFER_F_L2_HDR_OFFSET_VALID |
+		    VNET_BUFFER_F_L3_HDR_OFFSET_VALID |
+		    VNET_BUFFER_F_L4_HDR_OFFSET_VALID);
       vnet_buffer_offload_flags_set (b0, VNET_BUFFER_OFFLOAD_F_TCP_CKSUM);
     }
 
@@ -685,11 +681,3 @@ vnet_gro_simple_inline (vlib_main_t * vm, u32 * from, u16 n_left_from,
   return bi;
 }
 #endif /* included_gro_func_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -147,6 +147,7 @@ handle_get_mactime (hss_url_handler_args_t *args)
 
   args->data = s;
   args->data_len = vec_len (s);
+  args->ct = HTTP_CONTENT_APP_JSON;
   args->free_vec_data = 1;
   return HSS_URL_HANDLER_OK;
 }
@@ -168,11 +169,3 @@ mactime_url_init (vlib_main_t * vm)
 
   (*fp) (handle_get_mactime, "mactime.json", HTTP_REQ_GET);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

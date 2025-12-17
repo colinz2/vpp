@@ -1,24 +1,14 @@
-/*
- *------------------------------------------------------------------
- * vpp_get_stats.c
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * vpp_get_stats.c
  */
 
 #include <vpp-api/client/stat_client.h>
 #include <vlib/vlib.h>
+#include <vpp/vnet/config.h>
 
 static int
 stat_poll_loop (u8 ** patterns)
@@ -80,7 +70,35 @@ stat_poll_loop (u8 ** patterns)
 	      break;
 
 	    case STAT_DIR_TYPE_SCALAR_INDEX:
+	    case STAT_DIR_TYPE_GAUGE:
 	      fformat (stdout, "%.2f %s\n", res[i].scalar_value, res[i].name);
+	      break;
+
+	    case STAT_DIR_TYPE_HISTOGRAM_LOG2:
+	      for (k = 0; k < vec_len (res[i].log2_histogram_bins); k++)
+		{
+		  u64 *bins = res[i].log2_histogram_bins[k];
+		  int n_bins = vec_len (bins);
+		  if (n_bins < 2) // Need at least min_exp + one bin
+		    continue;
+		  u32 min_exp = bins[0];
+		  u64 cumulative = 0;
+		  u64 sum = 0;
+		  fformat (stdout, "Histogram %s (thread %d):\n", res[i].name,
+			   k);
+		  for (int j = 1; j < n_bins; ++j)
+		    {
+		      cumulative += bins[j];
+		      sum += bins[j] *
+			     (1ULL << (min_exp + j - 1)); // midpoint approx
+		      fformat (stdout, "  <= %llu: %llu (cumulative: %llu)\n",
+			       (1ULL << (min_exp + j - 1)), bins[j],
+			       cumulative);
+		    }
+		  fformat (stdout,
+			   "  +Inf: %llu (total count: %llu, sum: %llu)\n",
+			   cumulative, cumulative, sum);
+		}
 	      break;
 
 	    case STAT_DIR_TYPE_EMPTY:
@@ -109,6 +127,15 @@ enum stat_client_cmd_e
   STAT_CLIENT_CMD_DUMP,
   STAT_CLIENT_CMD_TIGHTPOLL,
 };
+
+#ifdef CLIB_SANITIZE_ADDR
+/* default options for Address Sanitizer */
+const char *
+__asan_default_options (void)
+{
+  return VPP_SANITIZE_ADDR_OPTIONS;
+}
+#endif /* CLIB_SANITIZE_ADDR */
 
 int
 main (int argc, char **argv)
@@ -214,7 +241,35 @@ reconnect:
 	      break;
 
 	    case STAT_DIR_TYPE_SCALAR_INDEX:
+	    case STAT_DIR_TYPE_GAUGE:
 	      fformat (stdout, "%.2f %s\n", res[i].scalar_value, res[i].name);
+	      break;
+
+	    case STAT_DIR_TYPE_HISTOGRAM_LOG2:
+	      for (k = 0; k < vec_len (res[i].log2_histogram_bins); k++)
+		{
+		  u64 *bins = res[i].log2_histogram_bins[k];
+		  int n_bins = vec_len (bins);
+		  if (n_bins < 2) // Need at least min_exp + one bin
+		    continue;
+		  u32 min_exp = bins[0];
+		  u64 cumulative = 0;
+		  u64 sum = 0;
+		  fformat (stdout, "Histogram %s (thread %d):\n", res[i].name,
+			   k);
+		  for (int j = 1; j < n_bins; ++j)
+		    {
+		      cumulative += bins[j];
+		      sum += bins[j] *
+			     (1ULL << (min_exp + j - 1)); // midpoint approx
+		      fformat (stdout, "  <= %llu: %llu (cumulative: %llu)\n",
+			       (1ULL << (min_exp + j - 1)), bins[j],
+			       cumulative);
+		    }
+		  fformat (stdout,
+			   "  +Inf: %llu (total count: %llu, sum: %llu)\n",
+			   cumulative, cumulative, sum);
+		}
 	      break;
 
 	    case STAT_DIR_TYPE_NAME_VECTOR:
@@ -268,11 +323,3 @@ reconnect:
 
   exit (0);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

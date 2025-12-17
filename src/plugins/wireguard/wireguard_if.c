@@ -1,17 +1,6 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
  * Copyright (c) 2020 Doc.ai and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/adj/adj_midchain.h>
@@ -169,7 +158,6 @@ wg_if_update_adj (vnet_main_t * vnm, u32 sw_if_index, adj_index_t ai)
 }
 
 
-/* *INDENT-OFF* */
 VNET_DEVICE_CLASS (wg_if_device_class) = {
   .name = "Wireguard Tunnel",
   .format_device_name = format_wg_if_name,
@@ -181,7 +169,6 @@ VNET_HW_INTERFACE_CLASS(wg_hw_interface_class) = {
   .update_adjacency = wg_if_update_adj,
   .flags = VNET_HW_INTERFACE_CLASS_FLAG_NBMA,
 };
-/* *INDENT-ON* */
 
 /*
  * Maintain a bitmap of allocated wg_if instance numbers.
@@ -272,13 +259,11 @@ wg_if_create (u32 user_instance,
   if (instance == ~0)
     return VNET_API_ERROR_INVALID_REGISTRATION;
 
-  /* *INDENT-OFF* */
   struct noise_upcall upcall =  {
     .u_remote_get = wg_remote_get,
     .u_index_set = wg_index_set,
     .u_index_drop = wg_index_drop,
   };
-  /* *INDENT-ON* */
 
   pool_get (noise_local_pool, local);
 
@@ -419,13 +404,11 @@ wg_if_walk (wg_if_walk_cb_t fn, void *data)
 {
   index_t wgii;
 
-  /* *INDENT-OFF* */
   pool_foreach_index (wgii, wg_if_pool)
   {
     if (WALK_STOP == fn(wgii, data))
       break;
   }
-  /* *INDENT-ON* */
 }
 
 index_t
@@ -433,20 +416,10 @@ wg_if_peer_walk (wg_if_t * wgi, wg_if_peer_walk_cb_t fn, void *data)
 {
   index_t peeri, val;
 
-  /* *INDENT-OFF* */
   hash_foreach (peeri, val, wgi->peers, {
     if (WALK_STOP == fn (peeri, data))
       return peeri;
   });
-  /* *INDENT-ON* */
 
   return INDEX_INVALID;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

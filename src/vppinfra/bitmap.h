@@ -1,39 +1,7 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright (c) 2001, 2002, 2003, 2005 Eliot Dresselhaus
  */
-/*
-  Copyright (c) 2001, 2002, 2003, 2005 Eliot Dresselhaus
-
-  Permission is hereby granted, free of charge, to any person obtaining
-  a copy of this software and associated documentation files (the
-  "Software"), to deal in the Software without restriction, including
-  without limitation the rights to use, copy, modify, merge, publish,
-  distribute, sublicense, and/or sell copies of the Software, and to
-  permit persons to whom the Software is furnished to do so, subject to
-  the following conditions:
-
-  The above copyright notice and this permission notice shall be
-  included in all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
 
 #ifndef included_clib_bitmap_h
 #define included_clib_bitmap_h
@@ -245,7 +213,7 @@ clib_bitmap_get_multiple_no_check (uword * ai, uword i, uword n_bits)
   uword i0 = i / BITS (ai[0]);
   uword i1 = i % BITS (ai[0]);
   ASSERT (i1 + n_bits <= BITS (uword));
-  return 0 != ((ai[i0] >> i1) & pow2_mask (n_bits));
+  return ((ai[i0] >> i1) & pow2_mask (n_bits));
 }
 
 /** Gets the ith through ith + n_bits bit values from a bitmap
@@ -381,11 +349,12 @@ clib_bitmap_set_region (uword * bitmap, uword i, uword value, uword n_bits)
     @param ai - the bitmap
     @param body - the expression to evaluate for each set bit
 */
-#define clib_bitmap_foreach(i,ai)					\
-  if (ai)								\
-    for (i = clib_bitmap_first_set (ai);				\
-	 i != ~0;							\
-	 i = clib_bitmap_next_set (ai, i + 1))
+#define clib_bitmap_foreach(i, ai)                                            \
+  if (ai)                                                                     \
+    for (uword __index = clib_bitmap_first_set (ai),                          \
+	       __clib_unused __dummy = (i) = __index;                         \
+	 __index != ~0;                                                       \
+	 __index = clib_bitmap_next_set (ai, __index + 1), (i) = __index)
 
 /** Return the lowest numbered set bit in a bitmap
     @param ai - pointer to the bitmap
@@ -546,12 +515,10 @@ always_inline uword *clib_bitmap_xor (uword * ai, uword * bi);
   }
 
 /* ALU functions: */
-/* *INDENT-OFF* */
 _(and, a = a & b, 1)
 _(andnot, a = a & ~b, 1)
 _(or, a = a | b, 0)
 _(xor, a = a ^ b, 1)
-/* *INDENT-ON* */
 #undef _
 /** Logical operator across two bitmaps which duplicates the first bitmap
 
@@ -590,12 +557,10 @@ always_inline uword *clib_bitmap_dup_xor (uword * ai, uword * bi);
   clib_bitmap_dup_##name (uword * ai, uword * bi)	\
 { return clib_bitmap_##name (clib_bitmap_dup (ai), bi); }
 
-/* *INDENT-OFF* */
 _(and);
 _(andnot);
 _(or);
 _(xor);
-/* *INDENT-ON* */
 #undef _
 
 /* ALU function definition macro for functions taking one bitmap and an
@@ -618,12 +583,10 @@ clib_bitmap_##name (uword * ai, uword i)		\
 }
 
 /* ALU functions immediate: */
-/* *INDENT-OFF* */
 _(andi, a = a & b, 1)
 _(andnoti, a = a & ~b, 1)
 _(ori, a = a | b, 0)
 _(xori, a = a ^ b, 1)
-/* *INDENT-ON* */
 #undef _
 
 /* ALU function definition macro for functions taking one bitmap and an
@@ -644,13 +607,11 @@ clib_bitmap_##name##_notrim (uword * ai, uword i)	\
 }
 
 /* ALU functions immediate: */
-/* *INDENT-OFF* */
 _(andi, a = a & b)
 _(andnoti, a = a & ~b)
 _(ori, a = a | b)
 _(xori, a = a ^ b)
 #undef _
-/* *INDENT-ON* */
 
 /** Return a random bitmap of the requested length
     @param ai - pointer to the destination bitmap
@@ -753,11 +714,3 @@ u8 *format_bitmap_hex (u8 *s, va_list *args);
 u8 *format_bitmap_list (u8 *s, va_list *args);
 
 #endif /* included_clib_bitmap_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

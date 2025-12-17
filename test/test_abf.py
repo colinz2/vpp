@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 
-from socket import inet_pton, inet_ntop, AF_INET, AF_INET6
 import unittest
 
-from framework import VppTestCase, VppTestRunner
-from vpp_ip import DpoProto
+from config import config
+from framework import VppTestCase
+from asfframework import VppTestRunner
 from vpp_ip_route import (
     VppIpRoute,
     VppRoutePath,
-    VppMplsLabel,
     VppIpTable,
-    FibPathProto,
 )
 from vpp_acl import AclRule, VppAcl
 
@@ -119,6 +117,11 @@ class VppAbfAttach(VppObject):
         return "abf-attach-%d-%d" % (self.policy_id, self.sw_if_index)
 
 
+@unittest.skipIf(
+    "acl" in config.excluded_plugins,
+    "Exclude ABF plugin tests due to absence of ACL plugin",
+)
+@unittest.skipIf("abf" in config.excluded_plugins, "Exclude ABF plugin tests")
 class TestAbf(VppTestCase):
     """ABF Test Case"""
 
@@ -388,7 +391,7 @@ class TestAbf(VppTestCase):
         # a packet matching the deny rule
         #
         p_deny = (
-            Ether(src=self.pg0.remote_mac, dst=self.pg3.remote_mac)
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
             / IP(src=self.pg0.remote_ip4, dst=self.pg3.remote_ip4)
             / UDP(sport=1234, dport=1234)
             / Raw(b"\xa5" * 100)
@@ -399,7 +402,7 @@ class TestAbf(VppTestCase):
         # a packet matching the permit rule
         #
         p_permit = (
-            Ether(src=self.pg0.remote_mac, dst=self.pg2.remote_mac)
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
             / IP(src=self.pg0.remote_ip4, dst=self.pg2.remote_ip4)
             / UDP(sport=1234, dport=1234)
             / Raw(b"\xa5" * 100)
@@ -451,7 +454,7 @@ class TestAbf(VppTestCase):
         # a packet matching the deny rule
         #
         p_deny = (
-            Ether(src=self.pg0.remote_mac, dst=self.pg3.remote_mac)
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
             / IPv6(src=self.pg0.remote_ip6, dst=self.pg3.remote_ip6)
             / UDP(sport=1234, dport=1234)
             / Raw(b"\xa5" * 100)
@@ -462,7 +465,7 @@ class TestAbf(VppTestCase):
         # a packet matching the permit rule
         #
         p_permit = (
-            Ether(src=self.pg0.remote_mac, dst=self.pg2.remote_mac)
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
             / IPv6(src=self.pg0.remote_ip6, dst=self.pg2.remote_ip6)
             / UDP(sport=1234, dport=1234)
             / Raw(b"\xa5" * 100)

@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/dpo/load_balance.h>
@@ -149,7 +139,13 @@ load_balance_format (index_t lbi,
     dpo_id_t *buckets;
     u32 i;
 
-    lb = load_balance_get(lbi);
+    lb = load_balance_get_or_null(lbi);
+    if (lb == NULL)
+      {
+	s = format(s, "DELETED lb:%u", lbi);
+	return (s);
+      }
+
     vlib_get_combined_counter(&(load_balance_main.lbm_to_counters), lbi, &to);
     vlib_get_combined_counter(&(load_balance_main.lbm_via_counters), lbi, &via);
     buckets = load_balance_get_buckets(lb);
@@ -243,6 +239,8 @@ load_balance_create_i (u32 num_buckets,
                        flow_hash_config_t fhc)
 {
     load_balance_t *lb;
+
+    ASSERT (num_buckets <= LB_MAX_BUCKETS);
 
     lb = load_balance_alloc_i();
     lb->lb_hash_config = fhc;
@@ -455,8 +453,9 @@ ip_multipath_normalize_next_hops (const load_balance_path_t * raw_next_hops,
 
     /* Try larger and larger power of 2 sized adjacency blocks until we
        find one where traffic flows to within 1% of specified weights. */
-    for (n_adj = max_pow2 (n_nhs); ; n_adj *= 2)
+    for (n_adj = clib_min(max_pow2 (n_nhs), LB_MAX_BUCKETS); ; n_adj *= 2)
     {
+        ASSERT (n_adj <= LB_MAX_BUCKETS);
         error = 0;
 
         norm = n_adj / ((f64) sum_weight);
@@ -487,12 +486,22 @@ ip_multipath_normalize_next_hops (const load_balance_path_t * raw_next_hops,
 
         nhs[0].path_weight += n_adj_left;
 
-        /* Less than 5% average error per adjacency with this size adjacency block? */
-        if (error <= multipath_next_hop_error_tolerance*n_adj)
+        /* Less than 1% average error per adjacency with this size adjacency block,
+         * or did we reached the maximum number of buckets we support? */
+        if (error <= multipath_next_hop_error_tolerance*n_adj ||
+            n_adj >= LB_MAX_BUCKETS)
         {
-            /* Truncate any next hops with zero weight. */
-            vec_set_len (nhs, i);
-            break;
+          if (i < n_nhs)
+          {
+            /* Truncate any next hops in excess */
+            vlib_log_err(load_balance_logger,
+                         "Too many paths for load-balance, truncating %d -> %d",
+                         n_nhs, i);
+            for (int j = i; j < n_nhs; j++)
+              dpo_reset (&vec_elt(nhs, j).path_dpo);
+          }
+          vec_set_len (nhs, i);
+          break;
         }
     }
 
@@ -622,6 +631,7 @@ static inline void
 load_balance_set_n_buckets (load_balance_t *lb,
                             u32 n_buckets)
 {
+    ASSERT (n_buckets <= LB_MAX_BUCKETS);
     lb->lb_n_buckets = n_buckets;
     lb->lb_n_buckets_minus_1 = n_buckets-1;
 }
@@ -650,8 +660,6 @@ load_balance_multipath_update (const dpo_id_t *dpo,
                                          &nhs,
                                          &sum_of_weights,
                                          multipath_next_hop_error_tolerance);
-
-    ASSERT (n_buckets >= vec_len (raw_nhs));
 
     /*
      * Save the old load-balance map used, and get a new one if required.
@@ -876,6 +884,7 @@ load_balance_destroy (load_balance_t *lb)
 {
     dpo_id_t *buckets;
     int i;
+    u8 need_barrier_sync;
 
     buckets = load_balance_get_buckets(lb);
 
@@ -893,7 +902,14 @@ load_balance_destroy (load_balance_t *lb)
     fib_urpf_list_unlock(lb->lb_urpf);
     load_balance_map_unlock(lb->lb_map);
 
+    need_barrier_sync = pool_put_will_expand (load_balance_pool, lb);
+    if (PREDICT_FALSE (need_barrier_sync))
+	vlib_worker_thread_barrier_sync (vlib_get_main());
+
     pool_put(load_balance_pool, lb);
+
+    if (PREDICT_FALSE (need_barrier_sync))
+	vlib_worker_thread_barrier_release (vlib_get_main());
 }
 
 static void
@@ -1012,12 +1028,19 @@ load_balance_module_init (void)
      * This should never be used, but just in case, stack it on a drop.
      */
     lbi = load_balance_create(1, DPO_PROTO_IP4, 0);
+    ASSERT(0 == lbi);
     load_balance_set_bucket(lbi, 0, drop_dpo_get(DPO_PROTO_IP4));
 
     load_balance_logger =
         vlib_log_register_class("dpo", "load-balance");
 
     load_balance_map_module_init();
+}
+
+void
+load_balance_pool_alloc (uword size)
+{
+  pool_alloc_aligned(load_balance_pool, size, CLIB_CACHE_LINE_BYTES);
 }
 
 static clib_error_t *

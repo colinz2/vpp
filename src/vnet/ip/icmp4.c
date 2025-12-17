@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * ip/icmp4.c: ipv4 icmp
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* ip/icmp4.c: ipv4 icmp */
 
 #include <vlib/vlib.h>
 #include <vnet/ip/ip.h>
@@ -204,7 +172,6 @@ ip4_icmp_input (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip4_icmp_input_node) = {
   .function = ip4_icmp_input,
   .name = "ip4-icmp-input",
@@ -221,7 +188,6 @@ VLIB_REGISTER_NODE (ip4_icmp_input_node) = {
     [ICMP_INPUT_NEXT_ERROR] = "ip4-punt",
   },
 };
-/* *INDENT-ON* */
 
 typedef enum
 {
@@ -253,7 +219,7 @@ ip4_icmp_error (vlib_main_t * vm,
   u32 *from, *to_next;
   uword n_left_from, n_left_to_next;
   ip4_icmp_error_next_t next_index;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
 
   from = vlib_frame_vector_args (frame);
   n_left_from = frame->n_vectors;
@@ -325,6 +291,7 @@ ip4_icmp_error (vlib_main_t * vm,
 			       -sizeof (ip4_header_t) -
 			       sizeof (icmp46_header_t) - 4);
 
+	  p0->flags |= VNET_BUFFER_F_LOCALLY_ORIGINATED;
 	  p0->current_length =
 	    p0->current_length > 576 ? 576 : p0->current_length;
 	  out_ip0 = vlib_buffer_get_current (p0);
@@ -342,7 +309,7 @@ ip4_icmp_error (vlib_main_t * vm,
 	  /* Prefer a source address from "offending interface" */
 	  if (!ip4_sas_by_sw_if_index (sw_if_index0, &out_ip0->dst_address,
 				       &out_ip0->src_address))
-	    { /* interface has no IP6 address - should not happen */
+	    { /* interface has no IP4 address - should not happen */
 	      next0 = IP4_ICMP_ERROR_NEXT_DROP;
 	      error0 = ICMP4_ERROR_DROP;
 	    }
@@ -387,7 +354,6 @@ ip4_icmp_error (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip4_icmp_error_node) = {
   .function = ip4_icmp_error,
   .name = "ip4-icmp-error",
@@ -404,7 +370,6 @@ VLIB_REGISTER_NODE (ip4_icmp_error_node) = {
 
   .format_trace = format_icmp_input_trace,
 };
-/* *INDENT-ON* */
 
 
 static uword
@@ -596,11 +561,3 @@ icmp4_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (icmp4_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

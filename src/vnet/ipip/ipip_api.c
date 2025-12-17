@@ -1,19 +1,8 @@
-/*
- * ipip_api.c - ipip api
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* ipip_api.c - ipip api */
 
 #include <vlibmemory/api.h>
 #include <vnet/api_errno.h>
@@ -86,12 +75,10 @@ vl_api_ipip_add_tunnel_t_handler (vl_api_ipip_add_tunnel_t * mp)
     }
 
 out:
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_IPIP_ADD_TUNNEL_REPLY,
   ({
     rmp->sw_if_index = ntohl(sw_if_index);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -105,29 +92,45 @@ vl_api_ipip_del_tunnel_t_handler (vl_api_ipip_del_tunnel_t * mp)
   REPLY_MACRO (VL_API_IPIP_DEL_TUNNEL_REPLY);
 }
 
+static vl_api_tunnel_mode_t
+ipip_tunnel_mode_encode (ipip_mode_t mode)
+{
+  switch (mode)
+    {
+    case IPIP_MODE_P2P:
+      return TUNNEL_API_MODE_P2P;
+    case IPIP_MODE_P2MP:
+      return TUNNEL_API_MODE_MP;
+    case IPIP_MODE_6RD:
+      return TUNNEL_API_MODE_P2P;
+    default:
+      return TUNNEL_API_MODE_P2P;
+    }
+}
+
 static void
 send_ipip_tunnel_details (ipip_tunnel_t * t, vl_api_ipip_tunnel_dump_t * mp)
 {
   ipip_main_t *im = &ipip_main;
   vl_api_ipip_tunnel_details_t *rmp;
   bool is_ipv6 = t->transport == IPIP_TRANSPORT_IP6 ? true : false;
+  ip46_type_t ip_type = is_ipv6 ? IP46_TYPE_IP6 : IP46_TYPE_IP4;
   fib_table_t *ft;
 
-  ft = fib_table_get (t->fib_index, (is_ipv6 ? FIB_PROTOCOL_IP6 :
-				     FIB_PROTOCOL_IP4));
+  ft = fib_table_get (t->fib_index,
+		      (is_ipv6 ? FIB_PROTOCOL_IP6 : FIB_PROTOCOL_IP4));
 
-  /* *INDENT-OFF* */
-  REPLY_MACRO_DETAILS2(VL_API_IPIP_TUNNEL_DETAILS,
-  ({
-    ip_address_encode (&t->tunnel_src, IP46_TYPE_ANY, &rmp->tunnel.src);
-    ip_address_encode (&t->tunnel_dst, IP46_TYPE_ANY, &rmp->tunnel.dst);
-    rmp->tunnel.table_id = htonl (ft->ft_table_id);
-    rmp->tunnel.instance = htonl (t->user_instance);
-    rmp->tunnel.sw_if_index = htonl (t->sw_if_index);
-    rmp->tunnel.dscp = ip_dscp_encode(t->dscp);
-    rmp->tunnel.flags = tunnel_encap_decap_flags_encode(t->flags);
-  }));
-    /* *INDENT-ON* */
+  REPLY_MACRO_DETAILS2 (
+    VL_API_IPIP_TUNNEL_DETAILS, ({
+      ip_address_encode (&t->tunnel_src, ip_type, &rmp->tunnel.src);
+      ip_address_encode (&t->tunnel_dst, ip_type, &rmp->tunnel.dst);
+      rmp->tunnel.table_id = htonl (ft->ft_table_id);
+      rmp->tunnel.instance = htonl (t->user_instance);
+      rmp->tunnel.sw_if_index = htonl (t->sw_if_index);
+      rmp->tunnel.dscp = ip_dscp_encode (t->dscp);
+      rmp->tunnel.flags = tunnel_encap_decap_flags_encode (t->flags);
+      rmp->tunnel.mode = ipip_tunnel_mode_encode (t->mode);
+    }));
 }
 
 static void
@@ -141,12 +144,10 @@ vl_api_ipip_tunnel_dump_t_handler (vl_api_ipip_tunnel_dump_t * mp)
 
   if (sw_if_index == ~0)
     {
-    /* *INDENT-OFF* */
     pool_foreach (t, im->tunnels)
      {
       send_ipip_tunnel_details(t, mp);
     }
-    /* *INDENT-ON* */
     }
   else
     {
@@ -185,12 +186,10 @@ vl_api_ipip_6rd_add_tunnel_t_handler (vl_api_ipip_6rd_add_tunnel_t * mp)
 			     &sixrd_tunnel_index);
     }
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_IPIP_6RD_ADD_TUNNEL_REPLY,
   ({
     rmp->sw_if_index = htonl (sixrd_tunnel_index);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -229,11 +228,3 @@ ipip_api_hookup (vlib_main_t * vm)
 }
 
 VLIB_API_INIT_FUNCTION (ipip_api_hookup);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

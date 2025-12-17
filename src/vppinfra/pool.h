@@ -1,39 +1,8 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright (c) 2001, 2002, 2003, 2004 Eliot Dresselhaus
  */
-/*
-  Copyright (c) 2001, 2002, 2003, 2004 Eliot Dresselhaus
 
-  Permission is hereby granted, free of charge, to any person obtaining
-  a copy of this software and associated documentation files (the
-  "Software"), to deal in the Software without restriction, including
-  without limitation the rights to use, copy, modify, merge, publish,
-  distribute, sublicense, and/or sell copies of the Software, and to
-  permit persons to whom the Software is furnished to do so, subject to
-  the following conditions:
-
-  The above copyright notice and this permission notice shall be
-  included in all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
 /** @file
  * @brief Fixed length block allocator.
    Pools are built from clib vectors and bitmaps. Use pools when
@@ -61,6 +30,8 @@ typedef struct
   /** Maximum size of the pool, in elements */
   u32 max_elts;
 
+  /** Unsed by pool, can be used as opaque storage by consumers */
+  u32 opaque;
 } pool_header_t;
 
 /** Get pool header from user pool pointer */
@@ -268,7 +239,8 @@ _pool_put_will_expand (void *p, uword index, uword elt_sz)
   return 0;
 }
 
-#define pool_put_will_expand(P, E) _pool_put_will_expand (P, (E) - (P), sizeof ((P)[0])
+#define pool_put_will_expand(P, E)                                            \
+  _pool_put_will_expand (P, (E) - (P), sizeof ((P)[0]))
 
 /** Use free bitmap to query whether given element is free. */
 static_always_inline int
@@ -420,18 +392,20 @@ _pool_free (void **v)
 #define pool_free(p) _pool_free ((void **) &(p))
 
 static_always_inline uword
-pool_get_first_index (void *pool)
+_pool_get_first_index (void *pool)
 {
   pool_header_t *h = pool_header (pool);
   return clib_bitmap_first_clear (h->free_bitmap);
 }
+#define pool_get_first_index(p) _pool_get_first_index ((void *) (p))
 
 static_always_inline uword
-pool_get_next_index (void *pool, uword last)
+_pool_get_next_index (void *pool, uword last)
 {
   pool_header_t *h = pool_header (pool);
   return clib_bitmap_next_clear (h->free_bitmap, last + 1);
 }
+#define pool_get_next_index(p, l) _pool_get_next_index ((void *) (p), l)
 
 /** Optimized iteration through pool.
 
@@ -568,6 +542,14 @@ do {									\
 						(s));                               \
        (i) < (e); (i) = pool_get_next_index ((v), (i)))
 
+/* works only for pool of pointers, e is declared inside macro */
+#define pool_foreach_pointer(e, p)                                            \
+  if (p)                                                                      \
+    for (typeof ((p)[0]) *_t = (p) + pool_get_first_index (p), (e) = *_t,     \
+			 *_end = vec_end (p);                                 \
+	 _t < _end; _t = (p) + pool_get_next_index (p, _t - (p)),             \
+			 (e) = _t < _end ? *_t : (e))
+
 /**
  * @brief Remove all elements from a pool in a safe way
  *
@@ -594,11 +576,3 @@ do {									\
 }
 
 #endif /* included_pool_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -14,27 +14,53 @@
 ##############################################################################
 # vppcom shared library
 ##############################################################################
-add_vpp_library(vppcom
-  SOURCES
-  vppcom.c
-  vcl_bapi.c
-  vcl_cfg.c
-  vcl_private.c
-  vcl_locked.c
-  vcl_sapi.c
 
-  LINK_LIBRARIES
-  vppinfra svm vlibmemoryclient rt pthread
+option(VPP_BUILD_VCL "Build VCL" ON)
+if(NOT VPP_BUILD_VCL)
+  return()
+endif(NOT VPP_BUILD_VCL)
 
-  DEPENDS
-  api_headers
-)
+option(VPP_BUILD_VCL_BAPI "Build VCL BAPI" ON)
+
+if (NOT VPP_BUILD_VCL_BAPI)
+  add_vpp_library(vppcom
+    SOURCES
+    vppcom.c
+    vcl_cfg.c
+    vcl_private.c
+    vcl_locked.c
+    vcl_sapi.c
+
+    LINK_LIBRARIES
+    vppinfra svm rt pthread
+  )
+else()
+  add_definitions(-DVCL_BAPI_ENABLED)
+  add_vpp_library(vppcom
+    SOURCES
+    vppcom.c
+    vcl_bapi.c
+    vcl_cfg.c
+    vcl_private.c
+    vcl_locked.c
+    vcl_sapi.c
+
+    LINK_LIBRARIES
+    vppinfra svm vlibmemoryclient rt pthread
+
+    DEPENDS
+    api_headers
+  )
+endif()
 
 option(LDP_HAS_GNU_SOURCE "LDP configured to use _GNU_SOURCE" ON)
 if (LDP_HAS_GNU_SOURCE)
   add_compile_definitions(HAVE_GNU_SOURCE)
 endif(LDP_HAS_GNU_SOURCE)
 
+if("${CMAKE_SYSTEM_NAME}" STREQUAL "FreeBSD")
+  message("WARNING: vcl_ldpreload isn't supported on FreeBSD - disabled")
+else()
 add_vpp_library(vcl_ldpreload
   SOURCES
   ldp_socket_wrapper.c
@@ -43,6 +69,7 @@ add_vpp_library(vcl_ldpreload
   LINK_LIBRARIES
   vppinfra svm vlibmemoryclient rt pthread vppcom dl
 )
+endif()
 
 add_vpp_headers(vcl
   ldp.h

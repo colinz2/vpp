@@ -1,17 +1,9 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+#include <vnet/ip/ip4_to_ip6.h>
 #include <nat/dslite/dslite.h>
 #include <nat/lib/nat_syslog.h>
 
@@ -460,7 +452,6 @@ VLIB_NODE_FN (dslite_in2out_node) (vlib_main_t * vm,
   return dslite_in2out_node_fn_inline (vm, node, frame, 0);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (dslite_in2out_node) = {
   .name = "dslite-in2out",
   .vector_size = sizeof (u32),
@@ -477,7 +468,6 @@ VLIB_REGISTER_NODE (dslite_in2out_node) = {
     [DSLITE_IN2OUT_NEXT_SLOWPATH] = "dslite-in2out-slowpath",
   },
 };
-/* *INDENT-ON* */
 
 VLIB_NODE_FN (dslite_in2out_slowpath_node) (vlib_main_t * vm,
 					    vlib_node_runtime_t * node,
@@ -486,7 +476,6 @@ VLIB_NODE_FN (dslite_in2out_slowpath_node) (vlib_main_t * vm,
   return dslite_in2out_node_fn_inline (vm, node, frame, 1);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (dslite_in2out_slowpath_node) = {
   .name = "dslite-in2out-slowpath",
   .vector_size = sizeof (u32),
@@ -503,12 +492,3 @@ VLIB_REGISTER_NODE (dslite_in2out_slowpath_node) = {
     [DSLITE_IN2OUT_NEXT_SLOWPATH] = "dslite-in2out-slowpath",
   },
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

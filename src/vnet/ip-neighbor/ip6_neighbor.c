@@ -1,19 +1,8 @@
-/*
- * ip/ip6_neighbor.c: IP6 neighbor handling
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2010 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* ip/ip6_neighbor.c: IP6 neighbor handling */
 
 #include <vnet/ip-neighbor/ip6_neighbor.h>
 #include <vnet/ip-neighbor/ip_neighbor.api_enum.h>
@@ -32,7 +21,7 @@ VLIB_REGISTER_LOG_CLASS (ip6_neighbor_log, static) = {
 #define log_debug(fmt, ...)                                                   \
   vlib_log_debug (ip6_neighbor_log.class, fmt, __VA_ARGS__)
 void
-ip6_neighbor_probe_dst (u32 sw_if_index, u32 thread_index,
+ip6_neighbor_probe_dst (u32 sw_if_index, clib_thread_index_t thread_index,
 			const ip6_address_t *dst)
 {
   ip6_address_t src;
@@ -45,7 +34,8 @@ ip6_neighbor_probe_dst (u32 sw_if_index, u32 thread_index,
 
 void
 ip6_neighbor_advertise (vlib_main_t *vm, vnet_main_t *vnm, u32 sw_if_index,
-			u32 thread_index, const ip6_address_t *addr)
+			clib_thread_index_t thread_index,
+			const ip6_address_t *addr)
 {
   vnet_hw_interface_t *hi = vnet_get_sup_hw_interface (vnm, sw_if_index);
   ip6_main_t *i6m = &ip6_main;
@@ -129,7 +119,7 @@ ip6_discover_neighbor_inline (vlib_main_t * vm,
   u32 *from, *to_next_drop;
   uword n_left_from, n_left_to_next_drop;
   u64 seed;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
 
   if (node->flags & VLIB_NODE_FLAG_TRACE)
     ip6_forward_next_trace (vm, node, frame, VLIB_TX);
@@ -217,13 +207,14 @@ ip6_discover_neighbor_inline (vlib_main_t * vm,
 	   * Choose source address based on destination lookup
 	   * adjacency.
 	   */
-	  if (!fib_sas6_get (sw_if_index0, &ip0->dst_address, &src) ||
-	      !ip6_sas_by_sw_if_index (sw_if_index0, &ip0->dst_address, &src))
+	  const ip6_address_t *ll = ip6_get_link_local_address (sw_if_index0);
+	  if (!ll)
 	    {
 	      /* There is no address on the interface */
 	      p0->error = node->errors[IP6_NEIGHBOR_ERROR_NO_SOURCE_ADDRESS];
 	      continue;
 	    }
+	  ip6_address_copy (&src, ll);
 
 	  b0 = ip6_neighbor_probe (vm, vnm, sw_if_index0, thread_index, &src,
 				   &ip0->dst_address);
@@ -263,7 +254,6 @@ ip6_glean (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
   return (ip6_discover_neighbor_inline (vm, node, frame, 1));
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_glean_node) =
 {
   .function = ip6_glean,
@@ -294,7 +284,6 @@ VLIB_REGISTER_NODE (ip6_discover_neighbor_node) =
     [IP6_NBR_NEXT_REPLY_TX] = "ip6-rewrite-mcast",
   },
 };
-/* *INDENT-ON* */
 
 /* Template used to generate IP6 neighbor solicitation packets. */
 vlib_packet_template_t ip6_neighbor_packet_template;
@@ -344,11 +333,3 @@ ip6_nd_main_loop_enter (vlib_main_t * vm)
 }
 
 VLIB_MAIN_LOOP_ENTER_FUNCTION (ip6_nd_main_loop_enter);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

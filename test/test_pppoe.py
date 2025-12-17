@@ -8,12 +8,15 @@ from scapy.layers.l2 import Ether
 from scapy.layers.ppp import PPPoE, PPPoED, PPP
 from scapy.layers.inet import IP
 
-from framework import VppTestCase, VppTestRunner
+from framework import VppTestCase
+from asfframework import VppTestRunner
 from vpp_ip_route import VppIpRoute, VppRoutePath
 from vpp_pppoe_interface import VppPppoeInterface
-from util import ppp, ppc
+from util import ppp
+from config import config
 
 
+@unittest.skipIf("pppoe" in config.excluded_plugins, "Exclude PPPoE plugin tests")
 class TestPPPoE(VppTestCase):
     """PPPoE Test Case"""
 
@@ -163,7 +166,6 @@ class TestPPPoE(VppTestCase):
                 raise
 
     def verify_encaped_pppoe(self, src_if, capture, sent, session_id):
-
         self.assertEqual(len(capture), len(sent))
 
         for i in range(len(capture)):
@@ -222,7 +224,6 @@ class TestPPPoE(VppTestCase):
         )
         pppoe_if.add_vpp_config()
         pppoe_if.set_unnumbered(self.pg0.sw_if_index)
-
         #
         # Send tunneled packets that match the created tunnel and
         # are decapped and forwarded

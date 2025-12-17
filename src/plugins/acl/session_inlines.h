@@ -1,18 +1,7 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
-
 
 /* ICMPv4 invert type for stateful ACL */
 static const u8 icmp4_invmap[] = {
@@ -115,16 +104,16 @@ fa_session_get_timeout (acl_main_t * am, fa_session_t * sess)
 }
 
 always_inline fa_session_t *
-get_session_ptr_no_check (acl_main_t * am, u16 thread_index,
+get_session_ptr_no_check (acl_main_t *am, clib_thread_index_t thread_index,
 			  u32 session_index)
 {
   acl_fa_per_worker_data_t *pw = &am->per_worker_data[thread_index];
   return pool_elt_at_index (pw->fa_sessions_pool, session_index);
 }
 
-
 always_inline fa_session_t *
-get_session_ptr (acl_main_t * am, u16 thread_index, u32 session_index)
+get_session_ptr (acl_main_t *am, clib_thread_index_t thread_index,
+		 u32 session_index)
 {
   acl_fa_per_worker_data_t *pw = &am->per_worker_data[thread_index];
 
@@ -135,7 +124,8 @@ get_session_ptr (acl_main_t * am, u16 thread_index, u32 session_index)
 }
 
 always_inline int
-is_valid_session_ptr (acl_main_t * am, u16 thread_index, fa_session_t * sess)
+is_valid_session_ptr (acl_main_t *am, clib_thread_index_t thread_index,
+		      fa_session_t *sess)
 {
   acl_fa_per_worker_data_t *pw = &am->per_worker_data[thread_index];
   return ((sess != 0)
@@ -470,10 +460,10 @@ acl_fa_can_add_session (acl_main_t * am, int is_input, u32 sw_if_index)
 	  am->fa_conn_table_max_entries);
 }
 
-
 always_inline void
-acl_fa_try_recycle_session (acl_main_t * am, int is_input, u16 thread_index,
-			    u32 sw_if_index, u64 now)
+acl_fa_try_recycle_session (acl_main_t *am, int is_input,
+			    clib_thread_index_t thread_index, u32 sw_if_index,
+			    u64 now)
 {
   /* try to recycle a TCP transient session */
   acl_fa_per_worker_data_t *pw = &am->per_worker_data[thread_index];
@@ -657,12 +647,3 @@ acl_fa_find_session_with_hash (acl_main_t * am, int is_ip6, u32 sw_if_index0,
     }
   return res;
 }
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

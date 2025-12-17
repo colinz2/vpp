@@ -1,16 +1,5 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2021 Intel and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <perfmon/perfmon.h>
@@ -167,8 +156,8 @@ init_intel_uncore_iio_bw (vlib_main_t *vm, struct perfmon_bundle *b)
 
       s = format (
 	s, "%-10U%-5U%-13U%04x:%04x   %-14U%-16s%v\n", format_stack_socket, p,
-	h, addr, format_vlib_pci_link_port, d, format_vlib_pci_addr, addr,
-	d->vendor_id, d->device_id, format_vlib_pci_link_speed, d,
+	h, addr, format_vlib_pci_link_port, &d->config, format_vlib_pci_addr,
+	addr, d->vendor_id, d->device_id, format_vlib_pci_link_speed, d,
 	d->driver_name ? (char *) d->driver_name : "", d->product_name);
 
       vlib_pci_free_device_info (d);

@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /*
  *------------------------------------------------------------------
  * nsh_md2_ioam_export.c - ioam export API / debug CLI handling
@@ -136,14 +127,12 @@ set_nsh_md2_ioam_export_ipfix_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_nsh_md2_ioam_ipfix_command, static) =
 {
 .path = "set nsh-md2-ioam export ipfix",
 .short_help = "set nsh-md2-ioam export ipfix collector <ip4-address> src <ip4-address>",
 .function = set_nsh_md2_ioam_export_ipfix_command_fn,
 };
-/* *INDENT-ON* */
 
 
 #define IPFIX_NSH_MD2_IOAM_EXPORT_ID 274	// TODO: Move this to ioam/ioam_export.h
@@ -166,12 +155,3 @@ nsh_md2_ioam_export_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (nsh_md2_ioam_export_init);
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

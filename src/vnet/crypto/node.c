@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <stdbool.h>
@@ -45,7 +35,7 @@ typedef enum
 typedef struct
 {
   vnet_crypto_op_status_t op_status;
-  vnet_crypto_async_op_id_t op;
+  vnet_crypto_op_id_t op;
 } crypto_dispatch_trace_t;
 
 static u8 *
@@ -55,15 +45,14 @@ format_crypto_dispatch_trace (u8 * s, va_list * args)
   CLIB_UNUSED (vlib_node_t * node) = va_arg (*args, vlib_node_t *);
   crypto_dispatch_trace_t *t = va_arg (*args, crypto_dispatch_trace_t *);
 
-  s = format (s, "%U: %U", format_vnet_crypto_async_op, t->op,
+  s = format (s, "%U: %U", format_vnet_crypto_op, t->op,
 	      format_vnet_crypto_op_status, t->op_status);
   return s;
 }
 
 static void
-vnet_crypto_async_add_trace (vlib_main_t * vm, vlib_node_runtime_t * node,
-			     vlib_buffer_t * b,
-			     vnet_crypto_async_op_id_t op_id,
+vnet_crypto_async_add_trace (vlib_main_t *vm, vlib_node_runtime_t *node,
+			     vlib_buffer_t *b, vnet_crypto_op_id_t op_id,
 			     vnet_crypto_op_status_t status)
 {
   crypto_dispatch_trace_t *tr = vlib_add_trace (vm, node, b, sizeof (*tr));
@@ -79,7 +68,7 @@ crypto_dequeue_frame (vlib_main_t * vm, vlib_node_runtime_t * node,
 {
   vnet_crypto_main_t *cm = &crypto_main;
   u32 n_elts = 0;
-  u32 enqueue_thread_idx = ~0;
+  clib_thread_index_t enqueue_thread_idx = CLIB_INVALID_THREAD_INDEX;
   vnet_crypto_async_frame_t *cf = (hdl) (vm, &n_elts, &enqueue_thread_idx);
   *n_total += n_elts;
 
@@ -135,8 +124,11 @@ crypto_dequeue_frame (vlib_main_t * vm, vlib_node_runtime_t * node,
 	  vnet_crypto_async_free_frame (vm, cf);
 	}
       /* signal enqueue-thread to dequeue the processed frame (n_elts>0) */
-      if (cm->dispatch_mode == VNET_CRYPTO_ASYNC_DISPATCH_INTERRUPT
-	  && n_elts > 0)
+      if (n_elts > 0 &&
+	  ((node->state == VLIB_NODE_STATE_POLLING &&
+	    (node->flags &
+	     VLIB_NODE_FLAG_SWITCH_FROM_POLLING_TO_INTERRUPT_MODE)) ||
+	   node->state == VLIB_NODE_STATE_INTERRUPT))
 	{
 	  vlib_node_set_interrupt_pending (
 	    vlib_get_main_by_index (enqueue_thread_idx),
@@ -161,24 +153,32 @@ VLIB_NODE_FN (crypto_dispatch_node) (vlib_main_t * vm,
   u32 n_dispatched = 0, n_cache = 0, index;
   vec_foreach_index (index, cm->dequeue_handlers)
     {
-      if (PREDICT_FALSE (cm->dequeue_handlers[index] == 0))
-	continue;
       n_cache = crypto_dequeue_frame (
 	vm, node, ct, cm->dequeue_handlers[index], n_cache, &n_dispatched);
     }
-  /* *INDENT-ON* */
   if (n_cache)
     vlib_buffer_enqueue_to_next_vec (vm, node, &ct->buffer_indices, &ct->nexts,
 				     n_cache);
 
+  /* if there are still pending tasks and node in interrupt mode,
+  sending current thread signal to dequeue next loop */
+  if (pool_elts (ct->frame_pool) > 0 &&
+      ((node->state == VLIB_NODE_STATE_POLLING &&
+	(node->flags &
+	 VLIB_NODE_FLAG_SWITCH_FROM_POLLING_TO_INTERRUPT_MODE)) ||
+       node->state == VLIB_NODE_STATE_INTERRUPT))
+    {
+      vlib_node_set_interrupt_pending (vm, node->node_index);
+    }
+
   return n_dispatched;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (crypto_dispatch_node) = {
   .name = "crypto-dispatch",
   .type = VLIB_NODE_TYPE_INPUT,
-  .state = VLIB_NODE_STATE_DISABLED,
+  .flags = VLIB_NODE_FLAG_ADAPTIVE_MODE,
+  .state = VLIB_NODE_STATE_INTERRUPT,
   .format_trace = format_crypto_dispatch_trace,
 
   .n_errors = ARRAY_LEN(vnet_crypto_async_error_strings),
@@ -192,12 +192,3 @@ VLIB_REGISTER_NODE (crypto_dispatch_node) = {
 #undef _
   },
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <stdio.h>
@@ -24,7 +11,7 @@
 #include <linux/limits.h>
 #include <bpf/bpf.h>
 #include <vlib/vlib.h>
-#include <vlib/unix/unix.h>
+#include <vlib/file.h>
 #include <vlib/pci/pci.h>
 #include <vppinfra/linux/netns.h>
 #include <vppinfra/linux/sysfs.h>
@@ -650,7 +637,8 @@ af_xdp_create_if (vlib_main_t * vm, af_xdp_create_if_args_t * args)
       goto err1;
     }
 
-  if (args->prog && af_xdp_load_program (args, ad))
+  if (args->prog &&
+      (af_xdp_remove_program (ad) || af_xdp_load_program (args, ad)))
     goto err2;
 
   q_num = clib_max (rxq_num, txq_num);
@@ -856,7 +844,6 @@ af_xdp_clear (u32 dev_instance)
   clib_error_free (ad->error);
 }
 
-/* *INDENT-OFF* */
 VNET_DEVICE_CLASS (af_xdp_device_class) = {
   .name = "AF_XDP interface",
   .format_device = format_af_xdp_device,
@@ -869,7 +856,6 @@ VNET_DEVICE_CLASS (af_xdp_device_class) = {
   .mac_addr_change_function = af_xdp_mac_change,
   .clear_counters = af_xdp_clear,
 };
-/* *INDENT-ON* */
 
 clib_error_t *
 af_xdp_init (vlib_main_t * vm)
@@ -882,11 +868,3 @@ af_xdp_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (af_xdp_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

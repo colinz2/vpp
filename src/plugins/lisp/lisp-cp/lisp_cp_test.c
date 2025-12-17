@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vat/vat.h>
@@ -116,7 +106,6 @@ format_lisp_eid_vat (u8 * s, va_list * args)
 
 
 
-/* *INDENT-OFF* */
 /** Used for parsing LISP eids */
 typedef struct lisp_eid_vat_t_
 {
@@ -130,7 +119,6 @@ typedef struct lisp_eid_vat_t_
   /**< type of eid */
   u8 type;
 } __clib_packed lisp_eid_vat_t;
-/* *INDENT-ON* */
 
 static uword
 unformat_lisp_eid_vat (unformat_input_t * input, va_list * args)
@@ -2041,11 +2029,3 @@ api_lisp_get_map_request_itr_rlocs (vat_main_t * vam)
 
 #define vat_plugin_register vat_plugin_register_cp
 #include <lisp/lisp-cp/lisp.api_test.c>
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

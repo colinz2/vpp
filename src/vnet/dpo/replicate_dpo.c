@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/ip/lookup.h>
@@ -172,6 +162,8 @@ replicate_create_i (u32 num_buckets,
 {
     replicate_t *rep;
 
+    ASSERT (num_buckets <= REP_MAX_BUCKETS);
+
     rep = replicate_alloc_i();
     rep->rep_n_buckets = num_buckets;
     rep->rep_proto = rep_proto;
@@ -311,7 +303,8 @@ static inline void
 replicate_set_n_buckets (replicate_t *rep,
                          u32 n_buckets)
 {
-    rep->rep_n_buckets = n_buckets;
+  ASSERT (n_buckets <= REP_MAX_BUCKETS);
+  rep->rep_n_buckets = n_buckets;
 }
 
 void
@@ -330,6 +323,17 @@ replicate_multipath_update (const dpo_id_t *dpo,
     nhs = replicate_multipath_next_hop_fixup(next_hops,
                                              rep->rep_proto);
     n_buckets = vec_len(nhs);
+
+    if (n_buckets > REP_MAX_BUCKETS)
+      {
+	vlib_log_err (replicate_logger,
+		      "Too many paths for replicate, truncating %d -> %d",
+		      n_buckets, REP_MAX_BUCKETS);
+	for (int i = REP_MAX_BUCKETS; i < n_buckets; i++)
+	  dpo_reset (&vec_elt (nhs, i).path_dpo);
+	vec_set_len (nhs, REP_MAX_BUCKETS);
+	n_buckets = REP_MAX_BUCKETS;
+      }
 
     if (0 == rep->rep_n_buckets)
     {
@@ -728,7 +732,7 @@ replicate_inline (vlib_main_t * vm,
     vlib_combined_counter_main_t * cm = &replicate_main.repm_counters;
     replicate_main_t * rm = &replicate_main;
     u32 n_left_from, * from, * to_next, next_index;
-    u32 thread_index = vlib_get_thread_index();
+    clib_thread_index_t thread_index = vlib_get_thread_index ();
 
     from = vlib_frame_vector_args (frame);
     n_left_from = frame->n_vectors;

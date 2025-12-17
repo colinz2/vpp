@@ -1,19 +1,8 @@
-/*
- * mpls_tunnel.c: MPLS tunnel interfaces (i.e. for RSVP-TE)
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2012 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* mpls_tunnel.c: MPLS tunnel interfaces (i.e. for RSVP-TE) */
 
 #include <vnet/vnet.h>
 #include <vnet/mpls/mpls_tunnel.h>
@@ -932,7 +921,12 @@ done:
 VLIB_CLI_COMMAND (create_mpls_tunnel_command, static) = {
   .path = "mpls tunnel",
   .short_help =
-  "mpls tunnel [multicast] [l2-only] via [next-hop-address] [next-hop-interface] [next-hop-table <value>] [weight <value>] [preference <value>] [udp-encap-id <value>] [ip4-lookup-in-table <value>] [ip6-lookup-in-table <value>] [mpls-lookup-in-table <value>] [resolve-via-host] [resolve-via-connected] [rx-ip4 <interface>] [out-labels <value value value>]",
+    "mpls tunnel [multicast] [l2-only] via [next-hop-address] "
+    "[next-hop-interface] [next-hop-table <value>] [weight <value>] "
+    "[preference <value>] [udp-encap-id <value>] [ip4-lookup-in-table "
+    "<value>] [ip6-lookup-in-table <value>] [mpls-lookup-in-table <value>] "
+    "[resolve-via-host] [resolve-via-connected] [rx-ip4|rx-ip6 <interface>] "
+    "[out-labels <value value value>]",
   .function = vnet_create_mpls_tunnel_command_fn,
 };
 

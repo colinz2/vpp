@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vlibmemory/api.h>
@@ -143,7 +133,10 @@ cnat_input_feature_fn (vlib_main_t *vm, vlib_node_runtime_t *node,
 
       /* refcnt session in current client */
       cnat_client_cnt_session (cc);
-      cnat_session_create (session, ctx, CNAT_LOCATION_OUTPUT, rsession_flags);
+      cnat_session_create (session, ctx);
+      if (!(ct->flags & CNAT_TR_FLAG_NO_RETURN_SESSION))
+	cnat_rsession_create (session, ctx, CNAT_LOCATION_OUTPUT,
+			      rsession_flags);
       trace_flags |= CNAT_TRACE_SESSION_CREATED;
     }
 
@@ -156,9 +149,9 @@ cnat_input_feature_fn (vlib_main_t *vm, vlib_node_runtime_t *node,
     }
 
   if (AF_IP4 == ctx->af)
-    cnat_translation_ip4 (session, ip4, udp0);
+    cnat_translation_ip4 (session, ip4, udp0, vnet_buffer (b)->oflags);
   else
-    cnat_translation_ip6 (session, ip6, udp0);
+    cnat_translation_ip6 (session, ip6, udp0, vnet_buffer (b)->oflags);
 
   if (NULL != ct)
     {
@@ -320,15 +313,17 @@ cnat_output_feature_fn (vlib_main_t *vm, vlib_node_runtime_t *node,
 	CNAT_SESSION_FLAG_NO_CLIENT | CNAT_SESSION_FLAG_ALLOC_PORT;
 
       trace_flags |= CNAT_TRACE_SESSION_CREATED;
-      cnat_session_create (session, ctx, CNAT_LOCATION_INPUT,
-			   CNAT_SESSION_FLAG_NO_CLIENT |
-			     CNAT_SESSION_RETRY_SNAT);
+
+      cnat_session_create (session, ctx);
+      cnat_rsession_create (session, ctx, CNAT_LOCATION_INPUT,
+			    CNAT_SESSION_FLAG_NO_CLIENT |
+			      CNAT_SESSION_RETRY_SNAT);
     }
 
   if (AF_IP4 == ctx->af)
-    cnat_translation_ip4 (session, ip4, udp0);
+    cnat_translation_ip4 (session, ip4, udp0, vnet_buffer (b)->oflags);
   else
-    cnat_translation_ip6 (session, ip6, udp0);
+    cnat_translation_ip6 (session, ip6, udp0, vnet_buffer (b)->oflags);
 
 trace:
   if (PREDICT_FALSE (ctx->do_trace))
@@ -399,11 +394,3 @@ VNET_FEATURE_INIT (cnat_out_ip6_feature, static) = {
   .runs_before = VNET_FEATURES ("gso-ip6"),
   .runs_after = VNET_FEATURES ("acl-plugin-out-ip6-fa"),
 };
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

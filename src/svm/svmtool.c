@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * svmtool.c
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2009 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * svmtool.c
  */
 
 #include <stdio.h>
@@ -72,12 +61,10 @@ format_all_svm_regions (u8 * s, va_list * args)
    * Snapshoot names, can't hold root rp mutex across
    * find_or_create.
    */
-  /* *INDENT-OFF* */
   pool_foreach (subp, mp->subregions)  {
         name = vec_dup (subp->subregion_name);
         vec_add1(svm_names, name);
       }
-  /* *INDENT-ON* */
 
   pthread_mutex_unlock (&root_rp->mutex);
 
@@ -293,7 +280,7 @@ trace (char *chroot_path, char *name, int enable_disable)
 
   oldheap = svm_push_data_heap (db_rp);
 
-  mheap_trace (db_rp->data_heap, enable_disable);
+  clib_mem_trace_heap (db_rp->data_heap, enable_disable);
 
   svm_pop_heap (oldheap);
   region_unlock (db_rp);
@@ -328,12 +315,10 @@ subregion_repair (char *chroot_path)
    * Snapshoot names, can't hold root rp mutex across
    * find_or_create.
    */
-  /* *INDENT-OFF* */
   pool_foreach (subp, mp->subregions)  {
         name = vec_dup (subp->subregion_name);
         vec_add1(svm_names, name);
       }
-  /* *INDENT-ON* */
 
   pthread_mutex_unlock (&root_rp->mutex);
 
@@ -458,7 +443,7 @@ main (int argc, char **argv)
   char *chroot_path = 0;
   u8 *chroot_u8;
 
-  clib_mem_init_thread_safe (0, 128 << 20);
+  clib_mem_init (0, 128 << 20);
 
   unformat_init_command_line (&input, argv);
 
@@ -520,11 +505,3 @@ main (int argc, char **argv)
     }
   exit (0);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

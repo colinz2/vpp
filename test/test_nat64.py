@@ -9,8 +9,11 @@ from io import BytesIO
 
 import scapy.compat
 from config import config
-from framework import tag_fixme_vpp_workers, tag_fixme_ubuntu2204, is_distro_ubuntu2204
-from framework import VppTestCase, VppTestRunner
+from framework import VppTestCase
+from asfframework import (
+    tag_fixme_vpp_workers,
+    VppTestRunner,
+)
 from ipfix import IPFIX, Set, Template, Data, IPFIXDecoder
 from scapy.data import IP_PROTOS
 from scapy.layers.inet import IP, TCP, UDP, ICMP
@@ -31,10 +34,11 @@ from syslog_rfc5424_parser import SyslogMessage, ParseError
 from syslog_rfc5424_parser.constants import SyslogSeverity
 from util import ppc, ppp
 from vpp_papi import VppEnum
+from config import config
 
 
 @tag_fixme_vpp_workers
-@tag_fixme_ubuntu2204
+@unittest.skipIf("nat" in config.excluded_plugins, "Exclude NAT plugin tests")
 class TestNAT64(VppTestCase):
     """NAT64 Test Cases"""
 
@@ -50,8 +54,6 @@ class TestNAT64(VppTestCase):
     def setUpClass(cls):
         super(TestNAT64, cls).setUpClass()
 
-        if is_distro_ubuntu2204 == True and not hasattr(cls, "vpp"):
-            return
         cls.tcp_port_in = 6303
         cls.tcp_port_out = 6303
         cls.udp_port_in = 6304
@@ -71,7 +73,7 @@ class TestNAT64(VppTestCase):
         cls.ip6_interfaces.append(cls.pg_interfaces[2])
         cls.ip4_interfaces = list(cls.pg_interfaces[1:2])
 
-        cls.vapi.ip_table_add_del(
+        cls.vapi.ip_table_add_del_v2(
             is_add=1, table={"table_id": cls.vrf1_id, "is_ip6": 1}
         )
 
@@ -462,9 +464,10 @@ class TestNAT64(VppTestCase):
         # natEvent
         self.assertEqual(scapy.compat.orb(record[230]), 13)
         # natQuotaExceededEvent
-        self.assertEqual(struct.pack("I", 2), record[466])
+        self.assertEqual(struct.pack("!I", 2), record[466])
         # maxBIBEntries
-        self.assertEqual(struct.pack("I", limit), record[472])
+        self.assertEqual(struct.pack("!I", limit), record[472])
+        return len(data)
 
     def verify_ipfix_bib(self, data, is_create, src_addr):
         """
@@ -622,9 +625,10 @@ class TestNAT64(VppTestCase):
         # natEvent
         self.assertEqual(scapy.compat.orb(record[230]), 13)
         # natQuotaExceededEvent
-        self.assertEqual(struct.pack("I", 1), record[466])
+        self.assertEqual(struct.pack("!I", 1), record[466])
         # maxSessionEntries
-        self.assertEqual(struct.pack("I", limit), record[471])
+        self.assertEqual(struct.pack("!I", limit), record[471])
+        return len(data)
 
     def test_nat64_inside_interface_handles_neighbor_advertisement(self):
         """NAT64 inside interface handles Neighbor Advertisement"""
@@ -649,7 +653,7 @@ class TestNAT64(VppTestCase):
         capture = self.pg5.get_capture(len(pkts))
         packet = capture[0]
         try:
-            self.assertEqual(packet[IPv6].src, self.pg5.local_ip6)
+            self.assertEqual(packet[IPv6].src, self.pg5.local_ip6_ll)
             self.assertEqual(packet.haslayer(ICMPv6ND_NS), 1)
             tgt = packet[ICMPv6ND_NS].tgt
         except:
@@ -1859,7 +1863,7 @@ class TestNAT64(VppTestCase):
             Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
             / IPv6(src=src, dst=remote_host_ip6)
             / TCP(sport=12345, dport=25)
-        )
+        ) * 3
         self.pg0.add_stream(p)
         self.pg_enable_capture(self.pg_interfaces)
         self.pg_start()
@@ -1878,16 +1882,18 @@ class TestNAT64(VppTestCase):
             if p.haslayer(Template):
                 ipfix.add_template(p.getlayer(Template))
         # verify events in data set
+        event_count = 0
         for p in capture:
             if p.haslayer(Data):
                 data = ipfix.decode_data_set(p.getlayer(Set))
-                self.verify_ipfix_max_sessions(data, max_sessions)
+                event_count += self.verify_ipfix_max_sessions(data, max_sessions)
+        self.assertEqual(event_count, 1)
 
         p = (
             Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
             / IPv6(src=self.pg0.remote_ip6, dst=remote_host_ip6)
             / TCP(sport=12345, dport=80)
-        )
+        ) * 3
         self.pg0.add_stream(p)
         self.pg_enable_capture(self.pg_interfaces)
         self.pg_start()
@@ -1895,6 +1901,7 @@ class TestNAT64(VppTestCase):
         self.vapi.ipfix_flush()
         capture = self.pg3.get_capture(1)
         # verify events in data set
+        event_count = 0
         for p in capture:
             self.assertTrue(p.haslayer(IPFIX))
             self.assertEqual(p[IP].src, self.pg3.local_ip4)
@@ -1904,7 +1911,8 @@ class TestNAT64(VppTestCase):
             self.assertEqual(p[IPFIX].observationDomainID, self.ipfix_domain_id)
             if p.haslayer(Data):
                 data = ipfix.decode_data_set(p.getlayer(Set))
-                self.verify_ipfix_max_bibs(data, max_bibs)
+                event_count += self.verify_ipfix_max_bibs(data, max_bibs)
+        self.assertEqual(event_count, 1)
 
     def test_ipfix_bib_ses(self):
         """IPFIX logging NAT64 BIB/session create and delete events"""

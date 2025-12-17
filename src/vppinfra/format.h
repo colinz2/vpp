@@ -1,39 +1,7 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright (c) 2001, 2002, 2003 Eliot Dresselhaus
  */
-/*
-  Copyright (c) 2001, 2002, 2003 Eliot Dresselhaus
-
-  Permission is hereby granted, free of charge, to any person obtaining
-  a copy of this software and associated documentation files (the
-  "Software"), to deal in the Software without restriction, including
-  without limitation the rights to use, copy, modify, merge, publish,
-  distribute, sublicense, and/or sell copies of the Software, and to
-  permit persons to whom the Software is furnished to do so, subject to
-  the following conditions:
-
-  The above copyright notice and this permission notice shall be
-  included in all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
 
 #ifndef included_format_h
 #define included_format_h
@@ -133,8 +101,11 @@ typedef struct _unformat_input_t
      (and argument). */
     uword (*fill_buffer) (struct _unformat_input_t * i);
 
-  /* Return values for fill buffer function which indicate whether not
-     input has been exhausted. */
+    /* User's function to be called on input_free */
+    void (*free) (struct _unformat_input_t *i);
+
+    /* Return values for fill buffer function which indicate whether not
+       input has been exhausted. */
 #define UNFORMAT_END_OF_INPUT (~0)
 #define UNFORMAT_MORE_INPUT   0
 
@@ -155,6 +126,8 @@ unformat_init (unformat_input_t * i,
 always_inline void
 unformat_free (unformat_input_t * i)
 {
+  if (i->free)
+    i->free (i);
   vec_free (i->buffer);
   vec_free (i->buffer_marks);
   clib_memset (i, 0, sizeof (i[0]));
@@ -271,6 +244,12 @@ unformat_init_cstring (unformat_input_t * input, char *string)
 /* Setup for unformat of given vector string; vector will be freed by unformat_string. */
 void unformat_init_vector (unformat_input_t * input, u8 * vector_string);
 
+/* Unformat u8 */
+unformat_function_t unformat_u8;
+
+/* Unformat u16 */
+unformat_function_t unformat_u16;
+
 /* Format function for unformat input usable when an unformat error
    has occurred. */
 u8 *format_unformat_error (u8 * s, va_list * va);
@@ -304,6 +283,16 @@ unformat_function_t unformat_eof;
 /* Parse memory size e.g. 100, 100k, 100m, 100g. */
 unformat_function_t unformat_memory_size;
 
+/* Unformat base 10 e.g 100M, 20G. */
+unformat_function_t unformat_base10;
+
+/* Unformat C string array, takes array length as 2nd argument */
+unformat_function_t unformat_c_string_array;
+
+/* Unformat sigle and double quoted string */
+unformat_function_t unformat_single_quoted_string;
+unformat_function_t unformat_double_quoted_string;
+
 /* Format base 10 e.g. 100, 100K, 100M, 100G */
 u8 *format_base10 (u8 *s, va_list *va);
 
@@ -333,6 +322,9 @@ u8 *format_uword_bitmap (u8 *s, va_list *va);
 /* Setup input from Unix file. */
 void unformat_init_clib_file (unformat_input_t * input, int file_descriptor);
 
+/* Setup input from flesystem path. */
+uword unformat_init_file (unformat_input_t *input, char *fmt, ...);
+
 /* Take input from Unix environment variable; returns
    1 if variable exists zero otherwise. */
 uword unformat_init_unix_env (unformat_input_t * input, char *var);
@@ -351,12 +343,6 @@ int test_unformat_main (unformat_input_t * input);
 created circular dependency problems. */
 int test_vec_main (unformat_input_t * input);
 
-#endif /* included_format_h */
+char *format_c_string (u8 *s, const char *fmt, ...);
 
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+#endif /* included_format_h */

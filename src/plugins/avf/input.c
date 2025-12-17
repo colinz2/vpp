@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <vlib/vlib.h>
@@ -124,6 +111,9 @@ avf_rxq_refill (vlib_main_t * vm, vlib_node_runtime_t * node, avf_rxq_t * rxq,
       slot = (slot + 8) & mask;
       n_alloc -= 8;
     }
+
+  /* RXQ can be smaller than 256 packets, especially if jumbo. */
+  rxq->descs[slot].qword[1] = 0;
 
   avf_tail_write (rxq->qrx_tail, slot);
 }
@@ -296,7 +286,7 @@ avf_device_input_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
     next_index = ad->per_interface_next_index;
 
   if (PREDICT_FALSE (vnet_device_input_have_features (ad->sw_if_index)))
-    vnet_feature_start_device_input_x1 (ad->sw_if_index, &next_index, bt);
+    vnet_feature_start_device_input (ad->sw_if_index, &next_index, bt);
 
   vlib_get_new_next_frame (vm, node, next_index, to_next, n_left_to_next);
 
@@ -423,9 +413,6 @@ no_more_desc:
   rxq->next = next;
   rxq->n_enqueued -= n_rx_packets + n_tail_desc;
 
-  /* avoid eating our own tail */
-  rxq->descs[(next + rxq->n_enqueued) & mask].qword[1] = 0;
-
 #if defined(CLIB_HAVE_VEC256) || defined(CLIB_HAVE_VEC128)
   or_qw1 |= or_q1x4[0] | or_q1x4[1] | or_q1x4[2] | or_q1x4[3];
 #endif
@@ -539,6 +526,8 @@ done:
   else
     avf_rxq_refill (vm, node, rxq, 0 /* use_va_dma */ );
 
+  rxq->total_packets += n_rx_packets;
+
   return n_rx_packets;
 }
 
@@ -566,7 +555,6 @@ VLIB_NODE_FN (avf_input_node) (vlib_main_t * vm, vlib_node_runtime_t * node,
   return n_rx;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (avf_input_node) = {
   .name = "avf-input",
   .sibling_of = "device-input",
@@ -577,14 +565,3 @@ VLIB_REGISTER_NODE (avf_input_node) = {
   .error_strings = avf_input_error_strings,
   .flags = VLIB_NODE_FLAG_TRACE_SUPPORTED,
 };
-
-/* *INDENT-ON* */
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

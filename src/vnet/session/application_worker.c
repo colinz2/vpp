@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/session/application.h>
@@ -26,6 +16,7 @@ app_worker_t *
 app_worker_alloc (application_t * app)
 {
   app_worker_t *app_wrk;
+
   pool_get (app_workers, app_wrk);
   clib_memset (app_wrk, 0, sizeof (*app_wrk));
   app_wrk->wrk_index = app_wrk - app_workers;
@@ -33,7 +24,8 @@ app_worker_alloc (application_t * app)
   app_wrk->wrk_map_index = ~0;
   app_wrk->connects_seg_manager = APP_INVALID_SEGMENT_MANAGER_INDEX;
   clib_spinlock_init (&app_wrk->detached_seg_managers_lock);
-  clib_spinlock_init (&app_wrk->postponed_mq_msgs_lock);
+  vec_validate (app_wrk->wrk_evts, vlib_num_workers ());
+  vec_validate (app_wrk->wrk_mq_congested, vlib_num_workers ());
   APP_DBG ("New app %v worker %u", app->name, app_wrk->wrk_index);
   return app_wrk;
 }
@@ -56,26 +48,34 @@ void
 app_worker_free (app_worker_t * app_wrk)
 {
   application_t *app = application_get (app_wrk->app_index);
+  session_handle_t handle, *handles = 0, *sh;
   vnet_unlisten_args_t _a, *a = &_a;
-  u64 handle, *handles = 0, *sm_indices = 0;
   segment_manager_t *sm;
-  session_handle_t *sh;
+  u64 *sm_indices = 0;
   session_t *ls;
   u32 sm_index;
   int i;
 
   /*
+   * Cleanup vpp wrk events
+   */
+  app_worker_del_all_events (app_wrk);
+  for (i = 0; i < vec_len (app_wrk->wrk_evts); i++)
+    clib_fifo_free (app_wrk->wrk_evts[i]);
+
+  vec_free (app_wrk->wrk_evts);
+  vec_free (app_wrk->wrk_mq_congested);
+
+  /*
    *  Listener cleanup
    */
 
-  /* *INDENT-OFF* */
   hash_foreach (handle, sm_index, app_wrk->listeners_table, ({
     ls = listen_session_get_from_handle (handle);
     vec_add1 (handles, app_listen_session_handle (ls));
     vec_add1 (sm_indices, sm_index);
     sm = segment_manager_get (sm_index);
   }));
-  /* *INDENT-ON* */
 
   for (i = 0; i < vec_len (handles); i++)
     {
@@ -92,7 +92,7 @@ app_worker_free (app_worker_t * app_wrk)
 	  segment_manager_init_free (sm);
 	}
     }
-  vec_reset_length (handles);
+  vec_free (handles);
   vec_free (sm_indices);
   hash_free (app_wrk->listeners_table);
 
@@ -127,7 +127,6 @@ app_worker_free (app_worker_t * app_wrk)
     }
   vec_free (app_wrk->detached_seg_managers);
   clib_spinlock_free (&app_wrk->detached_seg_managers_lock);
-  clib_spinlock_free (&app_wrk->postponed_mq_msgs_lock);
 
   if (CLIB_DEBUG)
     clib_memset (app_wrk, 0xfe, sizeof (*app_wrk));
@@ -166,14 +165,68 @@ app_worker_alloc_session_fifos (segment_manager_t * sm, session_t * s)
     return rv;
 
   rx_fifo->shr->master_session_index = s->session_index;
-  rx_fifo->master_thread_index = s->thread_index;
+  rx_fifo->vpp_sh = s->handle;
 
   tx_fifo->shr->master_session_index = s->session_index;
-  tx_fifo->master_thread_index = s->thread_index;
+  tx_fifo->vpp_sh = s->handle;
 
   s->rx_fifo = rx_fifo;
   s->tx_fifo = tx_fifo;
   return 0;
+}
+
+int
+app_worker_alloc_wrk_cl_session (app_worker_t *app_wrk, session_t *ls)
+{
+  svm_fifo_t *rx_fifo = 0, *tx_fifo = 0;
+  segment_manager_t *sm;
+  session_handle_t lsh;
+  app_listener_t *al;
+  session_t *s;
+
+  al = app_listener_get (ls->al_index);
+  sm = app_worker_get_listen_segment_manager (app_wrk, ls);
+  lsh = session_handle (ls);
+
+  s = session_alloc (0 /* listener on main worker */);
+  session_set_state (s, SESSION_STATE_LISTENING);
+  s->flags |= SESSION_F_IS_CLESS | SESSION_F_RX_READY;
+  s->app_wrk_index = app_wrk->wrk_index;
+  ls = session_get_from_handle (lsh);
+  s->session_type = ls->session_type;
+  s->connection_index = ls->connection_index;
+
+  segment_manager_alloc_session_fifos (sm, s->thread_index, &rx_fifo,
+				       &tx_fifo);
+
+  rx_fifo->shr->master_session_index = s->session_index;
+  rx_fifo->vpp_sh = s->handle;
+
+  tx_fifo->shr->master_session_index = s->session_index;
+  tx_fifo->vpp_sh = s->handle;
+
+  s->rx_fifo = rx_fifo;
+  s->tx_fifo = tx_fifo;
+
+  vec_validate (al->cl_listeners, app_wrk->wrk_map_index);
+  al->cl_listeners[app_wrk->wrk_map_index] = s->session_index;
+
+  return 0;
+}
+
+void
+app_worker_free_wrk_cl_session (app_worker_t *app_wrk, session_t *ls)
+{
+  app_listener_t *al;
+  session_t *s;
+
+  al = app_listener_get (ls->al_index);
+
+  s = app_listener_get_wrk_cl_session (al, app_wrk->wrk_map_index);
+  segment_manager_dealloc_fifos (s->rx_fifo, s->tx_fifo);
+  session_free (s);
+
+  al->cl_listeners[app_wrk->wrk_map_index] = SESSION_INVALID_INDEX;
 }
 
 int
@@ -182,29 +235,27 @@ app_worker_init_listener (app_worker_t * app_wrk, session_t * ls)
   segment_manager_t *sm;
 
   /* Allocate segment manager. All sessions derived out of a listen session
-   * have fifos allocated by the same segment manager. */
+   * have fifos allocated by the same segment manager.
+   * TODO(fcoras): limit memory consumption by cless listeners */
   if (!(sm = app_worker_alloc_segment_manager (app_wrk)))
     return SESSION_E_ALLOC;
 
   /* Once the first segment is mapped, don't remove it until unlisten */
   sm->first_is_protected = 1;
+  sm->flags |= SEG_MANAGER_F_LISTENER;
 
   /* Keep track of the segment manager for the listener or this worker */
   hash_set (app_wrk->listeners_table, listen_session_get_handle (ls),
 	    segment_manager_index (sm));
 
-  if (transport_connection_is_cless (session_get_transport (ls)))
-    {
-      if (ls->rx_fifo)
-	return SESSION_E_NOSUPPORT;
-      return app_worker_alloc_session_fifos (sm, ls);
-    }
+  if (ls->flags & SESSION_F_IS_CLESS)
+    return app_worker_alloc_wrk_cl_session (app_wrk, ls);
+
   return 0;
 }
 
-int
-app_worker_start_listen (app_worker_t * app_wrk,
-			 app_listener_t * app_listener)
+session_error_t
+app_worker_start_listen (app_worker_t *app_wrk, app_listener_t *app_listener)
 {
   session_t *ls;
   int rv;
@@ -268,12 +319,8 @@ app_worker_stop_listen_session (app_worker_t * app_wrk, session_t * ls)
   if (PREDICT_FALSE (!sm_indexp))
     return;
 
-  /* Dealloc fifos, if any (dgram listeners) */
-  if (ls->rx_fifo)
-    {
-      segment_manager_dealloc_fifos (ls->rx_fifo, ls->tx_fifo);
-      ls->tx_fifo = ls->rx_fifo = 0;
-    }
+  if (ls->flags & SESSION_F_IS_CLESS)
+    app_worker_free_wrk_cl_session (app_wrk, ls);
 
   /* Try to cleanup segment manager */
   sm = segment_manager_get (*sm_indexp);
@@ -340,7 +387,7 @@ app_worker_init_accepted (session_t * s)
 
   listener = listen_session_get_from_handle (s->listener_handle);
   app_wrk = application_listener_select_worker (listener);
-  if (PREDICT_FALSE (app_wrk->mq_congested))
+  if (PREDICT_FALSE (app_worker_mq_is_congested (app_wrk)))
     return -1;
 
   s->app_wrk_index = app_wrk->wrk_index;
@@ -352,14 +399,91 @@ app_worker_init_accepted (session_t * s)
   if (app_worker_alloc_session_fifos (sm, s))
     return -1;
 
+  if (application_is_builtin_proxy (app))
+    return app->cb_fns.proxy_write_early_data (s);
+
+  return 0;
+}
+
+static int
+app_worker_alloc_session_fifos_ct (segment_manager_t *sm, session_t *s)
+{
+  svm_fifo_t *rx_fifo = 0, *tx_fifo = 0;
+  int rv;
+
+  if ((rv = segment_manager_alloc_session_fifos_ct (s, sm, s->thread_index,
+						    &rx_fifo, &tx_fifo)))
+    return rv;
+
+  rx_fifo->shr->master_session_index = s->session_index;
+  rx_fifo->vpp_sh = s->handle;
+
+  tx_fifo->shr->master_session_index = s->session_index;
+  tx_fifo->vpp_sh = s->handle;
+
+  s->rx_fifo = rx_fifo;
+  s->tx_fifo = tx_fifo;
+  return 0;
+}
+
+int
+app_worker_init_accepted_ct (session_t *s)
+{
+  app_worker_t *app_wrk;
+  segment_manager_t *sm;
+  session_t *listener;
+  application_t *app;
+
+  listener = listen_session_get_from_handle (s->listener_handle);
+  app_wrk = application_listener_select_worker (listener);
+  if (PREDICT_FALSE (app_worker_mq_is_congested (app_wrk)))
+    return -1;
+
+  s->app_wrk_index = app_wrk->wrk_index;
+  app = application_get (app_wrk->app_index);
+  if (app->cb_fns.fifo_tuning_callback)
+    s->flags |= SESSION_F_CUSTOM_FIFO_TUNING;
+
+  sm = app_worker_get_listen_segment_manager (app_wrk, listener);
+  if (app_worker_alloc_session_fifos_ct (sm, s))
+    return -1;
+
+  if (application_is_builtin_proxy (app))
+    return app->cb_fns.proxy_write_early_data (s);
+
+  return 0;
+}
+
+int
+app_worker_listened_notify (app_worker_t *app_wrk, session_handle_t alsh,
+			    u32 opaque, session_error_t err)
+{
+  session_event_t evt = { .event_type = SESSION_CTRL_EVT_BOUND,
+			  .as_u64[0] = alsh,
+			  .as_u64[1] = (u64) opaque << 32 | (u32) err };
+
+  app_worker_add_event_custom (app_wrk, 0 /* thread index */, &evt);
+
+  return 0;
+}
+
+int
+app_worker_unlisten_reply (app_worker_t *app_wrk, session_handle_t sh,
+			   u32 opaque, session_error_t err)
+{
+  session_event_t evt = { .event_type = SESSION_CTRL_EVT_UNLISTEN_REPLY,
+			  .as_u64[0] = sh,
+			  .as_u64[1] = (u64) opaque << 32 | (u32) err };
+
+  app_worker_add_event_custom (app_wrk, 0 /* thread index */, &evt);
   return 0;
 }
 
 int
 app_worker_accept_notify (app_worker_t * app_wrk, session_t * s)
 {
-  application_t *app = application_get (app_wrk->app_index);
-  return app->cb_fns.session_accept_callback (s);
+  app_worker_add_event (app_wrk, s, SESSION_CTRL_EVT_ACCEPTED);
+  return 0;
 }
 
 int
@@ -373,7 +497,10 @@ app_worker_init_connected (app_worker_t * app_wrk, session_t * s)
 
   /* Allocate fifos for session, unless the app is a builtin proxy */
   if (application_is_builtin_proxy (app))
-    return 0;
+    {
+      s->flags |= SESSION_F_PROXY;
+      return app->cb_fns.proxy_alloc_session_fifos (s);
+    }
 
   sm = app_worker_get_connect_segment_manager (app_wrk);
   return app_worker_alloc_session_fifos (sm, s);
@@ -383,9 +510,14 @@ int
 app_worker_connect_notify (app_worker_t * app_wrk, session_t * s,
 			   session_error_t err, u32 opaque)
 {
-  application_t *app = application_get (app_wrk->app_index);
-  return app->cb_fns.session_connected_callback (app_wrk->wrk_index, opaque,
-						 s, err);
+  session_event_t evt = { .event_type = SESSION_CTRL_EVT_CONNECTED,
+			  .as_u64[0] = s ? s->session_index : ~0,
+			  .as_u64[1] = (u64) opaque << 32 | (u32) err };
+  clib_thread_index_t thread_index =
+    s ? s->thread_index : vlib_get_thread_index ();
+
+  app_worker_add_event_custom (app_wrk, thread_index, &evt);
+  return 0;
 }
 
 int
@@ -403,36 +535,28 @@ app_worker_add_half_open (app_worker_t *app_wrk, session_handle_t sh)
 int
 app_worker_del_half_open (app_worker_t *app_wrk, session_t *s)
 {
-  application_t *app = application_get (app_wrk->app_index);
-  ASSERT (session_vlib_thread_is_cl_thread ());
-  pool_put_index (app_wrk->half_open_table, s->ho_index);
-  if (app->cb_fns.half_open_cleanup_callback)
-    app->cb_fns.half_open_cleanup_callback (s);
+  app_worker_add_event (app_wrk, s, SESSION_CTRL_EVT_HALF_CLEANUP);
   return 0;
 }
 
 int
 app_worker_close_notify (app_worker_t * app_wrk, session_t * s)
 {
-  application_t *app = application_get (app_wrk->app_index);
-  app->cb_fns.session_disconnect_callback (s);
+  app_worker_add_event (app_wrk, s, SESSION_CTRL_EVT_DISCONNECTED);
   return 0;
 }
 
 int
 app_worker_transport_closed_notify (app_worker_t * app_wrk, session_t * s)
 {
-  application_t *app = application_get (app_wrk->app_index);
-  if (app->cb_fns.session_transport_closed_callback)
-    app->cb_fns.session_transport_closed_callback (s);
+  app_worker_add_event (app_wrk, s, SESSION_CTRL_EVT_TRANSPORT_CLOSED);
   return 0;
 }
 
 int
 app_worker_reset_notify (app_worker_t * app_wrk, session_t * s)
 {
-  application_t *app = application_get (app_wrk->app_index);
-  app->cb_fns.session_reset_callback (s);
+  app_worker_add_event (app_wrk, s, SESSION_CTRL_EVT_RESET);
   return 0;
 }
 
@@ -440,29 +564,35 @@ int
 app_worker_cleanup_notify (app_worker_t * app_wrk, session_t * s,
 			   session_cleanup_ntf_t ntf)
 {
-  application_t *app = application_get (app_wrk->app_index);
-  if (app->cb_fns.session_cleanup_callback)
-    app->cb_fns.session_cleanup_callback (s, ntf);
+  session_event_t evt = { .event_type = SESSION_CTRL_EVT_CLEANUP,
+			  .as_u64[0] = (u64) ntf << 32 | s->session_index,
+			  .as_u64[1] = ntf == SESSION_CLEANUP_SESSION ?
+					 pointer_to_uword (session_cleanup) :
+					 0 };
+
+  app_worker_add_event_custom (app_wrk, s->thread_index, &evt);
+
   return 0;
 }
 
 int
-app_worker_builtin_rx (app_worker_t * app_wrk, session_t * s)
+app_worker_cleanup_notify_custom (app_worker_t *app_wrk, session_t *s,
+				  session_cleanup_ntf_t ntf,
+				  void (*cleanup_cb) (session_t *s))
 {
-  application_t *app = application_get (app_wrk->app_index);
-  app->cb_fns.builtin_app_rx_callback (s);
+  session_event_t evt = { .event_type = SESSION_CTRL_EVT_CLEANUP,
+			  .as_u64[0] = (u64) ntf << 32 | s->session_index,
+			  .as_u64[1] = pointer_to_uword (cleanup_cb) };
+
+  app_worker_add_event_custom (app_wrk, s->thread_index, &evt);
+
   return 0;
 }
 
 int
-app_worker_builtin_tx (app_worker_t * app_wrk, session_t * s)
+app_worker_rx_notify (app_worker_t *app_wrk, session_t *s)
 {
-  application_t *app = application_get (app_wrk->app_index);
-
-  if (!app->cb_fns.builtin_app_tx_callback)
-    return 0;
-
-  app->cb_fns.builtin_app_tx_callback (s);
+  app_worker_add_event (app_wrk, s, SESSION_IO_EVT_RX);
   return 0;
 }
 
@@ -470,8 +600,11 @@ int
 app_worker_migrate_notify (app_worker_t * app_wrk, session_t * s,
 			   session_handle_t new_sh)
 {
-  application_t *app = application_get (app_wrk->app_index);
-  app->cb_fns.session_migrate_callback (s, new_sh);
+  session_event_t evt = { .event_type = SESSION_CTRL_EVT_MIGRATED,
+			  .as_u64[0] = s->session_index,
+			  .as_u64[1] = new_sh };
+
+  app_worker_add_event_custom (app_wrk, s->thread_index, &evt);
   return 0;
 }
 
@@ -515,12 +648,24 @@ int
 app_worker_connect_session (app_worker_t *app_wrk, session_endpoint_cfg_t *sep,
 			    session_handle_t *rsh)
 {
-  if (PREDICT_FALSE (app_wrk->mq_congested))
+  if (PREDICT_FALSE (app_worker_mq_is_congested (app_wrk)))
     return SESSION_E_REFUSED;
 
   sep->app_wrk_index = app_wrk->wrk_index;
 
   return session_open (sep, rsh);
+}
+
+int
+app_worker_connect_stream (app_worker_t *app_wrk, session_endpoint_cfg_t *sep,
+			   session_handle_t *rsh)
+{
+  if (PREDICT_FALSE (app_worker_mq_is_congested (app_wrk)))
+    return SESSION_E_REFUSED;
+
+  sep->app_wrk_index = app_wrk->wrk_index;
+
+  return session_open_stream (sep, rsh);
 }
 
 int
@@ -561,14 +706,12 @@ app_worker_first_listener (app_worker_t * app_wrk, u8 fib_proto,
   sst = session_type_from_proto_and_ip (transport_proto,
 					fib_proto == FIB_PROTOCOL_IP4);
 
-  /* *INDENT-OFF* */
    hash_foreach (handle, sm_index, app_wrk->listeners_table, ({
      listener = listen_session_get_from_handle (handle);
      if (listener->session_type == sst
 	 && !(listener->flags & SESSION_F_PROXY))
        return listener;
    }));
-  /* *INDENT-ON* */
 
   return 0;
 }
@@ -585,13 +728,11 @@ app_worker_proxy_listener (app_worker_t * app_wrk, u8 fib_proto,
   sst = session_type_from_proto_and_ip (transport_proto,
 					fib_proto == FIB_PROTOCOL_IP4);
 
-  /* *INDENT-OFF* */
    hash_foreach (handle, sm_index, app_wrk->listeners_table, ({
      listener = listen_session_get_from_handle (handle);
      if (listener->session_type == sst && (listener->flags & SESSION_F_PROXY))
        return listener;
    }));
-  /* *INDENT-ON* */
 
   return 0;
 }
@@ -602,24 +743,23 @@ app_worker_proxy_listener (app_worker_t * app_wrk, u8 fib_proto,
 int
 app_worker_add_segment_notify (app_worker_t * app_wrk, u64 segment_handle)
 {
-  application_t *app = application_get (app_wrk->app_index);
+  session_event_t evt = { .event_type = SESSION_CTRL_EVT_APP_ADD_SEGMENT,
+			  .as_u64[1] = segment_handle };
 
-  return app->cb_fns.add_segment_callback (app_wrk->wrk_index,
-					   segment_handle);
+  app_worker_add_event_custom (app_wrk, vlib_get_thread_index (), &evt);
+
+  return 0;
 }
 
 int
 app_worker_del_segment_notify (app_worker_t * app_wrk, u64 segment_handle)
 {
-  application_t *app = application_get (app_wrk->app_index);
-  return app->cb_fns.del_segment_callback (app_wrk->wrk_index,
-					   segment_handle);
-}
+  session_event_t evt = { .event_type = SESSION_CTRL_EVT_APP_DEL_SEGMENT,
+			  .as_u64[1] = segment_handle };
 
-static inline u8
-app_worker_application_is_builtin (app_worker_t * app_wrk)
-{
-  return app_wrk->app_is_builtin;
+  app_worker_add_event_custom (app_wrk, vlib_get_thread_index (), &evt);
+
+  return 0;
 }
 
 static int
@@ -678,126 +818,39 @@ app_wrk_send_fd (app_worker_t *app_wrk, int fd)
   return 0;
 }
 
-static int
-mq_try_lock_and_alloc_msg (svm_msg_q_t *mq, session_mq_rings_e ring,
-			   svm_msg_q_msg_t *msg)
+void
+app_worker_add_event (app_worker_t *app_wrk, session_t *s,
+		      session_evt_type_t evt_type)
 {
-  int rv, n_try = 0;
-
-  while (n_try < 75)
-    {
-      rv = svm_msg_q_lock_and_alloc_msg_w_ring (mq, ring, SVM_Q_NOWAIT, msg);
-      if (!rv)
-	return 0;
-      /*
-       * Break the loop if mq is full, usually this is because the
-       * app has crashed or is hanging on somewhere.
-       */
-      if (rv != -1)
-	break;
-      n_try += 1;
-      usleep (1);
-    }
-
-  return -1;
-}
-
-typedef union app_wrk_mq_rpc_args_
-{
-  struct
-  {
-    u32 thread_index;
-    u32 app_wrk_index;
-  };
-  uword as_uword;
-} app_wrk_mq_rpc_ags_t;
-
-static int
-app_wrk_handle_mq_postponed_msgs (void *arg)
-{
-  svm_msg_q_msg_t _mq_msg, *mq_msg = &_mq_msg;
-  app_wrk_postponed_msg_t *pm;
-  app_wrk_mq_rpc_ags_t args;
-  u32 max_msg, n_msg = 0;
-  app_worker_t *app_wrk;
   session_event_t *evt;
-  svm_msg_q_t *mq;
 
-  args.as_uword = pointer_to_uword (arg);
-  app_wrk = app_worker_get_if_valid (args.app_wrk_index);
-  if (!app_wrk)
-    return 0;
+  ASSERT (s->thread_index == vlib_get_thread_index ());
+  clib_fifo_add2 (app_wrk->wrk_evts[s->thread_index], evt);
+  evt->session_index = s->session_index;
+  evt->event_type = evt_type;
+  evt->postponed = 0;
 
-  mq = app_wrk->event_queue;
-
-  clib_spinlock_lock (&app_wrk->postponed_mq_msgs_lock);
-
-  max_msg = clib_min (32, clib_fifo_elts (app_wrk->postponed_mq_msgs));
-
-  while (n_msg < max_msg)
+  /* First event for this app_wrk. Schedule it for handling in session input */
+  if (clib_fifo_elts (app_wrk->wrk_evts[s->thread_index]) == 1)
     {
-      pm = clib_fifo_head (app_wrk->postponed_mq_msgs);
-      if (mq_try_lock_and_alloc_msg (mq, pm->ring, mq_msg))
-	break;
-
-      evt = svm_msg_q_msg_data (mq, mq_msg);
-      clib_memset (evt, 0, sizeof (*evt));
-      evt->event_type = pm->event_type;
-      clib_memcpy_fast (evt->data, pm->data, pm->len);
-
-      if (pm->fd != -1)
-	app_wrk_send_fd (app_wrk, pm->fd);
-
-      svm_msg_q_add_and_unlock (mq, mq_msg);
-
-      clib_fifo_advance_head (app_wrk->postponed_mq_msgs, 1);
-      n_msg += 1;
+      session_worker_t *wrk = session_main_get_worker (s->thread_index);
+      session_wrk_program_app_wrk_evts (wrk, app_wrk->wrk_index);
     }
-
-  if (!clib_fifo_elts (app_wrk->postponed_mq_msgs))
-    {
-      app_wrk->mq_congested = 0;
-    }
-  else
-    {
-      session_send_rpc_evt_to_thread_force (
-	args.thread_index, app_wrk_handle_mq_postponed_msgs,
-	uword_to_pointer (args.as_uword, void *));
-    }
-
-  clib_spinlock_unlock (&app_wrk->postponed_mq_msgs_lock);
-
-  return 0;
 }
 
-static void
-app_wrk_add_mq_postponed_msg (app_worker_t *app_wrk, session_mq_rings_e ring,
-			      u8 evt_type, void *msg, u32 msg_len, int fd)
+void
+app_worker_add_event_custom (app_worker_t *app_wrk,
+			     clib_thread_index_t thread_index,
+			     session_event_t *evt)
 {
-  app_wrk_postponed_msg_t *pm;
+  clib_fifo_add1 (app_wrk->wrk_evts[thread_index], *evt);
 
-  clib_spinlock_lock (&app_wrk->postponed_mq_msgs_lock);
-
-  app_wrk->mq_congested = 1;
-
-  clib_fifo_add2 (app_wrk->postponed_mq_msgs, pm);
-  clib_memcpy_fast (pm->data, msg, msg_len);
-  pm->event_type = evt_type;
-  pm->ring = ring;
-  pm->len = msg_len;
-  pm->fd = fd;
-
-  if (clib_fifo_elts (app_wrk->postponed_mq_msgs) == 1)
+  /* First event for this app_wrk. Schedule it for handling in session input */
+  if (clib_fifo_elts (app_wrk->wrk_evts[thread_index]) == 1)
     {
-      app_wrk_mq_rpc_ags_t args = { .thread_index = vlib_get_thread_index (),
-				    .app_wrk_index = app_wrk->wrk_index };
-
-      session_send_rpc_evt_to_thread_force (
-	args.thread_index, app_wrk_handle_mq_postponed_msgs,
-	uword_to_pointer (args.as_uword, void *));
+      session_worker_t *wrk = session_main_get_worker (thread_index);
+      session_wrk_program_app_wrk_evts (wrk, app_wrk->wrk_index);
     }
-
-  clib_spinlock_unlock (&app_wrk->postponed_mq_msgs_lock);
 }
 
 always_inline void
@@ -807,14 +860,9 @@ app_wrk_send_ctrl_evt_inline (app_worker_t *app_wrk, u8 evt_type, void *msg,
   svm_msg_q_msg_t _mq_msg, *mq_msg = &_mq_msg;
   svm_msg_q_t *mq = app_wrk->event_queue;
   session_event_t *evt;
-  int rv;
 
-  if (PREDICT_FALSE (app_wrk->mq_congested))
-    goto handle_congestion;
-
-  rv = mq_try_lock_and_alloc_msg (mq, SESSION_MQ_CTRL_EVT_RING, mq_msg);
-  if (PREDICT_FALSE (rv))
-    goto handle_congestion;
+  ASSERT (!svm_msg_q_or_ring_is_full (mq, SESSION_MQ_CTRL_EVT_RING));
+  *mq_msg = svm_msg_q_alloc_msg_w_ring (mq, SESSION_MQ_CTRL_EVT_RING);
 
   evt = svm_msg_q_msg_data (mq, mq_msg);
   clib_memset (evt, 0, sizeof (*evt));
@@ -824,14 +872,7 @@ app_wrk_send_ctrl_evt_inline (app_worker_t *app_wrk, u8 evt_type, void *msg,
   if (fd != -1)
     app_wrk_send_fd (app_wrk, fd);
 
-  svm_msg_q_add_and_unlock (mq, mq_msg);
-
-  return;
-
-handle_congestion:
-
-  app_wrk_add_mq_postponed_msg (app_wrk, SESSION_MQ_CTRL_EVT_RING, evt_type,
-				msg, msg_len, fd);
+  svm_msg_q_add_raw (mq, mq_msg);
 }
 
 void
@@ -848,116 +889,39 @@ app_wrk_send_ctrl_evt (app_worker_t *app_wrk, u8 evt_type, void *msg,
   app_wrk_send_ctrl_evt_inline (app_wrk, evt_type, msg, msg_len, -1);
 }
 
-static inline int
-app_send_io_evt_rx (app_worker_t * app_wrk, session_t * s)
+u8
+app_worker_mq_wrk_is_congested (app_worker_t *app_wrk,
+				clib_thread_index_t thread_index)
 {
-  svm_msg_q_msg_t _mq_msg = { 0 }, *mq_msg = &_mq_msg;
-  session_event_t *evt;
-  svm_msg_q_t *mq;
-  u32 app_session;
-  int rv;
-
-  if (app_worker_application_is_builtin (app_wrk))
-    return app_worker_builtin_rx (app_wrk, s);
-
-  if (svm_fifo_has_event (s->rx_fifo))
-    return 0;
-
-  app_session = s->rx_fifo->shr->client_session_index;
-  mq = app_wrk->event_queue;
-
-  if (PREDICT_FALSE (app_wrk->mq_congested))
-    goto handle_congestion;
-
-  rv = mq_try_lock_and_alloc_msg (mq, SESSION_MQ_IO_EVT_RING, mq_msg);
-
-  if (PREDICT_FALSE (rv))
-    goto handle_congestion;
-
-  evt = svm_msg_q_msg_data (mq, mq_msg);
-  evt->event_type = SESSION_IO_EVT_RX;
-  evt->session_index = app_session;
-
-  (void) svm_fifo_set_event (s->rx_fifo);
-
-  svm_msg_q_add_and_unlock (mq, mq_msg);
-
-  return 0;
-
-handle_congestion:
-
-  app_wrk_add_mq_postponed_msg (app_wrk, SESSION_MQ_IO_EVT_RING,
-				SESSION_IO_EVT_RX, &app_session,
-				sizeof (app_session), -1);
-  return -1;
+  return app_wrk->wrk_mq_congested[thread_index] > 0;
 }
 
-static inline int
-app_send_io_evt_tx (app_worker_t * app_wrk, session_t * s)
+void
+app_worker_set_mq_wrk_congested (app_worker_t *app_wrk,
+				 clib_thread_index_t thread_index)
 {
-  svm_msg_q_msg_t _mq_msg = { 0 }, *mq_msg = &_mq_msg;
-  session_event_t *evt;
-  svm_msg_q_t *mq;
-  u32 app_session;
-  int rv;
-
-  if (app_worker_application_is_builtin (app_wrk))
-    return app_worker_builtin_tx (app_wrk, s);
-
-  app_session = s->tx_fifo->shr->client_session_index;
-  mq = app_wrk->event_queue;
-
-  if (PREDICT_FALSE (app_wrk->mq_congested))
-    goto handle_congestion;
-
-  rv = mq_try_lock_and_alloc_msg (mq, SESSION_MQ_IO_EVT_RING, mq_msg);
-
-  if (PREDICT_FALSE (rv))
-    goto handle_congestion;
-
-  evt = svm_msg_q_msg_data (mq, mq_msg);
-  evt->event_type = SESSION_IO_EVT_TX;
-  evt->session_index = app_session;
-
-  svm_msg_q_add_and_unlock (mq, mq_msg);
-
-  return 0;
-
-handle_congestion:
-
-  app_wrk_add_mq_postponed_msg (app_wrk, SESSION_MQ_IO_EVT_RING,
-				SESSION_IO_EVT_TX, &app_session,
-				sizeof (app_session), -1);
-  return -1;
+  ASSERT (thread_index == vlib_get_thread_index ());
+  if (!app_wrk->wrk_mq_congested[thread_index])
+    {
+      clib_atomic_fetch_add_relax (&app_wrk->mq_congested, 1);
+      app_wrk->wrk_mq_congested[thread_index] = 1;
+    }
 }
 
-/* *INDENT-OFF* */
-typedef int (app_send_evt_handler_fn) (app_worker_t *app,
-				       session_t *s);
-static app_send_evt_handler_fn * const app_send_evt_handler_fns[2] = {
-    app_send_io_evt_rx,
-    app_send_io_evt_tx,
-};
-/* *INDENT-ON* */
-
-/**
- * Send event to application
- *
- * Logic from queue perspective is blocking. However, if queue is full,
- * we return.
- */
-int
-app_worker_lock_and_send_event (app_worker_t * app, session_t * s,
-				u8 evt_type)
+void
+app_worker_unset_wrk_mq_congested (app_worker_t *app_wrk,
+				   clib_thread_index_t thread_index)
 {
-  return app_send_evt_handler_fns[evt_type] (app, s);
+  clib_atomic_fetch_sub_relax (&app_wrk->mq_congested, 1);
+  ASSERT (thread_index == vlib_get_thread_index ());
+  app_wrk->wrk_mq_congested[thread_index] = 0;
 }
 
 u8 *
 format_app_worker_listener (u8 * s, va_list * args)
 {
   app_worker_t *app_wrk = va_arg (*args, app_worker_t *);
-  u64 handle = va_arg (*args, u64);
+  session_handle_t handle = va_arg (*args, u64);
   u32 sm_index = va_arg (*args, u32);
   int verbose = va_arg (*args, int);
   session_t *listener;
@@ -967,9 +931,8 @@ format_app_worker_listener (u8 * s, va_list * args)
   if (!app_wrk)
     {
       if (verbose)
-	s = format (s, "%-" SESSION_CLI_ID_LEN "s%-25s%-10s%-15s%-15s%-10s",
-		    "Connection", "App", "Wrk", "API Client", "ListenerID",
-		    "SegManager");
+	s = format (s, "%-" SESSION_CLI_ID_LEN "s%-25s%-10s%-10s",
+		    "Connection", "App", "Wrk", "SegMngr");
       else
 	s = format (s, "%-" SESSION_CLI_ID_LEN "s%-25s%-10s", "Connection",
 		    "App", "Wrk");
@@ -985,12 +948,12 @@ format_app_worker_listener (u8 * s, va_list * args)
     {
       u8 *buf;
       buf = format (0, "%u(%u)", app_wrk->wrk_map_index, app_wrk->wrk_index);
-      s = format (s, "%-" SESSION_CLI_ID_LEN "v%-25v%-10v%-15u%-15u%-10u", str,
-		  app_name, buf, app_wrk->api_client_index, handle, sm_index);
+      s = format (s, "%-" SESSION_CLI_ID_LEN "v%-25v%-10v%-10u", str, app_name,
+		  buf, sm_index);
       vec_free (buf);
     }
   else
-    s = format (s, "%-" SESSION_CLI_ID_LEN "v%-25v%=10u", str, app_name,
+    s = format (s, "%-" SESSION_CLI_ID_LEN "v%-25v%-10u", str, app_name,
 		app_wrk->wrk_map_index);
 
   vec_free (str);
@@ -1002,14 +965,29 @@ u8 *
 format_app_worker (u8 * s, va_list * args)
 {
   app_worker_t *app_wrk = va_arg (*args, app_worker_t *);
-  u32 indent = 1;
+  u32 verbose = va_arg (*args, u32);
+  u32 sm_index, indent = format_get_indent (s);
+  segment_manager_t *sm;
+  u64 handle;
 
   s = format (s,
-	      "%U wrk-index %u app-index %u map-index %u "
+	      "wrk-index %u app-index %u map-index %u "
 	      "api-client-index %d mq-cong %u\n",
-	      format_white_space, indent, app_wrk->wrk_index,
-	      app_wrk->app_index, app_wrk->wrk_map_index,
+	      app_wrk->wrk_index, app_wrk->app_index, app_wrk->wrk_map_index,
 	      app_wrk->api_client_index, app_wrk->mq_congested);
+
+  if (verbose > 1)
+    {
+      sm = segment_manager_get (app_wrk->connects_seg_manager);
+      s = format (s, "%Usegment managers:\n%U%U", format_white_space, indent,
+		  format_white_space, indent, format_segment_manager, sm,
+		  1 /* verbose */);
+      hash_foreach (handle, sm_index, app_wrk->listeners_table, ({
+		      sm = segment_manager_get (sm_index);
+		      s = format (s, "%U%U\n", format_white_space, indent,
+				  format_segment_manager, sm, 1 /* verbose */);
+		    }));
+    }
   return s;
 }
 
@@ -1031,11 +1009,3 @@ app_worker_format_connects (app_worker_t * app_wrk, int verbose)
   sm = segment_manager_get (app_wrk->connects_seg_manager);
   segment_manager_format_sessions (sm, verbose);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

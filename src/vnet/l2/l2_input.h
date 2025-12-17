@@ -1,19 +1,8 @@
-/*
- * l2_input.h : layer 2 input packet processing
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2013 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* l2_input.h : layer 2 input packet processing */
 
 #ifndef included_vnet_l2_input_h
 #define included_vnet_l2_input_h
@@ -27,6 +16,7 @@
 #include <vnet/ethernet/packet.h>
 #include <vnet/ip/ip4_inlines.h>
 #include <vnet/ip/ip6_inlines.h>
+#include <vnet/mpls/mpls_lookup.h>
 
 /* l2 connection type */
 typedef enum l2_input_flags_t_
@@ -327,7 +317,7 @@ vnet_update_l2_len (vlib_buffer_t *b)
 
 /*
  * Compute flow hash of an ethernet packet, use 5-tuple hash if L3 packet
- * is ip4 or ip6. Otherwise hash on smac/dmac/etype.
+ * is ip4, ip6, or mpls. Otherwise hash on smac/dmac/etype.
  * The vlib buffer current pointer is expected to be at ethernet header
  * and vnet l2.l2_len is expected to be setup already.
  */
@@ -342,6 +332,9 @@ vnet_l2_compute_flow_hash (vlib_buffer_t * b)
     return ip4_compute_flow_hash ((ip4_header_t *) l3h, IP_FLOW_HASH_DEFAULT);
   else if (ethertype == ETHERNET_TYPE_IP6)
     return ip6_compute_flow_hash ((ip6_header_t *) l3h, IP_FLOW_HASH_DEFAULT);
+  else if (ethertype == ETHERNET_TYPE_MPLS)
+    return mpls_compute_flow_hash ((mpls_unicast_header_t *) l3h,
+				   IP_FLOW_HASH_DEFAULT);
   else
     {
       u32 a, b, c;
@@ -357,12 +350,3 @@ vnet_l2_compute_flow_hash (vlib_buffer_t * b)
 }
 
 #endif
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

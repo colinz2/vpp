@@ -1,16 +1,5 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 /**
@@ -67,14 +56,12 @@ vl_api_det44_forward_t_handler (vl_api_det44_forward_t * mp)
   hi_port = lo_port + m->ports_per_host - 1;
 
 send_reply:
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_DET44_FORWARD_REPLY,
   ({
     rmp->out_port_lo = ntohs (lo_port);
     rmp->out_port_hi = ntohs (hi_port);
     clib_memcpy (rmp->out_addr, &out_addr, 4);
   }))
-  /* *INDENT-ON* */
 }
 
 static void
@@ -98,12 +85,10 @@ vl_api_det44_reverse_t_handler (vl_api_det44_reverse_t * mp)
   snat_det_reverse (m, &out_addr, htons (mp->out_port), &in_addr);
 
 send_reply:
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_DET44_REVERSE_REPLY,
   ({
     clib_memcpy (rmp->in_addr, &in_addr, 4);
   }))
-  /* *INDENT-ON* */
 }
 
 static void
@@ -139,10 +124,8 @@ vl_api_det44_map_dump_t_handler (vl_api_det44_map_dump_t * mp)
   if (!reg)
     return;
 
-  /* *INDENT-OFF* */
   vec_foreach(m, dm->det_maps)
     sent_det44_map_details(m, reg, mp->context);
-  /* *INDENT-ON* */
 }
 
 static void
@@ -328,12 +311,10 @@ vl_api_det44_interface_dump_t_handler (vl_api_det44_interface_dump_t * mp)
   if (!reg)
     return;
 
-  /* *INDENT-OFF* */
   pool_foreach (i, dm->interfaces)
    {
     det44_send_interface_details(i, reg, mp->context);
   }
-  /* *INDENT-ON* */
 }
 
 static void
@@ -359,7 +340,6 @@ vl_api_det44_get_timeouts_t_handler (vl_api_det44_get_timeouts_t * mp)
   nat_timeouts_t timeouts;
   int rv = 0;
   timeouts = det44_get_timeouts ();
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_DET44_GET_TIMEOUTS_REPLY,
   ({
     rmp->udp = htonl (timeouts.udp);
@@ -367,7 +347,6 @@ vl_api_det44_get_timeouts_t_handler (vl_api_det44_get_timeouts_t * mp)
     rmp->tcp_transitory = htonl (timeouts.tcp.transitory);
     rmp->icmp = htonl (timeouts.icmp);
   }))
-  /* *INDENT-ON* */
 }
 
 /*
@@ -412,14 +391,12 @@ vl_api_nat_det_forward_t_handler (vl_api_nat_det_forward_t * mp)
   hi_port = lo_port + m->ports_per_host - 1;
 
 send_reply:
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_NAT_DET_FORWARD_REPLY,
   ({
     rmp->out_port_lo = ntohs (lo_port);
     rmp->out_port_hi = ntohs (hi_port);
     clib_memcpy (rmp->out_addr, &out_addr, 4);
   }))
-  /* *INDENT-ON* */
 }
 
 static void
@@ -443,12 +420,10 @@ vl_api_nat_det_reverse_t_handler (vl_api_nat_det_reverse_t * mp)
   snat_det_reverse (m, &out_addr, htons (mp->out_port), &in_addr);
 
 send_reply:
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_NAT_DET_REVERSE_REPLY,
   ({
     clib_memcpy (rmp->in_addr, &in_addr, 4);
   }))
-  /* *INDENT-ON* */
 }
 
 static void
@@ -484,10 +459,8 @@ vl_api_nat_det_map_dump_t_handler (vl_api_nat_det_map_dump_t * mp)
   if (!reg)
     return;
 
-  /* *INDENT-OFF* */
   vec_foreach(m, dm->det_maps)
     sent_nat_det_map_details(m, reg, mp->context);
-  /* *INDENT-ON* */
 }
 
 static void
@@ -623,11 +596,3 @@ det44_api_hookup (vlib_main_t * vm)
   dm->msg_id_base = setup_message_id_table ();
   return 0;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

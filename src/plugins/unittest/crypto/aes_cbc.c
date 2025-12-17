@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 /* Test vectors published by NIST as SP 800-38A
@@ -53,7 +43,6 @@ static u8 ciphertext128[] = {
   0x12, 0x0E, 0xCA, 0x30, 0x75, 0x86, 0xE1, 0xA7,
 };
 
-/* *INDENT-OFF* */
 UNITTEST_REGISTER_CRYPTO_TEST (nist_aes128_cbc) = {
   .name = "NIST SP 800-38A",
   .alg = VNET_CRYPTO_ALG_AES_128_CBC,
@@ -63,7 +52,6 @@ UNITTEST_REGISTER_CRYPTO_TEST (nist_aes128_cbc) = {
   .ciphertext = TEST_DATA (ciphertext128),
 };
 
-/* *INDENT-ON* */
 
 static u8 key192[24] = {
   0x8E, 0x73, 0xB0, 0xF7, 0xDA, 0x0E, 0x64, 0x52,
@@ -82,7 +70,6 @@ static u8 ciphertext192[64] = {
   0xD9, 0x20, 0xA9, 0xE6, 0x4F, 0x56, 0x15, 0xCD,
 };
 
-/* *INDENT-OFF* */
 UNITTEST_REGISTER_CRYPTO_TEST (nist_aes192_cbc) = {
   .name = "NIST SP 800-38A",
   .alg = VNET_CRYPTO_ALG_AES_192_CBC,
@@ -92,7 +79,6 @@ UNITTEST_REGISTER_CRYPTO_TEST (nist_aes192_cbc) = {
   .ciphertext = TEST_DATA (ciphertext192),
 };
 
-/* *INDENT-ON* */
 
 static u8 key256[32] = {
   0x60, 0x3D, 0xEB, 0x10, 0x15, 0xCA, 0x71, 0xBE,
@@ -112,7 +98,6 @@ static u8 ciphertext256[64] = {
   0xDA, 0x6C, 0x19, 0x07, 0x8C, 0x6A, 0x9D, 0x1B,
 };
 
-/* *INDENT-OFF* */
 UNITTEST_REGISTER_CRYPTO_TEST (nist_aes256_cbc) = {
   .name = "NIST SP 800-38A",
   .alg = VNET_CRYPTO_ALG_AES_256_CBC,
@@ -151,12 +136,3 @@ UNITTEST_REGISTER_CRYPTO_TEST (nist_aes256_incr2) = {
   .key.length = 32,
   .plaintext_incremental = 1056,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

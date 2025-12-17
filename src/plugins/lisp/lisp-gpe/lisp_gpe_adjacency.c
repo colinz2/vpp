@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /**
  * @file
  * @brief Common utility functions for IPv4, IPv6 and L2 LISP-GPE adjacencys.
@@ -557,7 +548,6 @@ lisp_gpe_adjacency_show (vlib_main_t * vm,
     }
   else
     {
-      /* *INDENT-OFF* */
       pool_foreach (ladj, lisp_adj_pool)
        {
 	vlib_cli_output (vm, "[%d] %U\n",
@@ -565,19 +555,16 @@ lisp_gpe_adjacency_show (vlib_main_t * vm,
 			 format_lisp_gpe_adjacency, ladj,
 			 LISP_GPE_ADJ_FORMAT_FLAG_NONE);
       }
-      /* *INDENT-ON* */
     }
 
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_lisp_gpe_tunnel_command, static) =
 {
   .path = "show gpe adjacency",
   .function = lisp_gpe_adjacency_show,
 };
-/* *INDENT-ON* */
 
 #define LISP_ADJ_NBR_DEFAULT_HASH_NUM_BUCKETS (256)
 #define LISP_ADJ_NBR_DEFAULT_HASH_MEMORY_SIZE (1<<20)
@@ -595,10 +582,3 @@ lisp_gpe_adj_module_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (lisp_gpe_adj_module_init);
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

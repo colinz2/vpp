@@ -1,19 +1,8 @@
-/*
- * node.c: ipip packet processing
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or aipiped to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* node.c: ipip packet processing */
 
 #include <vlib/vlib.h>
 #include <vnet/ipip/ipip.h>
@@ -66,7 +55,7 @@ ipip_input (vlib_main_t * vm, vlib_node_runtime_t * node,
   ipip_main_t *gm = &ipip_main;
   u32 n_left_from, next_index, *from, *to_next, n_left_to_next;
   u32 tunnel_sw_if_index = ~0;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   u32 len;
   vnet_interface_main_t *im = &gm->vnet_main->interface_main;
 
@@ -260,7 +249,6 @@ static char *ipip_error_strings[] = {
 #undef _
 };
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE(ipip4_input_node) = {
     .name = "ipip4-input",
     /* Takes a vector of packets. */
@@ -292,13 +280,3 @@ VLIB_REGISTER_NODE(ipip6_input_node) = {
         },
     .format_trace = format_ipip_rx_trace,
 };
-
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

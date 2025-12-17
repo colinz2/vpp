@@ -34,12 +34,7 @@ include_directories(${HEADERS_DIR})
 
 add_library(memif SHARED ${MEMIF_SOURCES})
 target_link_libraries(memif ${CMAKE_THREAD_LIBS_INIT})
-
-find_library(LIB_BSD bsd)
-if(LIB_BSD)
-  add_compile_definitions(HAS_LIB_BSD)
-  target_link_libraries(memif ${LIB_BSD})
-endif()
+target_compile_definitions(memif PUBLIC MEMIF_CACHELINE_SIZE=${LIBMEMIF_CACHELINE_SIZE})
 
 foreach(file ${MEMIF_HEADERS})
   get_filename_component(dir ${file} DIRECTORY)

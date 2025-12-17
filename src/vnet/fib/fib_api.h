@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef __FIB_API_H__
@@ -51,6 +41,7 @@ extern int fib_api_route_add_del (u8 is_add,
                                   fib_entry_flag_t entry_flags,
                                   fib_route_path_t *rpaths);
 
+extern u8 *format_vl_api_address_union (u8 * s, va_list * args);
 extern u8* format_vl_api_fib_path(u8 * s, va_list * args);
 
 

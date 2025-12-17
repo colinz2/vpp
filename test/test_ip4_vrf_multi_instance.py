@@ -64,14 +64,13 @@
 
 import unittest
 import random
-import socket
 
-import scapy.compat
 from scapy.packet import Raw
 from scapy.layers.l2 import Ether, ARP
 from scapy.layers.inet import IP, UDP
 
-from framework import VppTestCase, VppTestRunner
+from framework import VppTestCase
+from asfframework import VppTestRunner
 from util import ppp
 from vrf import VRFState
 
@@ -196,7 +195,7 @@ class TestIp4VrfMultiInst(VppTestCase):
 
         for i in range(count):
             vrf_id = i + start
-            self.vapi.ip_table_add_del(is_add=1, table={"table_id": vrf_id})
+            self.vapi.ip_table_add_del_v2(is_add=1, table={"table_id": vrf_id})
             self.logger.info("IPv4 VRF ID %d created" % vrf_id)
             if vrf_id not in self.vrf_list:
                 self.vrf_list.append(vrf_id)
@@ -250,7 +249,7 @@ class TestIp4VrfMultiInst(VppTestCase):
         self.logger.info("IPv4 VRF ID %d reset finished" % vrf_id)
         self.logger.debug(self.vapi.ppcli("show ip fib"))
         self.logger.debug(self.vapi.ppcli("show ip neighbors"))
-        self.vapi.ip_table_add_del(is_add=0, table={"table_id": vrf_id})
+        self.vapi.ip_table_add_del_v2(is_add=0, table={"table_id": vrf_id})
 
     def create_stream(self, src_if, packet_sizes):
         """

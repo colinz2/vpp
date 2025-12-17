@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include "map.h"
 
 #include <vnet/ip/ip_frag.h>
@@ -56,7 +47,6 @@ typedef enum
 
 //This is used to pass information within the buffer data.
 //Buffer structure being too small to contain big structures like this.
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   ip6_address_t daddr;
   ip6_address_t saddr;
@@ -64,7 +54,6 @@ typedef CLIB_PACKED (struct {
   //sizeof(ip6) + sizeof(ip_frag) - sizeof(ip4)
   u8 unused[28];
 }) ip4_mapt_pseudo_header_t;
-/* *INDENT-ON* */
 
 typedef struct
 {
@@ -119,7 +108,7 @@ ip4_map_t_icmp (vlib_main_t * vm,
   n_left_from = frame->n_vectors;
   next_index = node->cached_next_index;
   vlib_combined_counter_main_t *cm = map_main.domain_counters;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
 
   while (n_left_from > 0)
     {
@@ -551,7 +540,7 @@ ip4_map_t (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
   n_left_from = frame->n_vectors;
   next_index = node->cached_next_index;
   vlib_combined_counter_main_t *cm = map_main.domain_counters;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
 
   while (n_left_from > 0)
     {
@@ -684,7 +673,6 @@ ip4_map_t (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VNET_FEATURE_INIT (ip4_map_t_feature, static) = {
     .arc_name = "ip4-unicast",
     .node_name = "ip4-map-t",
@@ -710,9 +698,7 @@ VLIB_REGISTER_NODE(ip4_map_t_fragmented_node) = {
       [IP4_MAPT_FRAGMENTED_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE(ip4_map_t_icmp_node) = {
   .function = ip4_map_t_icmp,
   .name = "ip4-map-t-icmp",
@@ -731,9 +717,7 @@ VLIB_REGISTER_NODE(ip4_map_t_icmp_node) = {
       [IP4_MAPT_ICMP_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE(ip4_map_t_tcp_udp_node) = {
   .function = ip4_map_t_tcp_udp,
   .name = "ip4-map-t-tcp-udp",
@@ -752,9 +736,7 @@ VLIB_REGISTER_NODE(ip4_map_t_tcp_udp_node) = {
       [IP4_MAPT_TCP_UDP_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE(ip4_map_t_node) = {
   .function = ip4_map_t,
   .name = "ip4-map-t",
@@ -774,12 +756,3 @@ VLIB_REGISTER_NODE(ip4_map_t_node) = {
       [IP4_MAPT_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

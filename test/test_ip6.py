@@ -5,7 +5,6 @@ from socket import inet_pton, inet_ntop
 import unittest
 
 from parameterized import parameterized
-import scapy.compat
 import scapy.layers.inet6 as inet6
 from scapy.layers.inet import UDP, IP
 from scapy.contrib.mpls import MPLS
@@ -26,7 +25,6 @@ from scapy.layers.inet6 import (
     ICMPv6EchoReply,
     IPv6ExtHdrHopByHop,
     ICMPv6MLReport2,
-    ICMPv6MLDMultAddrRec,
 )
 from scapy.layers.l2 import Ether, Dot1Q, GRE
 from scapy.packet import Raw
@@ -35,14 +33,13 @@ from scapy.utils6 import (
     in6_getnsmac,
     in6_ptop,
     in6_islladdr,
-    in6_mactoifaceid,
 )
-from six import moves
 
-from framework import VppTestCase, VppTestRunner, tag_run_solo
+from framework import VppTestCase
+from asfframework import VppTestRunner, tag_run_solo
 from util import ppp, ip6_normalize, mk_ll_addr
 from vpp_papi import VppEnum
-from vpp_ip import DpoProto, VppIpPuntPolicer, VppIpPuntRedirect, VppIpPathMtu
+from vpp_ip import VppIpPuntPolicer, VppIpPuntRedirect, VppIpPathMtu
 from vpp_ip_route import (
     VppIpRoute,
     VppRoutePath,
@@ -69,6 +66,7 @@ from vpp_policer import VppPolicer, PolicerAction
 from ipaddress import IPv6Network, IPv6Address
 from vpp_gre_interface import VppGreInterface
 from vpp_teib import VppTeib
+from config import config
 
 AF_INET6 = socket.AF_INET6
 
@@ -141,7 +139,7 @@ class TestIPv6ND(VppTestCase):
         self.assertEqual(in6_ptop(ns.tgt), in6_ptop(tgt_ip))
 
         # packet is from the router's local address
-        self.assertEqual(in6_ptop(rx[IPv6].src), intf.local_ip6)
+        self.assertEqual(in6_ptop(rx[IPv6].src), intf.local_ip6_ll)
 
         # Src link-layer options should have the router's MAC
         sll = rx[ICMPv6NDOptSrcLLAddr]
@@ -250,7 +248,7 @@ class TestIPv6(TestIPv6ND):
         # create 2 subinterfaces for p1 and pg2
         self.sub_interfaces = [
             VppDot1QSubint(self, self.pg1, 100),
-            VppDot1QSubint(self, self.pg2, 200)
+            VppDot1QSubint(self, self.pg2, 200),
             # TODO: VppDot1ADSubint(self, self.pg2, 200, 300, 400)
         ]
 
@@ -320,13 +318,11 @@ class TestIPv6(TestIPv6ND):
 
         pkts = [
             self.modify_packet(src_if, i, pkt_tmpl)
-            for i in moves.range(
-                self.pg_if_packet_sizes[0], self.pg_if_packet_sizes[1], 10
-            )
+            for i in range(self.pg_if_packet_sizes[0], self.pg_if_packet_sizes[1], 10)
         ]
         pkts_b = [
             self.modify_packet(src_if, i, pkt_tmpl)
-            for i in moves.range(
+            for i in range(
                 self.pg_if_packet_sizes[1] + hdr_ext,
                 self.pg_if_packet_sizes[2] + hdr_ext,
                 50,
@@ -1370,6 +1366,9 @@ class TestIPv6IfAddrRoute(VppTestCase):
             )
 
 
+@unittest.skipIf(
+    "ping" in config.excluded_plugins, "Exclude tests requiring Ping plugin"
+)
 class TestICMPv6Echo(VppTestCase):
     """ICMPv6 Echo Test Case"""
 
@@ -2975,7 +2974,6 @@ class TestIP6Input(VppTestCase):
         ]
     )
     def test_ip_input_no_replies(self, name, src, dst, l4, msg, timeout):
-
         self._testMethodDoc = "IPv6 Input Exception - %s" % name
 
         p_version = (
@@ -3327,6 +3325,9 @@ class TestIP6AddrReplace(VppTestCase):
             self.assertTrue(pfx.query_vpp_config())
 
 
+@unittest.skipIf(
+    "ping" in config.excluded_plugins, "Exclude tests requiring Ping plugin"
+)
 class TestIP6LinkLocal(VppTestCase):
     """IPv6 Link Local"""
 
@@ -3412,11 +3413,16 @@ class TestIP6LinkLocal(VppTestCase):
         # Use the specific link-local API on pg1
         #
         VppIp6LinkLocalAddress(self, self.pg1, ll1).add_vpp_config()
+        p_echo_request_1.dst = self.pg1.local_mac
         self.send_and_expect(self.pg1, [p_echo_request_1], self.pg1)
 
         VppIp6LinkLocalAddress(self, self.pg1, ll3).add_vpp_config()
+        p_echo_request_3.dst = self.pg1.local_mac
         self.send_and_expect(self.pg1, [p_echo_request_3], self.pg1)
 
+    @unittest.skipIf(
+        "gre" in config.excluded_plugins, "Exclude tests requiring GRE plugin"
+    )
     def test_ip6_ll_p2p(self):
         """IPv6 Link Local P2P (GRE)"""
 
@@ -3446,6 +3452,9 @@ class TestIP6LinkLocal(VppTestCase):
         self.pg0.unconfig_ip4()
         gre_if.remove_vpp_config()
 
+    @unittest.skipIf(
+        "gre" in config.excluded_plugins, "Exclude tests requiring GRE plugin"
+    )
     def test_ip6_ll_p2mp(self):
         """IPv6 Link Local P2MP (GRE)"""
 
@@ -4088,6 +4097,139 @@ class TestIPv6Punt(VppTestCase):
             self.assertEqual(p.punt.tx_sw_if_index, self.pg3.sw_if_index)
         self.assertNotEqual(punts[1].punt.nh, self.pg3.remote_ip6)
         self.assertEqual(str(punts[2].punt.nh), "::")
+
+
+class TestIP6InterfaceRx(VppTestCase):
+    """IPv6 Interface Receive"""
+
+    @classmethod
+    def setUpClass(cls):
+        super(TestIP6InterfaceRx, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestIP6InterfaceRx, cls).tearDownClass()
+
+    def setUp(self):
+        super(TestIP6InterfaceRx, self).setUp()
+
+        self.create_pg_interfaces(range(3))
+
+        table_id = 0
+
+        for i in self.pg_interfaces:
+            i.admin_up()
+
+            if table_id != 0:
+                table = VppIpTable(self, table_id, is_ip6=1)
+                table.add_vpp_config()
+
+            i.set_table_ip6(table_id)
+            i.config_ip6()
+            i.resolve_ndp()
+            table_id += 1
+
+    def tearDown(self):
+        for i in self.pg_interfaces:
+            i.unconfig_ip6()
+            i.admin_down()
+            i.set_table_ip6(0)
+
+        super(TestIP6InterfaceRx, self).tearDown()
+
+    def test_interface_rx(self):
+        """IPv6 Interface Receive"""
+
+        #
+        # add a route in the default table to receive ...
+        #
+        route_to_dst = VppIpRoute(
+            self,
+            "1::",
+            122,
+            [
+                VppRoutePath(
+                    "::",
+                    self.pg1.sw_if_index,
+                    type=FibPathType.FIB_PATH_TYPE_INTERFACE_RX,
+                )
+            ],
+        )
+        route_to_dst.add_vpp_config()
+
+        #
+        # packets to these destination are dropped, since they'll
+        # hit the respective default routes in table 1
+        #
+        p_dst = (
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
+            / IPv6(src="5::5", dst="1::1")
+            / inet6.TCP(sport=1234, dport=1234)
+            / Raw(b"\xa5" * 100)
+        )
+        pkts_dst = p_dst * 10
+
+        self.send_and_assert_no_replies(self.pg0, pkts_dst, "IP in table 1")
+
+        #
+        # add a route in the dst table to forward via pg1
+        #
+        route_in_dst = VppIpRoute(
+            self,
+            "1::1",
+            128,
+            [VppRoutePath(self.pg1.remote_ip6, self.pg1.sw_if_index)],
+            table_id=1,
+        )
+        route_in_dst.add_vpp_config()
+
+        self.send_and_expect(self.pg0, pkts_dst, self.pg1)
+
+        #
+        # add a route in the default table to receive ...
+        #
+        route_to_dst = VppIpRoute(
+            self,
+            "1::",
+            122,
+            [
+                VppRoutePath(
+                    "::",
+                    self.pg2.sw_if_index,
+                    type=FibPathType.FIB_PATH_TYPE_INTERFACE_RX,
+                )
+            ],
+            table_id=1,
+        )
+        route_to_dst.add_vpp_config()
+
+        #
+        # packets to these destination are dropped, since they'll
+        # hit the respective default routes in table 2
+        #
+        p_dst = (
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
+            / IPv6(src="6::6", dst="1::2")
+            / inet6.TCP(sport=1234, dport=1234)
+            / Raw(b"\xa5" * 100)
+        )
+        pkts_dst = p_dst * 10
+
+        self.send_and_assert_no_replies(self.pg0, pkts_dst, "IP in table 2")
+
+        #
+        # add a route in the table 2 to forward via pg2
+        #
+        route_in_dst = VppIpRoute(
+            self,
+            "1::2",
+            128,
+            [VppRoutePath(self.pg2.remote_ip6, self.pg2.sw_if_index)],
+            table_id=2,
+        )
+        route_in_dst.add_vpp_config()
+
+        self.send_and_expect(self.pg0, pkts_dst, self.pg2)
 
 
 if __name__ == "__main__":

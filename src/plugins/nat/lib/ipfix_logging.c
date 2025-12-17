@@ -1,19 +1,8 @@
-/*
- * nat_ipfix_logging.c - NAT Events IPFIX logging
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* nat_ipfix_logging.c - NAT Events IPFIX logging */
 
 #include <vnet/fib/fib_table.h>
 #include <vnet/ipfix-export/flow_report.h>
@@ -22,7 +11,6 @@
 #include <vlibmemory/api.h>
 #include <vppinfra/atomics.h>
 #include <nat/lib/ipfix_logging.h>
-#include <nat/lib/inlines.h>
 
 vlib_node_registration_t nat_ipfix_flush_node;
 nat_ipfix_logging_main_t nat_ipfix_logging_main;
@@ -1319,8 +1307,22 @@ nat_ipfix_logging_nat44_ses_delete (u32 thread_index, u32 src_ip,
 void
 nat_ipfix_logging_addresses_exhausted (u32 thread_index, u32 pool_id)
 {
-  //TODO: This event SHOULD be rate limited
+  nat_ipfix_logging_main_t *silm = &nat_ipfix_logging_main;
+  static f64 *last_sent = 0;
+
   skip_if_disabled ();
+
+  /* TODO: make rate configurable, use 1pps so far */
+  clib_spinlock_lock_if_init (&silm->addr_exhausted_lock);
+  f64 now = vlib_time_now (vlib_get_main ());
+  vec_validate (last_sent, pool_id);
+  if (now < last_sent[pool_id] + 1.0)
+    {
+      clib_spinlock_unlock_if_init (&silm->addr_exhausted_lock);
+      return;
+    }
+  last_sent[pool_id] = now;
+  clib_spinlock_unlock_if_init (&silm->addr_exhausted_lock);
 
   nat_ipfix_logging_addr_exhausted (thread_index, pool_id, 0);
 }
@@ -1362,8 +1364,21 @@ deterministic_nat_data_callback
 void
 nat_ipfix_logging_max_sessions (u32 thread_index, u32 limit)
 {
-  //TODO: This event SHOULD be rate limited
+  nat_ipfix_logging_main_t *silm = &nat_ipfix_logging_main;
+  static f64 last_sent = 0;
+
   skip_if_disabled ();
+
+  /* TODO: make rate configurable, use 1pps so far */
+  clib_spinlock_lock_if_init (&silm->max_sessions_lock);
+  f64 now = vlib_time_now (vlib_get_main ());
+  if (now < last_sent + 1.0)
+    {
+      clib_spinlock_unlock_if_init (&silm->max_sessions_lock);
+      return;
+    }
+  last_sent = now;
+  clib_spinlock_unlock_if_init (&silm->max_sessions_lock);
 
   nat_ipfix_logging_max_ses (thread_index, limit, 0);
 }
@@ -1377,8 +1392,21 @@ nat_ipfix_logging_max_sessions (u32 thread_index, u32 limit)
 void
 nat_ipfix_logging_max_bibs (u32 thread_index, u32 limit)
 {
-  //TODO: This event SHOULD be rate limited
+  nat_ipfix_logging_main_t *silm = &nat_ipfix_logging_main;
+  static f64 last_sent = 0;
+
   skip_if_disabled ();
+
+  /* TODO: make rate configurable, use 1pps so far */
+  clib_spinlock_lock_if_init (&silm->max_bibs_lock);
+  f64 now = vlib_time_now (vlib_get_main ());
+  if (now < last_sent + 1.0)
+    {
+      clib_spinlock_unlock_if_init (&silm->max_bibs_lock);
+      return;
+    }
+  last_sent = now;
+  clib_spinlock_unlock_if_init (&silm->max_bibs_lock);
 
   nat_ipfix_logging_max_bib (thread_index, limit, 0);
 }
@@ -1574,6 +1602,11 @@ nat_ipfix_logging_init (vlib_main_t * vm)
   silm->milisecond_time_0 = unix_time_now_nsec () * 1e-6;
 
   vec_validate (silm->per_thread_data, tm->n_vlib_mains - 1);
+
+  /* Set up rate-limit */
+  clib_spinlock_init (&silm->addr_exhausted_lock);
+  clib_spinlock_init (&silm->max_sessions_lock);
+  clib_spinlock_init (&silm->max_bibs_lock);
 }
 
 static uword
@@ -1585,11 +1618,9 @@ ipfix_flush_process (vlib_main_t *vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (nat_ipfix_flush_node) = {
   .function = ipfix_flush_process,
   .name = "nat-ipfix-flush",
   .type = VLIB_NODE_TYPE_INPUT,
   .state = VLIB_NODE_STATE_INTERRUPT,
 };
-/* *INDENT-ON* */

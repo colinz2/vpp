@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2022 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vnet/plugin/plugin.h>
 #include <vpp/app/version.h>
 
@@ -161,6 +152,7 @@ retry:
 	  break;
 
 	case STAT_DIR_TYPE_SCALAR_INDEX:
+	case STAT_DIR_TYPE_GAUGE:
 	  s = dump_scalar_index (&res[i], s, used_only);
 	  break;
 
@@ -169,6 +161,8 @@ retry:
 	  break;
 
 	case STAT_DIR_TYPE_EMPTY:
+	case STAT_DIR_TYPE_RING_BUFFER:
+	case STAT_DIR_TYPE_HISTOGRAM_LOG2:
 	  break;
 
 	default:
@@ -191,6 +185,7 @@ send_data_to_hss (hss_session_handle_t sh)
   args.sh = sh;
   args.data = vec_dup (pm->stats);
   args.data_len = vec_len (pm->stats);
+  args.ct = HTTP_CONTENT_TEXT_PLAIN;
   args.sc = HTTP_STATUS_OK;
   args.free_vec_data = 1;
 
@@ -207,7 +202,7 @@ static uword
 prom_scraper_process (vlib_main_t *vm, vlib_node_runtime_t *rt,
 		      vlib_frame_t *f)
 {
-  uword *event_data = 0, event_type;
+  uword *event_data = 0, event_type, *sh_as_uword;
   prom_main_t *pm = &prom_main;
   hss_session_handle_t sh;
   f64 timeout = 10000.0;
@@ -222,12 +217,15 @@ prom_scraper_process (vlib_main_t *vm, vlib_node_runtime_t *rt,
 	  /* timeout, do nothing */
 	  break;
 	case PROM_SCRAPER_EVT_RUN:
-	  sh.as_u64 = event_data[0];
 	  vec_reset_length (pm->stats);
 	  pm->stats = scrape_stats_segment (pm->stats, pm->stats_patterns,
 					    pm->used_only);
-	  session_send_rpc_evt_to_thread_force (sh.thread_index,
-						send_data_to_hss_rpc, &sh);
+	  vec_foreach (sh_as_uword, event_data)
+	    {
+	      sh.as_u64 = (u64) *sh_as_uword;
+	      session_send_rpc_evt_to_thread_force (
+		sh.thread_index, send_data_to_hss_rpc, sh_as_uword);
+	    }
 	  pm->last_scrape = vlib_time_now (vm);
 	  break;
 	default:
@@ -378,13 +376,16 @@ prom_stat_segment_client_init (void)
     stat_segment_adjust (scm, (void *) scm->shared_header->directory_vector);
 }
 
-void
+clib_error_t *
 prom_enable (vlib_main_t *vm)
 {
   prom_main_t *pm = &prom_main;
 
   pm->register_url = vlib_get_plugin_symbol ("http_static_plugin.so",
 					     "hss_register_url_handler");
+  if (pm->register_url == 0)
+    return clib_error_return (0, "http_static_plugin.so not loaded");
+
   pm->send_data =
     vlib_get_plugin_symbol ("http_static_plugin.so", "hss_session_send_data");
   pm->register_url (prom_stats_dump, "stats.prom", HTTP_REQ_GET);
@@ -396,6 +397,8 @@ prom_enable (vlib_main_t *vm)
 
   prom_scraper_process_enable (vm);
   prom_stat_segment_client_init ();
+
+  return 0;
 }
 
 static clib_error_t *
@@ -426,11 +429,3 @@ VLIB_PLUGIN_REGISTER () = {
   .description = "Prometheus Stats Exporter",
   .default_disabled = 0,
 };
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

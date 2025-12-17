@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vppinfra/llist.h>
 #include <vlib/vlib.h>
 
@@ -132,13 +123,11 @@ llist_test_basic (vlib_main_t * vm, unformat_input_t * input)
   list_test_is_sane (pelts, ll_test, he);
 
   i--;
-  /* *INDENT-OFF* */
   clib_llist_foreach (pelts, ll_test, he, e, ({
     if (i != e->data)
       LLIST_TEST (0, "incorrect element i = %u data = %u", i, e->data);
     i--;
   }));
-  /* *INDENT-ON* */
 
   LLIST_TEST (i == -1, "head insertion works i = %d", i);
 
@@ -180,13 +169,11 @@ llist_test_basic (vlib_main_t * vm, unformat_input_t * input)
 	      "list should not be empty");
 
   i--;
-  /* *INDENT-OFF* */
   clib_llist_foreach_reverse (pelts, ll_test2, he2, e, ({
     if (i != e->data)
 	LLIST_TEST (0, "incorrect element i = %u data = %u", i, e->data);
     i--;
   }));
-  /* *INDENT-ON* */
   LLIST_TEST (i == -1, "tail insertion works");
 
   /*
@@ -217,13 +204,11 @@ llist_test_basic (vlib_main_t * vm, unformat_input_t * input)
 
   i = 0;
 
-  /* *INDENT-OFF* */
   clib_llist_foreach (pelts, ll_test, he, e, ({
     if (i != e->data)
 	LLIST_TEST (0, "incorrect element i = %u data = %u", i, e->data);
     i++;
   }));
-  /* *INDENT-ON* */
 
   LLIST_TEST (i == 100, "move from ll_test2 to ll_test worked i %u", i);
 
@@ -335,19 +320,8 @@ done:
   return 0;
 }
 
-/* *INDENT-OFF* */
-VLIB_CLI_COMMAND (llist_test_command, static) =
-{
+VLIB_CLI_COMMAND (llist_test_command, static) = {
   .path = "test llist",
   .short_help = "internal llist unit tests",
   .function = llist_test,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

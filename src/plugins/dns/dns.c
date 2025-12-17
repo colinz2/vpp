@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/vnet.h>
@@ -61,13 +51,11 @@ dns_cache_clear (dns_main_t * dm)
 
   dns_cache_lock (dm, 1);
 
-  /* *INDENT-OFF* */
   pool_foreach (ep, dm->entries)
    {
     vec_free (ep->name);
     vec_free (ep->pending_requests);
   }
-  /* *INDENT-ON* */
 
   pool_free (dm->entries);
   hash_free (dm->cache_entry_by_name);
@@ -656,7 +644,8 @@ delete_random_entry (dns_main_t * dm)
     return VNET_API_ERROR_UNSPECIFIED;
 #endif
 
-  dns_cache_lock (dm, 3);
+  CLIB_SPINLOCK_ASSERT_LOCKED (&dm->cache_lock);
+
   limit = pool_elts (dm->entries);
   start_index = random_u32 (&dm->random_seed) % limit;
 
@@ -672,12 +661,10 @@ delete_random_entry (dns_main_t * dm)
 	      && ((ep->flags & DNS_CACHE_ENTRY_FLAG_STATIC) == 0))
 	    {
 	      rv = vnet_dns_delete_entry_by_index_nolock (dm, victim_index);
-	      dns_cache_unlock (dm);
 	      return rv;
 	    }
 	}
     }
-  dns_cache_unlock (dm);
 
   clib_warning ("Couldn't find an entry to delete?");
   return VNET_API_ERROR_UNSPECIFIED;
@@ -1403,7 +1390,6 @@ vl_api_dns_resolve_name_t_handler (vl_api_dns_resolve_name_t * mp)
   if (ep == 0)
     return;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_DNS_RESOLVE_NAME_REPLY, ({
 		  ip_address_copy_addr (rmp->ip4_address, &rn.address);
 		  if (ip_addr_version (&rn.address) == AF_IP4)
@@ -1411,7 +1397,6 @@ vl_api_dns_resolve_name_t_handler (vl_api_dns_resolve_name_t * mp)
 		  else
 		    rmp->ip6_set = 1;
 		}));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -1480,13 +1465,11 @@ vl_api_dns_resolve_ip_t_handler (vl_api_dns_resolve_ip_t * mp)
   if (ep == 0)
     return;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_DNS_RESOLVE_IP_REPLY,
   ({
     rv = vnet_dns_response_to_name (ep->dns_response, rmp, 0 /* ttl-ptr */);
     rmp->retval = clib_host_to_net_u32 (rv);
   }));
-  /* *INDENT-ON* */
 }
 
 static clib_error_t *
@@ -2096,7 +2079,6 @@ format_dns_cache (u8 * s, va_list * args)
 
   if (verbose > 0)
     {
-      /* *INDENT-OFF* */
       pool_foreach (ep, dm->entries)
        {
         if (ep->flags & DNS_CACHE_ENTRY_FLAG_VALID)
@@ -2135,7 +2117,6 @@ format_dns_cache (u8 * s, va_list * args)
           }
         vec_add1 (s, '\n');
       }
-      /* *INDENT-ON* */
     }
 
   dns_cache_unlock (dm);
@@ -2170,14 +2151,12 @@ show_dns_cache_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_dns_cache_command) =
 {
   .path = "show dns cache",
   .short_help = "show dns cache [verbose [nn]]",
   .function = show_dns_cache_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 show_dns_servers_command_fn (vlib_main_t * vm,
@@ -2207,14 +2186,12 @@ show_dns_servers_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_dns_server_command) =
 {
   .path = "show dns servers",
   .short_help = "show dns servers",
   .function = show_dns_servers_command_fn,
 };
-/* *INDENT-ON* */
 
 
 static clib_error_t *
@@ -2309,14 +2286,93 @@ dns_cache_add_del_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (dns_cache_add_del_command) =
 {
   .path = "dns cache",
   .short_help = "dns cache [add|del|clear] <name> [ip4][ip6]",
   .function = dns_cache_add_del_command_fn,
 };
-/* *INDENT-ON* */
+
+static clib_error_t *
+dns_enable_disable_command_fn (vlib_main_t *vm, unformat_input_t *input,
+			       vlib_cli_command_t *cmd)
+{
+  dns_main_t *dm = &dns_main;
+  u32 enable_disable;
+  int rv;
+
+  enable_disable = 0;
+
+  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (input, "enable"))
+	enable_disable = 1;
+      else if (unformat (input, "disable"))
+	enable_disable = 0;
+      else
+	return clib_error_return (0, "unknown input `%U'",
+				  format_unformat_error, input);
+    }
+
+  rv = dns_enable_disable (vm, dm, enable_disable);
+  if (rv)
+    return clib_error_return (0, "%U", format_vnet_api_errno, rv);
+
+  return 0;
+}
+
+VLIB_CLI_COMMAND (dns_enable_disable_command) = {
+  .path = "dns",
+  .short_help = "dns [enable][disable]",
+  .function = dns_enable_disable_command_fn,
+};
+
+static clib_error_t *
+dns_name_server_add_del_command_fn (vlib_main_t *vm, unformat_input_t *input,
+				    vlib_cli_command_t *cmd)
+{
+  dns_main_t *dm = &dns_main;
+  u8 is_add = 1;
+  ip6_address_t ip6_server;
+  ip4_address_t ip4_server;
+  int ip6_set = 0;
+  int ip4_set = 0;
+  int rv = 0;
+
+  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (input, "%U", unformat_ip6_address, &ip6_server))
+	ip6_set = 1;
+      else if (unformat (input, "%U", unformat_ip4_address, &ip4_server))
+	ip4_set = 1;
+      else if (unformat (input, "del"))
+	is_add = 0;
+      else
+	return clib_error_return (0, "unknown input `%U'",
+				  format_unformat_error, input);
+    }
+
+  if (ip4_set && ip6_set)
+    return clib_error_return (0, "Only one server address configed");
+  if ((ip4_set + ip6_set) == 0)
+    return clib_error_return (0, "Server address required");
+
+  if (ip6_set)
+    rv = dns6_name_server_add_del (dm, ip6_server.as_u8, is_add);
+  else
+    rv = dns4_name_server_add_del (dm, ip4_server.as_u8, is_add);
+
+  if (rv)
+    return clib_error_return (0, "%U", format_vnet_api_errno, rv);
+
+  return 0;
+}
+
+VLIB_CLI_COMMAND (dns_name_server_add_del_command) = {
+  .path = "dns name-server",
+  .short_help = "dns name-server <ip-address> [del]",
+  .function = dns_name_server_add_del_command_fn,
+};
 
 #define DNS_FORMAT_TEST 1
 
@@ -2557,14 +2613,12 @@ test_dns_fmt_command_fn (vlib_main_t * vm,
 }
 
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (test_dns_fmt_command) =
 {
   .path = "test dns format",
   .short_help = "test dns format",
   .function = test_dns_fmt_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 test_dns_unfmt_command_fn (vlib_main_t * vm,
@@ -2597,14 +2651,12 @@ test_dns_unfmt_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (test_dns_unfmt_command) =
 {
   .path = "test dns unformat",
   .short_help = "test dns unformat <name> [ip4][ip6]",
   .function = test_dns_unfmt_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 test_dns_expire_command_fn (vlib_main_t * vm,
@@ -2640,14 +2692,12 @@ test_dns_expire_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (test_dns_expire_command) =
 {
   .path = "test dns expire",
   .short_help = "test dns expire <name>",
   .function = test_dns_expire_command_fn,
 };
-/* *INDENT-ON* */
 #endif
 
 void
@@ -2889,23 +2939,11 @@ dns_init (vlib_main_t * vm)
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_INIT_FUNCTION (dns_init) = {
   .init_order = VLIB_INITS ("flow_classify_init", "dns_init"),
 };
 
-VLIB_PLUGIN_REGISTER () =
-{
+VLIB_PLUGIN_REGISTER () = {
   .version = VPP_BUILD_VER,
   .description = "Simple DNS name resolver",
 };
-/* *INDENT-ON* */
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

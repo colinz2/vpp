@@ -1,19 +1,8 @@
-/*
- * mc_test.c: test program for vlib mc
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2010 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* mc_test.c: test program for vlib mc */
 
 #include <vlib/vlib.h>
 #include <vlib/unix/mc_socket.h>
@@ -245,12 +234,10 @@ mc_test_process (vlib_main_t * vm,
     }
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (mc_test_process_node, static) =
 {
 .function = mc_test_process,.type = VLIB_NODE_TYPE_PROCESS,.name =
     "mc-test-process",};
-/* *INDENT-ON* */
 
 static clib_error_t *
 mc_test_command (vlib_main_t * vm,
@@ -277,12 +264,10 @@ mc_test_command (vlib_main_t * vm,
     return unformat_parse_error (input);
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (test_mc_command, static) =
 {
 .path = "test mc",.short_help = "Test mc command",.function =
     mc_test_command,};
-/* *INDENT-ON* */
 
 static clib_error_t *
 mc_show_command (vlib_main_t * vm,
@@ -293,12 +278,10 @@ mc_show_command (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_mc_command, static) =
 {
 .path = "show mc",.short_help = "Show mc command",.function =
     mc_show_command,};
-/* *INDENT-ON* */
 
 static clib_error_t *
 mc_clear_command (vlib_main_t * vm,
@@ -309,12 +292,10 @@ mc_clear_command (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (clear_mc_command, static) =
 {
 .path = "clear mc",.short_help = "Clear mc command",.function =
     mc_clear_command,};
-/* *INDENT-ON* */
 
 static clib_error_t *
 mc_config (vlib_main_t * vm, unformat_input_t * input)
@@ -374,11 +355,3 @@ mc_config (vlib_main_t * vm, unformat_input_t * input)
 }
 
 VLIB_CONFIG_FUNCTION (mc_config, "mc");
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

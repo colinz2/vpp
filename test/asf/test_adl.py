@@ -2,11 +2,12 @@
 
 import unittest
 
-from asfframework import VppTestCase, VppTestRunner
-from vpp_ip_route import VppIpTable, VppIpRoute, VppRoutePath
+from asfframework import VppAsfTestCase, VppTestRunner
+from config import config
 
 
-class TestAdl(VppTestCase):
+@unittest.skipIf("adl" in config.excluded_plugins, "Exclude ADL plugin tests")
+class TestAdl(VppAsfTestCase):
     """Allow/Deny Plugin Unit Test Cases"""
 
     @classmethod

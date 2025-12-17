@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * vnet/buffer.h: vnet buffer flags
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* vnet/buffer.h: vnet buffer flags */
 
 #ifndef included_vnet_buffer_h
 #define included_vnet_buffer_h
@@ -219,16 +187,12 @@ typedef struct
 	  struct
 	  {
 	    /* input variables */
-	    struct
-	    {
-	      u32 next_index;	/* index of next node - used by custom apps */
-	      u32 error_next_index;	/* index of next node if error - used by custom apps */
-	    };
+	    u32 next_index; /* index of next node - used by custom apps */
+	    u32 error_next_index; /* index of next node if error - used by
+				     custom apps */
+	    u8 _save_rewrite_length;
 	    /* handoff variables */
-	    struct
-	    {
-	      u16 owner_thread_index;
-	    };
+	    u16 owner_thread_index;
 	  };
 	  /* output variables */
 	  struct
@@ -245,7 +209,8 @@ typedef struct
 		u8 ip_proto;	/* protocol in ip header */
 		u8 icmp_type_or_tcp_flags;
 		u8 is_non_first_fragment : 1;
-		u8 l4_layer_truncated : 7;
+		u8 l4_hdr_truncated : 1;
+		u8 unused : 6;
 		u32 tcp_seq_number;
 	      };
 	      /* full reassembly output variables */
@@ -343,7 +308,7 @@ typedef struct
       u32 __pad[3];
       u32 sad_index;
       u32 protect_index;
-      u16 thread_index;
+      clib_thread_index_t thread_index;
     } ipsec;
 
     /* MAP */
@@ -407,6 +372,19 @@ typedef struct
       u8 flags;
     } tcp;
 
+    struct
+    {
+      union
+      {
+	struct
+	{
+	  u32 session_index;
+	  clib_thread_index_t thread_index;
+	};
+	u64 session_handle;
+      };
+    } udp;
+
     /* SNAT */
     struct
     {
@@ -422,25 +400,26 @@ typedef struct
 STATIC_ASSERT (VNET_REWRITE_TOTAL_BYTES <= VLIB_BUFFER_PRE_DATA_SIZE,
 	       "VNET_REWRITE_TOTAL_BYTES too big");
 
-STATIC_ASSERT (STRUCT_SIZE_OF (vnet_buffer_opaque_t, ip.save_rewrite_length)
-	       == STRUCT_SIZE_OF (vnet_buffer_opaque_t,
-				  ip.reass.save_rewrite_length)
-	       && STRUCT_SIZE_OF (vnet_buffer_opaque_t,
-				  ip.reass.save_rewrite_length) ==
-	       STRUCT_SIZE_OF (vnet_buffer_opaque_t, mpls.save_rewrite_length)
-	       && STRUCT_SIZE_OF (vnet_buffer_opaque_t,
-				  mpls.save_rewrite_length) == 1
-	       && VNET_REWRITE_TOTAL_BYTES < UINT8_MAX,
-	       "save_rewrite_length member must be able to hold the max value of rewrite length");
+STATIC_ASSERT (
+  STRUCT_SIZE_OF (vnet_buffer_opaque_t, ip.save_rewrite_length) ==
+      STRUCT_SIZE_OF (vnet_buffer_opaque_t, ip.reass.save_rewrite_length) &&
+    STRUCT_SIZE_OF (vnet_buffer_opaque_t, ip.save_rewrite_length) ==
+      STRUCT_SIZE_OF (vnet_buffer_opaque_t, ip.reass._save_rewrite_length) &&
+    STRUCT_SIZE_OF (vnet_buffer_opaque_t, ip.reass.save_rewrite_length) ==
+      STRUCT_SIZE_OF (vnet_buffer_opaque_t, mpls.save_rewrite_length) &&
+    STRUCT_SIZE_OF (vnet_buffer_opaque_t, mpls.save_rewrite_length) == 1 &&
+    VNET_REWRITE_TOTAL_BYTES < UINT8_MAX,
+  "save_rewrite_length member must be able to hold the max value of rewrite "
+  "length");
 
-STATIC_ASSERT (STRUCT_OFFSET_OF (vnet_buffer_opaque_t, ip.save_rewrite_length)
-	       == STRUCT_OFFSET_OF (vnet_buffer_opaque_t,
-				    ip.reass.save_rewrite_length)
-	       && STRUCT_OFFSET_OF (vnet_buffer_opaque_t,
-				    mpls.save_rewrite_length) ==
-	       STRUCT_OFFSET_OF (vnet_buffer_opaque_t,
-				 ip.reass.save_rewrite_length),
-	       "save_rewrite_length must be aligned so that reass doesn't overwrite it");
+STATIC_ASSERT (
+  STRUCT_OFFSET_OF (vnet_buffer_opaque_t, ip.save_rewrite_length) ==
+      STRUCT_OFFSET_OF (vnet_buffer_opaque_t, ip.reass.save_rewrite_length) &&
+    STRUCT_OFFSET_OF (vnet_buffer_opaque_t, ip.save_rewrite_length) ==
+      STRUCT_OFFSET_OF (vnet_buffer_opaque_t, ip.reass._save_rewrite_length) &&
+    STRUCT_OFFSET_OF (vnet_buffer_opaque_t, mpls.save_rewrite_length) ==
+      STRUCT_OFFSET_OF (vnet_buffer_opaque_t, ip.reass.save_rewrite_length),
+  "save_rewrite_length must be aligned so that reass doesn't overwrite it");
 
 /*
  * The opaque field of the vlib_buffer_t is interpreted as a
@@ -451,6 +430,15 @@ STATIC_ASSERT (sizeof (vnet_buffer_opaque_t) <=
 	       "VNET buffer meta-data too large for vlib_buffer");
 
 #define vnet_buffer(b) ((vnet_buffer_opaque_t *) (b)->opaque)
+
+static_always_inline void *
+vnet_buffer_get_opaque (vlib_buffer_t *b)
+{
+  return vnet_buffer (b)->unused;
+}
+
+#define VNET_BUFFER_OPAQUE_SIZE                                               \
+  (sizeof (vnet_buffer ((vlib_buffer_t *) 0)->unused))
 
 /* Full cache line (64 bytes) of additional space */
 typedef struct
@@ -467,7 +455,7 @@ typedef struct
   } qos;
 
   u8 loop_counter;
-  u8 __unused[5];
+  u8 pad[5]; /* unused */
 
   /**
    * The L4 payload size set on input on GSO enabled interfaces
@@ -495,7 +483,22 @@ typedef struct
     };
   } nat;
 
-  u32 unused[8];
+  struct
+  {
+    /*
+     * Shallow virtual reassembly output values.
+     * Only populated if extended reassembly enabled via
+     * ipX_sv_reass_enable_disable_extended().
+     */
+    struct
+    {
+      clib_thread_index_t thread_index;
+      u32 pool_index;
+      u32 id;
+    } reass;
+  } ip;
+
+  u32 unused[5];
 } vnet_buffer_opaque2_t;
 
 #define vnet_buffer2(b) ((vnet_buffer_opaque2_t *) (b)->opaque2)
@@ -508,10 +511,15 @@ STATIC_ASSERT (sizeof (vnet_buffer_opaque2_t) ==
 		 STRUCT_SIZE_OF (vlib_buffer_t, opaque2),
 	       "VNET buffer opaque2 meta-data too large for vlib_buffer");
 
-#define gso_mtu_sz(b) (vnet_buffer2(b)->gso_size + \
-                       vnet_buffer2(b)->gso_l4_hdr_sz + \
-                       vnet_buffer(b)->l4_hdr_offset - \
-                       vnet_buffer (b)->l3_hdr_offset)
+#define gso_mtu_tunnel_size(b)                                                \
+  ((vnet_buffer (b)->oflags & VNET_BUFFER_OFFLOAD_F_TNL_MASK) ?               \
+     vnet_buffer (b)->l3_hdr_offset - vnet_buffer2 (b)->outer_l3_hdr_offset : \
+     0)
+
+#define gso_mtu_sz(b)                                                         \
+  (vnet_buffer2 (b)->gso_size + vnet_buffer2 (b)->gso_l4_hdr_sz +             \
+   vnet_buffer (b)->l4_hdr_offset - vnet_buffer (b)->l3_hdr_offset +          \
+   gso_mtu_tunnel_size (b))
 
 format_function_t format_vnet_buffer_no_chain;
 format_function_t format_vnet_buffer;
@@ -534,6 +542,23 @@ vnet_buffer_offload_flags_set (vlib_buffer_t *b, vnet_buffer_oflags_t oflags)
       vnet_buffer (b)->oflags = oflags;
       b->flags |= VNET_BUFFER_F_OFFLOAD;
     }
+#if CLIB_DEBUG > 0
+  if (VNET_BUFFER_OFFLOAD_F_IP_CKSUM & oflags)
+    {
+      ASSERT (b->flags & VNET_BUFFER_F_L3_HDR_OFFSET_VALID);
+      ASSERT (b->flags & VNET_BUFFER_F_IS_IP4);
+    }
+
+  if ((VNET_BUFFER_OFFLOAD_F_TCP_CKSUM | VNET_BUFFER_OFFLOAD_F_UDP_CKSUM) &
+      oflags)
+    ASSERT (b->flags & VNET_BUFFER_F_L4_HDR_OFFSET_VALID);
+
+  if (VNET_BUFFER_OFFLOAD_F_OUTER_UDP_CKSUM & oflags)
+    ASSERT (VNET_BUFFER_OFFLOAD_F_TNL_VXLAN & oflags);
+  if (VNET_BUFFER_OFFLOAD_F_OUTER_IP_CKSUM & oflags)
+    ASSERT ((VNET_BUFFER_OFFLOAD_F_TNL_IPIP & oflags) ||
+	    (VNET_BUFFER_OFFLOAD_F_TNL_VXLAN & oflags));
+#endif
 }
 
 static_always_inline void
@@ -545,11 +570,3 @@ vnet_buffer_offload_flags_clear (vlib_buffer_t *b, vnet_buffer_oflags_t oflags)
 }
 
 #endif /* included_vnet_buffer_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

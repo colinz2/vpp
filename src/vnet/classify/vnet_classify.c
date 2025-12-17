@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/classify/vnet_classify.h>
@@ -232,7 +222,7 @@ static inline void make_working_copy
   vnet_classify_bucket_t working_bucket __attribute__ ((aligned (8)));
   void *oldheap;
   vnet_classify_entry_t *working_copy;
-  u32 thread_index = vlib_get_thread_index ();
+  clib_thread_index_t thread_index = vlib_get_thread_index ();
   int working_copy_length, required_length;
 
   if (thread_index >= vec_len (t->working_copies))
@@ -427,7 +417,7 @@ vnet_classify_add_del (vnet_classify_table_t *t, vnet_classify_entry_t *add_v,
   u32 hash, new_hash;
   u32 limit;
   u32 old_log2_pages, new_log2_pages;
-  u32 thread_index = vlib_get_thread_index ();
+  clib_thread_index_t thread_index = vlib_get_thread_index ();
   u8 *key_minus_skip;
   int resplit_once = 0;
   int mark_bucket_linear;
@@ -640,12 +630,10 @@ unlock:
   return rv;
 }
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED(struct {
   ethernet_header_t eh;
   ip4_header_t ip;
 }) classify_data_or_mask_t;
-/* *INDENT-ON* */
 
 u32
 vnet_classify_hash_packet (const vnet_classify_table_t *t, u8 *h)
@@ -1333,12 +1321,11 @@ unformat_classify_mask (unformat_input_t * input, va_list * args)
   return 0;
 }
 
-#define foreach_l2_input_next                   \
-_(drop, DROP)                                   \
-_(ethernet, ETHERNET_INPUT)                     \
-_(ip4, IP4_INPUT)                               \
-_(ip6, IP6_INPUT)				\
-_(li, LI)
+#define foreach_l2_input_next                                                 \
+  _ (drop, DROP)                                                              \
+  _ (ethernet, ETHERNET_INPUT)                                                \
+  _ (ip4, IP4_INPUT)                                                          \
+  _ (ip6, IP6_INPUT)
 
 uword
 unformat_l2_input_next_index (unformat_input_t * input, va_list * args)
@@ -1638,7 +1625,6 @@ classify_table_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (classify_table, static) =
 {
   .path = "classify table",
@@ -1650,7 +1636,6 @@ VLIB_CLI_COMMAND (classify_table, static) =
   "\n [del] [del-chain]",
   .function = classify_table_command_fn,
 };
-/* *INDENT-ON* */
 
 static int
 filter_table_mask_compare (void *a1, void *a2)
@@ -2126,7 +2111,6 @@ vlib_enable_disable_pkt_trace_filter (int enable)
  * The verbose form displays all of the match rules, with hit-counters
  * @cliexend
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (classify_filter, static) =
 {
   .path = "classify filter",
@@ -2136,7 +2120,6 @@ VLIB_CLI_COMMAND (classify_filter, static) =
   "    [buckets <nn>] [memory-size <n>]",
   .function = classify_filter_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 show_classify_filter_command_fn (vlib_main_t * vm,
@@ -2216,14 +2199,12 @@ show_classify_filter_command_fn (vlib_main_t * vm,
 }
 
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_classify_filter, static) =
 {
   .path = "show classify filter",
   .short_help = "show classify filter [verbose [nn]]",
   .function = show_classify_filter_command_fn,
 };
-/* *INDENT-ON* */
 
 u8 *
 format_vnet_classify_table (u8 *s, va_list *args)
@@ -2286,13 +2267,11 @@ show_classify_tables_command_fn (vlib_main_t * vm,
 	break;
     }
 
-  /* *INDENT-OFF* */
   pool_foreach (t, cm->tables)
    {
     if (match_index == ~0 || (match_index == t - cm->tables))
       vec_add1 (indices, t - cm->tables);
   }
-  /* *INDENT-ON* */
 
   if (vec_len (indices))
     {
@@ -2312,13 +2291,11 @@ show_classify_tables_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_classify_table_command, static) = {
   .path = "show classify tables",
   .short_help = "show classify tables [index <nn>]",
   .function = show_classify_tables_command_fn,
 };
-/* *INDENT-ON* */
 
 uword
 unformat_l4_match (unformat_input_t * input, va_list * args)
@@ -2931,7 +2908,6 @@ classify_session_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (classify_session_command, static) = {
     .path = "classify session",
     .short_help =
@@ -2941,7 +2917,6 @@ VLIB_CLI_COMMAND (classify_session_command, static) = {
     "\n [action set-ip4-fib-id|set-ip6-fib-id|set-sr-policy-index <n>] [del]",
     .function = classify_session_command_fn,
 };
-/* *INDENT-ON* */
 
 static uword
 unformat_opaque_sw_if_index (unformat_input_t * input, va_list * args)
@@ -3085,7 +3060,12 @@ vnet_is_packet_traced (vlib_buffer_t * b, u32 classify_table_index, int func)
 {
   return vnet_is_packet_traced_inline (b, classify_table_index, func);
 }
-
+VLIB_REGISTER_TRACE_FILTER_FUNCTION (vnet_is_packet_traced_fn, static) = {
+  .name = "vnet_is_packet_traced",
+  .description = "classifier based filter",
+  .priority = 50,
+  .function = vnet_is_packet_traced
+};
 
 #define TEST_CODE 0
 
@@ -3354,7 +3334,6 @@ test_classify_command_fn (vlib_main_t * vm,
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (test_classify_command, static) = {
     .path = "test classify",
     .short_help =
@@ -3363,13 +3342,4 @@ VLIB_CLI_COMMAND (test_classify_command, static) = {
     "              [churn-test]",
     .function = test_classify_command_fn,
 };
-/* *INDENT-ON* */
 #endif /* TEST_CODE */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <stddef.h>
@@ -261,13 +248,11 @@ static u32
 find_mask_type_index(acl_main_t *am, fa_5tuple_t *mask)
 {
   ace_mask_type_entry_t *mte;
-  /* *INDENT-OFF* */
   pool_foreach (mte, am->ace_mask_type_pool)
    {
     if(memcmp(&mte->mask, mask, sizeof(*mask)) == 0)
       return (mte - am->ace_mask_type_pool);
   }
-  /* *INDENT-ON* */
   return ~0;
 }
 
@@ -948,31 +933,15 @@ hash_acl_reapply(acl_main_t *am, u32 lc_index, int acl_index)
 static void
 make_ip6_address_mask(ip6_address_t *addr, u8 prefix_len)
 {
+  ASSERT (prefix_len <= 128);
   ip6_address_mask_from_width(addr, prefix_len);
 }
-
-
-/* Maybe should be moved into the core somewhere */
-always_inline void
-ip4_address_mask_from_width (ip4_address_t * a, u32 width)
-{
-  int i, byte, bit, bitnum;
-  ASSERT (width <= 32);
-  clib_memset (a, 0, sizeof (a[0]));
-  for (i = 0; i < width; i++)
-    {
-      bitnum = (7 - (i & 7));
-      byte = i / 8;
-      bit = 1 << bitnum;
-      a->as_u8[byte] |= bit;
-    }
-}
-
 
 static void
 make_ip4_address_mask(ip4_address_t *addr, u8 prefix_len)
 {
-  ip4_address_mask_from_width(addr, prefix_len);
+  ASSERT (prefix_len <= 32);
+  ip4_preflen_to_mask (prefix_len, addr);
 }
 
 static void
@@ -1159,7 +1128,6 @@ acl_plugin_show_tables_mask_type (void)
   ace_mask_type_entry_t *mte;
 
   vlib_cli_output (vm, "Mask-type entries:");
-    /* *INDENT-OFF* */
     pool_foreach (mte, am->ace_mask_type_pool)
      {
       vlib_cli_output(vm, "     %3d: %016llx %016llx %016llx %016llx %016llx %016llx  refcount %d",
@@ -1167,7 +1135,6 @@ acl_plugin_show_tables_mask_type (void)
 		    mte->mask.kv_40_8.key[0], mte->mask.kv_40_8.key[1], mte->mask.kv_40_8.key[2],
 		    mte->mask.kv_40_8.key[3], mte->mask.kv_40_8.key[4], mte->mask.kv_40_8.value, mte->refcount);
     }
-    /* *INDENT-ON* */
 }
 
 void

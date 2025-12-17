@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <mbedtls/ssl.h>
@@ -91,7 +81,8 @@ mbedtls_ctx_free (tls_ctx_t * ctx)
 {
   mbedtls_ctx_t *mc = (mbedtls_ctx_t *) ctx;
 
-  if (mc->ssl.state == MBEDTLS_SSL_HANDSHAKE_OVER && !ctx->is_passive_close)
+  if (mc->ssl.state == MBEDTLS_SSL_HANDSHAKE_OVER &&
+      !(ctx->flags & TLS_CONN_F_PASSIVE_CLOSE))
     mbedtls_ssl_close_notify (&mc->ssl);
   if (mc->ssl.conf->endpoint == MBEDTLS_SSL_IS_SERVER)
     {
@@ -126,7 +117,7 @@ mbedtls_ctx_get_w_thread (u32 ctx_index, u8 thread_index)
 static int
 tls_init_ctr_seed_drbgs (void)
 {
-  u32 thread_index = vlib_get_thread_index ();
+  clib_thread_index_t thread_index = vlib_get_thread_index ();
   mbedtls_main_t *tm = &mbedtls_main;
   u8 *pers;
   int rv;
@@ -395,6 +386,8 @@ mbedtls_ctx_handshake_rx (tls_ctx_t * ctx)
   if (mc->ssl.state != MBEDTLS_SSL_HANDSHAKE_OVER)
     return 0;
 
+  ctx->flags |= TLS_CONN_F_HS_DONE;
+
   /*
    * Handshake complete
    */
@@ -531,22 +524,30 @@ mbedtls_ctx_read (tls_ctx_t * ctx, session_t * tls_session)
   return enq;
 }
 
-static u8
-mbedtls_handshake_is_over (tls_ctx_t * ctx)
-{
-  mbedtls_ctx_t *mc = (mbedtls_ctx_t *) ctx;
-  return (mc->ssl.state == MBEDTLS_SSL_HANDSHAKE_OVER);
-}
-
 static int
 mbedtls_transport_close (tls_ctx_t * ctx)
 {
-  if (!mbedtls_handshake_is_over (ctx))
+  if (!(ctx->flags & TLS_CONN_F_HS_DONE))
     {
       session_close (session_get_from_handle (ctx->tls_session_handle));
       return 0;
     }
   session_transport_closing_notify (&ctx->connection);
+  return 0;
+}
+
+static int
+mbedtls_transport_reset (tls_ctx_t *ctx)
+{
+  if (!(ctx->flags & TLS_CONN_F_HS_DONE))
+    {
+      session_close (session_get_from_handle (ctx->tls_session_handle));
+      return 0;
+    }
+
+  session_transport_reset_notify (&ctx->connection);
+  session_transport_closed_notify (&ctx->connection);
+  tls_disconnect_transport (ctx);
   return 0;
 }
 
@@ -574,10 +575,10 @@ const static tls_engine_vft_t mbedtls_engine = {
   .ctx_init_client = mbedtls_ctx_init_client,
   .ctx_write = mbedtls_ctx_write,
   .ctx_read = mbedtls_ctx_read,
-  .ctx_handshake_is_over = mbedtls_handshake_is_over,
   .ctx_start_listen = mbedtls_start_listen,
   .ctx_stop_listen = mbedtls_stop_listen,
   .ctx_transport_close = mbedtls_transport_close,
+  .ctx_transport_reset = mbedtls_transport_reset,
   .ctx_app_close = mbedtls_app_close,
   .ctx_reinit_cachain = mbedtls_reinit_ca_chain,
 };
@@ -671,24 +672,12 @@ tls_mbedtls_init (vlib_main_t * vm)
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_INIT_FUNCTION (tls_mbedtls_init) =
 {
   .runs_after = VLIB_INITS("tls_init"),
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_PLUGIN_REGISTER () = {
-    .version = VPP_BUILD_VER,
-    .description = "Transport Layer Security (TLS) Engine, Mbedtls Based",
+  .version = VPP_BUILD_VER,
+  .description = "Transport Layer Security (TLS) Engine, Mbedtls Based",
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

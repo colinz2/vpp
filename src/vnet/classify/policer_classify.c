@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vnet/classify/policer_classify.h>
 #include <vnet/l2/l2_input.h>
 
@@ -164,7 +155,6 @@ set_policer_classify_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_policer_classify_command, static) = {
     .path = "set policer classify",
     .short_help =
@@ -172,7 +162,6 @@ VLIB_CLI_COMMAND (set_policer_classify_command, static) = {
     "  [ip6-table <index>] [l2-table <index>] [del]",
     .function = set_policer_classify_command_fn,
 };
-/* *INDENT-ON* */
 
 static uword
 unformat_table_type (unformat_input_t * input, va_list * va)
@@ -231,18 +220,8 @@ show_policer_classify_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_policer_classify_command, static) = {
-    .path = "show classify policer",
-    .short_help = "show classify policer type [ip4|ip6|l2]",
-    .function = show_policer_classify_command_fn,
+  .path = "show classify policer",
+  .short_help = "show classify policer type [ip4|ip6|l2]",
+  .function = show_policer_classify_command_fn,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

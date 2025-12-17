@@ -1,24 +1,14 @@
- /*
-  * Copyright (c) 2015 Cisco and/or its affiliates.
-  * Licensed under the Apache License, Version 2.0 (the "License");
-  * you may not use this file except in compliance with the License.
-  * You may obtain a copy of the License at:
-  *
-  *     http://www.apache.org/licenses/LICENSE-2.0
-  *
-  * Unless required by applicable law or agreed to in writing, software
-  * distributed under the License is distributed on an "AS IS" BASIS,
-  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  * See the License for the specific language governing permissions and
-  * limitations under the License.
-  */
+/* SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2015 Cisco and/or its affiliates.
+ */
+
 #include <vppinfra/error.h>
 #include <vppinfra/hash.h>
 #include <vnet/vnet.h>
 #include <vnet/ip/ip.h>
 #include <vnet/udp/udp_local.h>
 #include <vnet/ethernet/ethernet.h>
-#include <vnet/vxlan-gpe/vxlan_gpe.h>
+#include <plugins/vxlan-gpe/vxlan_gpe.h>
 #include <ioam/lib-vxlan-gpe/vxlan_gpe_ioam_packet.h>
 #include <ioam/lib-vxlan-gpe/vxlan_gpe_ioam.h>
 #include <ioam/lib-vxlan-gpe/vxlan_gpe_ioam_util.h>
@@ -51,14 +41,12 @@ typedef enum
 } vxlan_gpe_transit_ioam_next_t;
 
 
-/* *INDENT-OFF* */
 VNET_FEATURE_INIT (vxlan_gpe_transit_ioam, static) =
 {
   .arc_name = "ip4-output",
   .node_name = "vxlan-gpe-transit-ioam",
   .runs_before = VNET_FEATURES ("interface-output"),
 };
-/* *INDENT-ON* */
 
 static uword
 vxlan_gpe_transit_ioam (vlib_main_t * vm,
@@ -156,7 +144,6 @@ vxlan_gpe_transit_ioam (vlib_main_t * vm,
   return from_frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (vxlan_gpe_transit_ioam_node) = {
   .function = vxlan_gpe_transit_ioam,
   .name = "vxlan-gpe-transit-ioam",
@@ -175,13 +162,3 @@ VLIB_REGISTER_NODE (vxlan_gpe_transit_ioam_node) = {
   },
 
 };
-/* *INDENT-ON* */
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

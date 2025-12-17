@@ -1,21 +1,11 @@
-/*
- *------------------------------------------------------------------
- * dslite_api.c - DS-Lite API
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
+
+/*
+ * dslite_api.c - DS-Lite API
+ */
+
 #include <vnet/ip/ip_types_api.h>
 #include <nat/dslite/dslite.h>
 #include <nat/dslite/dslite.api_enum.h>
@@ -53,13 +43,11 @@ vl_api_dslite_get_aftr_addr_t_handler (vl_api_dslite_get_aftr_addr_t * mp)
   dslite_main_t *dm = &dslite_main;
   int rv = 0;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_DSLITE_GET_AFTR_ADDR_REPLY,
   ({
     memcpy (rmp->ip4_addr, &dm->aftr_ip4_addr.as_u8, 4);
     memcpy (rmp->ip6_addr, &dm->aftr_ip6_addr.as_u8, 16);
   }))
-  /* *INDENT-ON* */
 }
 
 static void
@@ -88,13 +76,11 @@ vl_api_dslite_get_b4_addr_t_handler (vl_api_dslite_get_b4_addr_t * mp)
   dslite_main_t *dm = &dslite_main;
   int rv = 0;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_DSLITE_GET_B4_ADDR_REPLY,
   ({
     memcpy (rmp->ip4_addr, &dm->b4_ip4_addr.as_u8, 4);
     memcpy (rmp->ip6_addr, &dm->b4_ip6_addr.as_u8, 16);
   }))
-  /* *INDENT-ON* */
 }
 
 static void
@@ -154,12 +140,10 @@ vl_api_dslite_address_dump_t_handler (vl_api_dslite_address_dump_t * mp)
   if (!reg)
     return;
 
-  /* *INDENT-OFF* */
   vec_foreach (a, dm->pool.pool_addr)
     {
       send_dslite_address_details (a, reg, mp->context);
     }
-  /* *INDENT-ON* */
 }
 
 /* API definitions */

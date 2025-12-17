@@ -1,19 +1,8 @@
-/*
- * p2p_ethernet.c: p2p ethernet
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2012 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* p2p_ethernet.c: p2p ethernet */
 
 #include <vppinfra/bihash_16_8.h>
 #include <vnet/vnet.h>
@@ -146,6 +135,8 @@ p2p_ethernet_add_del (vlib_main_t * vm, u32 parent_if_index,
 	      vnet_feature_enable_disable ("device-input",
 					   "p2p-ethernet-input",
 					   parent_if_index, 1, 0, 0);
+	      vnet_feature_enable_disable ("port-rx-eth", "p2p-ethernet-input",
+					   parent_if_index, 1, 0, 0);
 	      /* Set promiscuous mode on the l2 interface */
 	      ethernet_set_flags (vnm, parent_if_index,
 				  ETHERNET_INTERFACE_FLAG_ACCEPT_ALL);
@@ -174,6 +165,9 @@ p2p_ethernet_add_del (vlib_main_t * vm, u32 parent_if_index,
 	      if (p2pm->p2p_ethernet_by_sw_if_index[parent_if_index] == 1)
 		{
 		  vnet_feature_enable_disable ("device-input",
+					       "p2p-ethernet-input",
+					       parent_if_index, 0, 0, 0);
+		  vnet_feature_enable_disable ("port-rx-eth",
 					       "p2p-ethernet-input",
 					       parent_if_index, 0, 0, 0);
 		  /* Disable promiscuous mode on the l2 interface */
@@ -268,11 +262,3 @@ p2p_ethernet_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (p2p_ethernet_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

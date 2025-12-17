@@ -1,16 +1,5 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef SRC_VCL_VCL_PRIVATE_H_
@@ -32,6 +21,8 @@
 #endif
 
 #define VPPCOM_DEBUG vcm->debug
+#define VCL_EP_SAPIFD_EVT ((u32) ~0)
+#define VCL_EP_PIPEFD_EVT ((u32) (~0 - 1))
 
 extern __thread uword __vcl_worker_index;
 
@@ -71,7 +62,6 @@ typedef enum vcl_session_state_
   VCL_STATE_DISCONNECT,
   VCL_STATE_DETACHED,
   VCL_STATE_UPDATED,
-  VCL_STATE_LISTEN_NO_MQ,
 } vcl_session_state_t;
 
 typedef struct epoll_event vppcom_epoll_event_t;
@@ -143,7 +133,22 @@ typedef enum vcl_session_flags_
   VCL_SESSION_F_PENDING_DISCONNECT = 1 << 6,
   VCL_SESSION_F_PENDING_FREE = 1 << 7,
   VCL_SESSION_F_PENDING_LISTEN = 1 << 8,
+  VCL_SESSION_F_APP_CLOSING = 1 << 9,
+  VCL_SESSION_F_LISTEN_NO_MQ = 1 << 10,
 } __clib_packed vcl_session_flags_t;
+
+typedef enum
+{
+  VCL_SESSION_VPP_F_STREAM = 1 << 0,
+  VCL_SESSION_VPP_F_UNIDIRECTIONAL = 1 << 1,
+} vppcom_vpp_flags_t;
+
+typedef enum vcl_worker_wait_
+{
+  VCL_WRK_WAIT_CTRL,
+  VCL_WRK_WAIT_IO_RX,
+  VCL_WRK_WAIT_IO_TX,
+} vcl_worker_wait_type_t;
 
 typedef struct vcl_session_
 {
@@ -159,13 +164,12 @@ typedef struct vcl_session_
   svm_fifo_t *ct_tx_fifo;
   vcl_session_msg_t *accept_evts_fifo;
 
-  u64 vpp_handle;
-  u64 parent_handle;
+  session_handle_t vpp_handle;
+  session_handle_t parent_handle;
   u32 listener_index;		/**< index of parent listener (if any) */
   int n_accepted_sessions;	/**< sessions accepted by this listener */
-  vppcom_epoll_t vep;
+  vppcom_epoll_t vep;		/**< epoll context */
   u32 attributes;		/**< see @ref vppcom_session_attr_t */
-  int libc_epfd;
   u32 vrf;
   u16 gso_size;
 
@@ -174,15 +178,20 @@ typedef struct vcl_session_
 
   transport_endpt_ext_cfg_t *ext_config;
   u8 dscp;
+  u8 vpp_flags;
 
   i32 vpp_error;
 
-#if VCL_ELOG
+#if (VCL_ELOG > 0)
   elog_track_t elog_track;
 #endif
+
+  transport_endpt_attr_t *tep_attrs; /**< vector of attributes */
 } vcl_session_t;
 
-typedef struct vppcom_cfg_t_
+/* Internal VCL configuration structure. Makes use of VPP internal types like
+ * vectors */
+typedef struct vcl_cfg_t_
 {
   uword heapsize;
   u32 max_workers;
@@ -197,20 +206,22 @@ typedef struct vppcom_cfg_t_
   u8 app_proxy_transport_udp;
   u8 app_scope_local;
   u8 app_scope_global;
-  u8 *namespace_id;
+  u8 *namespace_id; /**< namespace id string */
   u64 namespace_secret;
   u8 use_mq_eventfd;
   f64 app_timeout;
   f64 session_timeout;
   char *event_log_path;
-  u8 *vpp_app_socket_api;	/**< app socket api socket file name */
-  u8 *vpp_bapi_socket_name;	/**< bapi socket transport socket name */
+  u8 *vpp_app_socket_api;   /**< app socket api socket file name */
+  u8 *vpp_bapi_socket_name; /**< bapi socket transport socket name */
   u32 tls_engine;
   u8 mt_wrk_supported;
   u8 huge_page;
-} vppcom_cfg_t;
+  u8 app_original_dst;
+} vcl_cfg_t;
 
-void vppcom_cfg (vppcom_cfg_t * vcl_cfg);
+void vppcom_cfg (vcl_cfg_t *vcl_cfg);
+void vppcom_cfg_init (vcl_cfg_t *vcl_cfg);
 
 typedef struct vcl_cut_through_registration_
 {
@@ -227,6 +238,7 @@ typedef struct vcl_mq_evt_conn_
   int mq_fd;
 } vcl_mq_evt_conn_t;
 
+typedef void (*vcl_worker_wait_mq_fn) (u32 vcl_sh);
 typedef struct vcl_worker_
 {
   CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
@@ -307,9 +319,14 @@ typedef struct vcl_worker_
   int session_attr_op_rv;
   transport_endpt_attr_t session_attr_rv;
 
-  /** vcl needs next epoll_create to go to libc_epoll */
-  u8 vcl_needs_real_epoll;
   volatile int rpc_done;
+
+  /* functions to be called pre/post wait if vcl managed by vls */
+  vcl_worker_wait_mq_fn pre_wait_fn;
+  vcl_worker_wait_mq_fn post_wait_fn;
+
+  /* mq_epfd signal pipes when wrk detached from vpp */
+  int detached_pipefds[2];
 } vcl_worker_t;
 
 STATIC_ASSERT (sizeof (session_disconnected_msg_t) <= 16,
@@ -334,7 +351,7 @@ typedef struct vppcom_main_t_
   u8 *app_name;
 
   /** VCL configuration */
-  vppcom_cfg_t cfg;
+  vcl_cfg_t cfg;
 
   volatile u32 forking;
 
@@ -343,10 +360,6 @@ typedef struct vppcom_main_t_
 
   /** Lock to protect worker registrations */
   clib_spinlock_t workers_lock;
-
-  /** Counter to determine order of execution of `vcl_api_retry_attach`
-   * function by multiple workers */
-  int reattach_count;
 
   /** Lock to protect segment hash table */
   clib_rwlock_t segment_table_lock;
@@ -362,13 +375,26 @@ typedef struct vppcom_main_t_
   vcl_rpc_fn_t *wrk_rpc_fn;
 
   /*
+   * Pointers to libc epoll fns to avoid loops when ldp is on
+   */
+  int (*vcl_epoll_create1) (int flags);
+  int (*vcl_epoll_ctl) (int epfd, int op, int fd, struct epoll_event *event);
+  int (*vcl_epoll_wait) (int epfd, struct epoll_event *events, int maxevents,
+			 int timeout);
+
+  clib_spinlock_t reattach_lock;
+  /** Counter to determine order of execution of `vcl_api_retry_attach`
+   * function by multiple workers */
+  int reattach_count;
+
+  /*
    * Binary api context
    */
 
   /* VNET_API_ERROR_FOO -> "Foo" hash table */
   uword *error_string_by_error_number;
 
-#ifdef VCL_ELOG
+#if (VCL_ELOG > 0)
   /* VPP Event-logger */
   elog_main_t elog_main;
   elog_track_t elog_track;
@@ -405,6 +431,7 @@ vcl_session_free (vcl_worker_t * wrk, vcl_session_t * s)
   vcl_session_detach_fifos (s);
   if (s->ext_config)
     clib_mem_free (s->ext_config);
+  vec_free (s->tep_attrs);
   pool_put (wrk->sessions, s);
 }
 
@@ -547,9 +574,8 @@ vcl_session_table_lookup_listener (vcl_worker_t * wrk, u64 handle)
       return 0;
     }
 
-  ASSERT (s->session_state == VCL_STATE_LISTEN
-	  || s->session_state == VCL_STATE_LISTEN_NO_MQ
-	  || vcl_session_is_connectable_listener (wrk, s));
+  ASSERT (s->session_state == VCL_STATE_LISTEN ||
+	  vcl_session_is_connectable_listener (wrk, s));
   return s;
 }
 
@@ -660,10 +686,60 @@ vcl_session_clear_attr (vcl_session_t * s, u8 attr)
   s->attributes &= ~(1 << attr);
 }
 
+static inline u8
+vcl_session_has_vpp_flag (vcl_session_t *s, u8 flag)
+{
+  return (s->vpp_flags & flag) ? 1 : 0;
+}
+
+static inline void
+vcl_session_set_vpp_flag (vcl_session_t *s, u8 flag)
+{
+  s->vpp_flags |= flag;
+}
+
+static inline void
+vcl_session_clear_vpp_flag (vcl_session_t *s, u8 flag)
+{
+  s->vpp_flags &= ~flag;
+}
+
+static inline transport_endpt_attr_t *
+vcl_session_tep_attr_get (vcl_session_t *s, transport_endpt_attr_type_t at)
+{
+  transport_endpt_attr_t *tepa;
+  vec_foreach (tepa, s->tep_attrs)
+    {
+      if (tepa->type == at)
+	return tepa;
+    }
+  return 0;
+}
+
 static inline session_evt_type_t
 vcl_session_dgram_tx_evt (vcl_session_t *s, session_evt_type_t et)
 {
   return (s->flags & VCL_SESSION_F_CONNECTED) ? et : SESSION_IO_EVT_TX_MAIN;
+}
+
+static inline void
+vcl_session_add_want_deq_ntf (vcl_session_t *s, svm_fifo_deq_ntf_t evt)
+{
+  svm_fifo_t *txf = vcl_session_is_ct (s) ? s->ct_tx_fifo : s->tx_fifo;
+  if (txf)
+    {
+      svm_fifo_add_want_deq_ntf (txf, evt);
+      /* Request tx notification only if 3% of fifo is empty */
+      svm_fifo_set_deq_thresh (txf, 0.03 * svm_fifo_size (txf));
+    }
+}
+
+static inline void
+vcl_session_del_want_deq_ntf (vcl_session_t *s, svm_fifo_deq_ntf_t evt)
+{
+  svm_fifo_t *txf = vcl_session_is_ct (s) ? s->ct_tx_fifo : s->tx_fifo;
+  if (txf)
+    svm_fifo_del_want_deq_ntf (txf, evt);
 }
 
 /*
@@ -689,6 +765,7 @@ u32 vcl_segment_table_lookup (u64 segment_handle);
 void vcl_segment_table_del (u64 segment_handle);
 
 int vcl_session_read_ready (vcl_session_t * session);
+int vcl_session_read_ready2 (vcl_session_t *s);
 int vcl_session_write_ready (vcl_session_t * session);
 int vcl_session_alloc_ext_cfg (vcl_session_t *s,
 			       transport_endpt_ext_cfg_type_t type, u32 len);
@@ -748,10 +825,19 @@ svm_fifo_chunk_t *vcl_segment_alloc_chunk (uword segment_handle,
 int vcl_session_share_fifos (vcl_session_t *s, svm_fifo_t *rxf,
 			     svm_fifo_t *txf);
 void vcl_worker_detach_sessions (vcl_worker_t *wrk);
+void vcl_worker_set_wait_mq_fns (vcl_worker_wait_mq_fn pre_wait,
+				 vcl_worker_wait_mq_fn post_wait);
+
+void vcl_worker_detached_start_signal_mq (vcl_worker_t *wrk);
+void vcl_worker_detached_signal_mq (vcl_worker_t *wrk);
+void vcl_worker_detached_stop_signal_mq (vcl_worker_t *wrk);
+
+void vcl_init_epoll_fns (void);
 
 /*
  * VCL Binary API
  */
+#if defined(VCL_BAPI_ENABLED)
 int vcl_bapi_attach (void);
 int vcl_bapi_app_worker_add (void);
 void vcl_bapi_app_worker_del (vcl_worker_t * wrk);
@@ -761,6 +847,7 @@ int vcl_bapi_add_cert_key_pair (vppcom_cert_key_pair_t *ckpair);
 int vcl_bapi_del_cert_key_pair (u32 ckpair_index);
 u32 vcl_bapi_max_nsid_len (void);
 int vcl_bapi_worker_set (void);
+#endif
 
 /*
  * VCL Socket API
@@ -773,6 +860,95 @@ int vcl_sapi_recv_fds (vcl_worker_t * wrk, int *fds, int n_fds);
 int vcl_sapi_add_cert_key_pair (vppcom_cert_key_pair_t *ckpair);
 int vcl_sapi_del_cert_key_pair (u32 ckpair_index);
 
+static inline int
+vcl_api_attach (void)
+{
+  if (vcm->cfg.vpp_app_socket_api)
+    return vcl_sapi_attach ();
+#if VCL_BAPI_ENABLED
+  return vcl_bapi_attach ();
+#else
+  return -1;
+#endif
+}
+
+static inline int
+vcl_api_recv_fd (vcl_worker_t *wrk, int *fds, int n_fds)
+{
+  if (vcm->cfg.vpp_app_socket_api)
+    return vcl_sapi_recv_fds (wrk, fds, n_fds);
+
+#if VCL_BAPI_ENABLED
+  return vcl_bapi_recv_fds (wrk, fds, n_fds);
+#else
+  return -1;
+#endif
+}
+
+static inline void
+vcl_api_detach (vcl_worker_t *wrk)
+{
+  if (vcm->cfg.vpp_app_socket_api)
+    return vcl_sapi_detach (wrk);
+
+#if VCL_BAPI_ENABLED
+  vcl_bapi_disconnect_from_vpp ();
+#endif
+}
+
+static inline int
+vcl_api_add_cert_key_pair (vppcom_cert_key_pair_t *ckpair)
+{
+  if (vcm->cfg.vpp_app_socket_api)
+    return vcl_sapi_add_cert_key_pair (ckpair);
+
+#if VCL_BAPI_ENABLED
+  return vcl_bapi_add_cert_key_pair (ckpair);
+#else
+  return -1;
+#endif
+}
+
+static inline int
+vcl_api_app_worker_add (void)
+{
+  if (vcm->cfg.vpp_app_socket_api)
+    return vcl_sapi_app_worker_add ();
+
+#if VCL_BAPI_ENABLED
+  return vcl_bapi_app_worker_add ();
+#else
+  return -1;
+#endif
+}
+
+static inline void
+vcl_api_app_worker_del (vcl_worker_t *wrk)
+{
+  if (wrk->api_client_handle == ~0)
+    return;
+
+  if (vcm->cfg.vpp_app_socket_api)
+    return vcl_sapi_app_worker_del (wrk);
+
+#if VCL_BAPI_ENABLED
+  vcl_bapi_app_worker_del (wrk);
+#endif
+}
+
+static inline int
+vcl_api_del_cert_key_pair (uint32_t ckpair_index)
+{
+  if (vcm->cfg.vpp_app_socket_api)
+    return vcl_sapi_del_cert_key_pair (ckpair_index);
+
+#if VCL_BAPI_ENABLED
+  return vcl_bapi_del_cert_key_pair (ckpair_index);
+#else
+  return -1;
+#endif
+}
+
 /*
  * Utility functions
  */
@@ -780,13 +956,13 @@ const char *vcl_session_state_str (vcl_session_state_t state);
 u8 *vcl_format_ip4_address (u8 *s, va_list *args);
 u8 *vcl_format_ip6_address (u8 *s, va_list *args);
 u8 *vcl_format_ip46_address (u8 *s, va_list *args);
-
-#endif /* SRC_VCL_VCL_PRIVATE_H_ */
+u8 *vcl_format_accepted_session (u8 *s, va_list *args);
+u8 *vcl_format_connected_session (u8 *s, va_list *args);
 
 /*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
+ * Heap management
  */
+void vcl_heap_alloc (void);
+void vcl_cfg_parse_heapsize (char *conf_fname);
+
+#endif /* SRC_VCL_VCL_PRIVATE_H_ */

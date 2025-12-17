@@ -1,19 +1,8 @@
-/*
- * DHCP feature; applied as an input feature to select DHCP packets
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2013 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* DHCP feature; applied as an input feature to select DHCP packets */
 
 #include <dhcp/client.h>
 #include <vnet/udp/udp_local.h>
@@ -286,7 +275,6 @@ format_dhcp_client_detect_trace (u8 * s, va_list * args)
   return s;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (dhcp_client_detect_node) = {
   .name = "ip4-dhcp-client-detect",
   .vector_size = sizeof (u32),
@@ -306,19 +294,8 @@ VLIB_REGISTER_NODE (dhcp_client_detect_node) = {
   },
 };
 
-VNET_FEATURE_INIT (ip4_dvr_reinject_feat_node, static) =
-{
+VNET_FEATURE_INIT (ip4_dvr_reinject_feat_node, static) = {
   .arc_name = "ip4-unicast",
   .node_name = "ip4-dhcp-client-detect",
   .runs_before = VNET_FEATURES ("ip4-not-enabled"),
 };
-
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

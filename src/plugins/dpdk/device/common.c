@@ -1,23 +1,13 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/vnet.h>
 #include <vppinfra/vec.h>
 #include <vppinfra/format.h>
 #include <vppinfra/file.h>
-#include <vlib/unix/unix.h>
+#include <vlib/file.h>
 #include <assert.h>
 
 #include <vnet/ip/ip.h>
@@ -41,14 +31,15 @@ static struct
   { RTE_ETH_TX_OFFLOAD_OUTER_IPV4_CKSUM, VNET_HW_IF_CAP_TX_IP4_OUTER_CKSUM },
   { RTE_ETH_TX_OFFLOAD_OUTER_UDP_CKSUM, VNET_HW_IF_CAP_TX_UDP_OUTER_CKSUM },
   { RTE_ETH_TX_OFFLOAD_TCP_TSO, VNET_HW_IF_CAP_TCP_GSO },
-  { RTE_ETH_TX_OFFLOAD_VXLAN_TNL_TSO, VNET_HW_IF_CAP_VXLAN_TNL_GSO }
+  { RTE_ETH_TX_OFFLOAD_VXLAN_TNL_TSO, VNET_HW_IF_CAP_VXLAN_TNL_GSO },
+  { RTE_ETH_TX_OFFLOAD_IPIP_TNL_TSO, VNET_HW_IF_CAP_IPIP_TNL_GSO }
 };
 
 void
 dpdk_device_error (dpdk_device_t * xd, char *str, int rv)
 {
-  dpdk_log_err ("Interface %U error %d: %s",
-		format_dpdk_device_name, xd->port_id, rv, rte_strerror (rv));
+  dpdk_log_err ("Interface %U error %d: %s", format_dpdk_device_name,
+		xd->device_index, rv, rte_strerror (rv));
   xd->errors = clib_error_return (xd->errors, "%s[port:%d, errno:%d]: %s",
 				  str, xd->port_id, rv, rte_strerror (rv));
 }
@@ -80,7 +71,9 @@ dpdk_device_setup (dpdk_device_t * xd)
       dpdk_device_stop (xd);
     }
 
-  rte_eth_dev_info_get (xd->port_id, &dev_info);
+  rv = rte_eth_dev_info_get (xd->port_id, &dev_info);
+  if (rv)
+    dpdk_device_error (xd, "rte_eth_dev_info_get", rv);
 
   dpdk_log_debug ("[%u] configuring device %U", xd->port_id,
 		  format_dpdk_rte_device, dev_info.device);
@@ -98,8 +91,9 @@ dpdk_device_setup (dpdk_device_t * xd)
       RTE_ETH_TX_OFFLOAD_OUTER_IPV4_CKSUM | RTE_ETH_TX_OFFLOAD_OUTER_UDP_CKSUM;
 
   if (xd->conf.disable_tx_checksum_offload == 0)
-    txo |= RTE_ETH_TX_OFFLOAD_IPV4_CKSUM | RTE_ETH_TX_OFFLOAD_TCP_CKSUM |
-	   RTE_ETH_TX_OFFLOAD_UDP_CKSUM;
+    txo |= RTE_ETH_TX_OFFLOAD_OUTER_IPV4_CKSUM |
+	   RTE_ETH_TX_OFFLOAD_OUTER_UDP_CKSUM | RTE_ETH_TX_OFFLOAD_IPV4_CKSUM |
+	   RTE_ETH_TX_OFFLOAD_TCP_CKSUM | RTE_ETH_TX_OFFLOAD_UDP_CKSUM;
 
   if (xd->conf.disable_multi_seg == 0)
     {
@@ -116,7 +110,7 @@ dpdk_device_setup (dpdk_device_t * xd)
   /* per-device offload config */
   if (xd->conf.enable_tso)
     txo |= RTE_ETH_TX_OFFLOAD_TCP_CKSUM | RTE_ETH_TX_OFFLOAD_TCP_TSO |
-	   RTE_ETH_TX_OFFLOAD_VXLAN_TNL_TSO;
+	   RTE_ETH_TX_OFFLOAD_VXLAN_TNL_TSO | RTE_ETH_TX_OFFLOAD_IPIP_TNL_TSO;
 
   if (xd->conf.disable_rx_scatter)
     rxo &= ~RTE_ETH_RX_OFFLOAD_SCATTER;
@@ -160,7 +154,6 @@ dpdk_device_setup (dpdk_device_t * xd)
     {
       conf.rxmode.max_rx_pkt_len = dev_info.max_rx_pktlen;
       xd->max_supported_frame_size = dev_info.max_rx_pktlen;
-      mtu = xd->max_supported_frame_size - xd->driver_frame_overhead;
     }
   else
     {
@@ -331,7 +324,7 @@ dpdk_setup_interrupts (dpdk_device_t *xd)
   if (rte_eth_dev_rx_intr_enable (xd->port_id, 0))
     {
       dpdk_log_info ("probe for interrupt mode for device %U. Failed.\n",
-		     format_dpdk_device_name, xd->port_id);
+		     format_dpdk_device_name, xd->device_index);
     }
   else
     {
@@ -339,7 +332,7 @@ dpdk_setup_interrupts (dpdk_device_t *xd)
       if (!(xd->flags & DPDK_DEVICE_FLAG_INT_UNMASKABLE))
 	rte_eth_dev_rx_intr_disable (xd->port_id, 0);
       dpdk_log_info ("Probe for interrupt mode for device %U. Success.\n",
-		     format_dpdk_device_name, xd->port_id);
+		     format_dpdk_device_name, xd->device_index);
     }
 
   if (xd->flags & DPDK_DEVICE_FLAG_INT_SUPPORTED)
@@ -360,16 +353,15 @@ dpdk_setup_interrupts (dpdk_device_t *xd)
 	  f.flags = UNIX_FILE_EVENT_EDGE_TRIGGERED;
 	  f.file_descriptor = rxq->efd;
 	  f.private_data = rxq->queue_index;
-	  f.description =
-	    format (0, "%U queue %u", format_dpdk_device_name, xd->port_id, q);
+	  f.description = format (0, "%U queue %u", format_dpdk_device_name,
+				  xd->device_index, q);
 	  rxq->clib_file_index = clib_file_add (&file_main, &f);
 	  vnet_hw_if_set_rx_queue_file_index (vnm, rxq->queue_index,
 					      rxq->clib_file_index);
 	  if (xd->flags & DPDK_DEVICE_FLAG_INT_UNMASKABLE)
 	    {
 	      clib_file_main_t *fm = &file_main;
-	      clib_file_t *f =
-		pool_elt_at_index (fm->file_pool, rxq->clib_file_index);
+	      clib_file_t *f = clib_file_get (fm, rxq->clib_file_index);
 	      fm->file_update (f, UNIX_FILE_UPDATE_DELETE);
 	    }
 	}
@@ -419,8 +411,8 @@ dpdk_device_start (dpdk_device_t * xd)
 
   rte_eth_allmulticast_enable (xd->port_id);
 
-  dpdk_log_info ("Interface %U started",
-		 format_dpdk_device_name, xd->port_id);
+  dpdk_log_info ("Interface %U started", format_dpdk_device_name,
+		 xd->device_index);
 }
 
 void
@@ -433,8 +425,8 @@ dpdk_device_stop (dpdk_device_t * xd)
   rte_eth_dev_stop (xd->port_id);
   clib_memset (&xd->link, 0, sizeof (struct rte_eth_link));
 
-  dpdk_log_info ("Interface %U stopped",
-		 format_dpdk_device_name, xd->port_id);
+  dpdk_log_info ("Interface %U stopped", format_dpdk_device_name,
+		 xd->device_index);
 }
 
 void vl_api_force_rpc_call_main_thread (void *fp, u8 * data, u32 data_length);
@@ -444,6 +436,7 @@ dpdk_port_state_callback_inline (dpdk_portid_t port_id,
 				 enum rte_eth_event_type type, void *param)
 {
   struct rte_eth_link link;
+  CLIB_UNUSED (int rv);
 
   RTE_SET_USED (param);
   if (type != RTE_ETH_EVENT_INTR_LSC)
@@ -452,7 +445,8 @@ dpdk_port_state_callback_inline (dpdk_portid_t port_id,
       return -1;
     }
 
-  rte_eth_link_get_nowait (port_id, &link);
+  rv = rte_eth_link_get_nowait (port_id, &link);
+  ASSERT (rv == 0);
   u8 link_up = link.link_status;
   if (link_up)
     dpdk_log_info ("Port %d Link Up - speed %u Mbps - %s", port_id,
@@ -492,6 +486,7 @@ dpdk_get_pci_device (const struct rte_eth_dev_info *info)
     return NULL;
 }
 
+#ifdef __linux__
 /* If this device is VMBUS return pointer to info, otherwise NULL */
 struct rte_vmbus_device *
 dpdk_get_vmbus_device (const struct rte_eth_dev_info *info)
@@ -508,11 +503,68 @@ dpdk_get_vmbus_device (const struct rte_eth_dev_info *info)
   else
     return NULL;
 }
+#endif /* __linux__ */
 
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+clib_error_t *
+dpdk_read_eeprom (vnet_main_t *vnm, vnet_hw_interface_t *hi,
+		  vnet_interface_eeprom_t **eeprom)
+{
+  dpdk_main_t *dm = &dpdk_main;
+  vnet_interface_main_t *im = &vnm->interface_main;
+  dpdk_device_t *xd;
+  vnet_device_class_t *dc;
+  struct rte_eth_dev_module_info mi = { 0 };
+  struct rte_dev_eeprom_info ei = { 0 };
+
+  dc = vec_elt_at_index (im->device_classes, hi->dev_class_index);
+  *eeprom = NULL;
+
+  if (dc->index != dpdk_device_class.index)
+    {
+      return clib_error_return (0, "Interface %v is not a DPDK interface",
+				hi->name);
+    }
+
+  if (hi->dev_instance >= vec_len (dm->devices))
+    {
+      return clib_error_return (0, "Invalid device instance %u",
+				hi->dev_instance);
+    }
+
+  xd = vec_elt_at_index (dm->devices, hi->dev_instance);
+
+  /* Get module info */
+  if (rte_eth_dev_get_module_info (xd->port_id, &mi) != 0)
+    {
+      return clib_error_return (
+	0, "Module info not available for interface %v", hi->name);
+    }
+  if (mi.eeprom_len > 1024)
+    {
+      return clib_error_return (0, "EEPROM invalid length: %u bytes",
+				mi.eeprom_len);
+    }
+
+  /* Allocate EEPROM structure */
+  *eeprom = clib_mem_alloc (sizeof (vnet_interface_eeprom_t));
+  if (!*eeprom)
+    {
+      return clib_error_return (0, "Memory allocation failed");
+    }
+
+  /* Get EEPROM data */
+  ei.length = mi.eeprom_len;
+  ei.data = (*eeprom)->eeprom_raw;
+
+  if (rte_eth_dev_get_module_eeprom (xd->port_id, &ei) != 0)
+    {
+      clib_mem_free (*eeprom);
+      *eeprom = NULL;
+      return clib_error_return (0, "EEPROM read error for interface %v",
+				hi->name);
+    }
+
+  (*eeprom)->eeprom_len = mi.eeprom_len;
+  (*eeprom)->eeprom_type = mi.type;
+  return 0;
+}

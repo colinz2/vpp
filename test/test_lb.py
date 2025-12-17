@@ -11,6 +11,8 @@ from framework import VppTestCase
 from util import ppp
 from vpp_ip_route import VppIpRoute, VppRoutePath
 from vpp_ip import INVALID_INDEX
+from config import config
+import unittest
 
 """ TestLB is a subclass of  VPPTestCase classes.
 
@@ -32,6 +34,7 @@ from vpp_ip import INVALID_INDEX
 """
 
 
+@unittest.skipIf("lb" in config.excluded_plugins, "Exclude LB plugin tests")
 class TestLB(VppTestCase):
     """Load Balancer Test Case"""
 
@@ -403,6 +406,29 @@ class TestLB(VppTestCase):
             self.vapi.cli("lb vip 90.0.0.0/8 encap l3dsr dscp 7 del")
             self.vapi.cli("test lb flowtable flush")
 
+    def test_lb_ip4_l3dsr_src_ip_sticky(self):
+        """Load Balancer IP4 L3DSR on vip with src_ip_sticky case"""
+        try:
+            self.vapi.cli("lb vip 90.0.0.0/8 encap l3dsr dscp 7 src_ip_sticky")
+            for asid in self.ass:
+                self.vapi.cli("lb as 90.0.0.0/8 10.0.0.%u" % (asid))
+
+            # Generate duplicated packets
+            pkts = self.generatePackets(self.pg0, isv4=True)
+            pkts = pkts[: len(pkts) // 2]
+            pkts = pkts + pkts
+
+            self.pg0.add_stream(pkts)
+            self.pg_enable_capture(self.pg_interfaces)
+            self.pg_start()
+            self.checkCapture(encap="l3dsr", isv4=True, src_ip_sticky=True)
+
+        finally:
+            for asid in self.ass:
+                self.vapi.cli("lb as 90.0.0.0/8 10.0.0.%u del" % (asid))
+            self.vapi.cli("lb vip 90.0.0.0/8 encap l3dsr dscp 7 src_ip_sticky del")
+            self.vapi.cli("test lb flowtable flush")
+
     def test_lb_ip4_l3dsr_port(self):
         """Load Balancer IP4 L3DSR on per-port-vip case"""
         try:
@@ -432,6 +458,12 @@ class TestLB(VppTestCase):
     def test_lb_ip4_l3dsr_port_src_ip_sticky(self):
         """Load Balancer IP4 L3DSR on per-port-vip with src_ip_sticky case"""
         try:
+            # This VIP at port 1000 does not receive packets, but is defined
+            # as a dummy to verify that the src_ip_sticky flag can be set
+            # independently for each port.
+            self.vapi.cli(
+                "lb vip 90.0.0.0/8 protocol udp port 10000 encap l3dsr dscp 7"
+            )
             self.vapi.cli(
                 "lb vip 90.0.0.0/8 protocol udp port 20000 encap l3dsr dscp 7 src_ip_sticky"
             )
@@ -457,6 +489,9 @@ class TestLB(VppTestCase):
                 )
             self.vapi.cli(
                 "lb vip 90.0.0.0/8 protocol udp port 20000 encap l3dsr dscp 7 src_ip_sticky del"
+            )
+            self.vapi.cli(
+                "lb vip 90.0.0.0/8 protocol udp port 10000 encap l3dsr dscp 7 del"
             )
             self.vapi.cli("test lb flowtable flush")
 

@@ -20,20 +20,21 @@ from scapy.layers.dhcp6 import (
     DHCP6OptIAAddress,
 )
 from scapy.layers.inet6 import IPv6, Ether, UDP
-from scapy.utils6 import in6_mactoifaceid
 
-from framework import tag_fixme_vpp_workers
 from framework import VppTestCase
-from framework import tag_run_solo
+from asfframework import tag_fixme_vpp_workers, tag_run_solo
 from vpp_papi import VppEnum
+from config import config
 import util
 import os
+import unittest
 
 
 def ip6_normalize(ip6):
     return inet_ntop(AF_INET6, inet_pton(AF_INET6, ip6))
 
 
+@unittest.skipIf("dhcp" in config.excluded_plugins, "Exclude DHCP plugin tests")
 class TestDHCPv6DataPlane(VppTestCase):
     """DHCPv6 Data Plane Test Case"""
 
@@ -245,6 +246,7 @@ class TestDHCPv6DataPlane(VppTestCase):
 
 
 @tag_run_solo
+@unittest.skipIf("dhcp" in config.excluded_plugins, "Exclude DHCP plugin tests")
 class TestDHCPv6IANAControlPlane(VppTestCase):
     """DHCPv6 IA NA Control Plane Test Case"""
 
@@ -305,7 +307,7 @@ class TestDHCPv6IANAControlPlane(VppTestCase):
         return addresses.difference(self.initial_addresses)
 
     def validate_duid_ll(self, duid):
-        DUID_LL(duid)
+        DUID_LL(bytes(duid))
 
     def validate_packet(self, packet, msg_type, is_resend=False):
         try:
@@ -499,6 +501,7 @@ class TestDHCPv6IANAControlPlane(VppTestCase):
 
 
 @tag_fixme_vpp_workers
+@unittest.skipIf("dhcp" in config.excluded_plugins, "Exclude DHCP plugin tests")
 class TestDHCPv6PDControlPlane(VppTestCase):
     """DHCPv6 PD Control Plane Test Case"""
 
@@ -559,7 +562,7 @@ class TestDHCPv6PDControlPlane(VppTestCase):
         return addresses.difference(self.initial_addresses)
 
     def validate_duid_ll(self, duid):
-        DUID_LL(duid)
+        DUID_LL(bytes(duid))
 
     def validate_packet(self, packet, msg_type, is_resend=False):
         try:

@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #ifndef VAPI_INTERNAL_H
@@ -118,8 +105,18 @@ bool vapi_requests_full (vapi_ctx_t ctx);
 size_t vapi_get_request_count (vapi_ctx_t ctx);
 size_t vapi_get_max_request_count (vapi_ctx_t ctx);
 u32 vapi_gen_req_context (vapi_ctx_t ctx);
-void vapi_store_request (vapi_ctx_t ctx, u32 context, bool is_dump,
-			 vapi_cb_t callback, void *callback_ctx);
+
+enum vapi_request_type
+{
+  VAPI_REQUEST_REG = 0,
+  VAPI_REQUEST_DUMP = 1,
+  VAPI_REQUEST_STREAM = 2,
+};
+
+void vapi_store_request (vapi_ctx_t ctx, u32 context,
+			 vapi_msg_id_t response_id,
+			 enum vapi_request_type type, vapi_cb_t callback,
+			 void *callback_ctx);
 int vapi_get_payload_offset (vapi_msg_id_t id);
 void (*vapi_get_swap_to_host_func (vapi_msg_id_t id)) (void *payload);
 void (*vapi_get_swap_to_be_func (vapi_msg_id_t id)) (void *payload);

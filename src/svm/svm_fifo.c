@@ -1,20 +1,11 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016-2019 Cisco and/or its affiliates.
  * Copyright (c) 2019 Arm Limited
  * Copyright (c) 2010-2017 Intel Corporation and/or its affiliates.
  * Copyright (c) 2007-2009 Kip Macy kmacy@freebsd.org
- * Inspired from DPDK rte_ring.h (SPSC only) (derived from freebsd bufring.h).
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ */
+
+/* Inspired from DPDK rte_ring.h (SPSC only) (derived from freebsd bufring.h).
  */
 
 #include <svm/svm_fifo.h>
@@ -309,27 +300,21 @@ check_tail:
 static int
 ooo_segment_try_collect (svm_fifo_t * f, u32 n_bytes_enqueued, u32 * tail)
 {
-  u32 s_index, bytes = 0;
+  u32 s_index, s_end, bytes = 0;
   ooo_segment_t *s;
-  i32 diff;
 
   s = pool_elt_at_index (f->ooo_segments, f->ooos_list_head);
-  diff = *tail - s->start;
-
-  ASSERT (diff != n_bytes_enqueued);
-
-  if (diff > n_bytes_enqueued)
-    return 0;
 
   /* If last tail update overlaps one/multiple ooo segments, remove them */
-  while (0 <= diff && diff < n_bytes_enqueued)
+  while (f_pos_leq (s->start, *tail))
     {
       s_index = s - f->ooo_segments;
+      s_end = ooo_segment_end_pos (s);
 
       /* Segment end is beyond the tail. Advance tail and remove segment */
-      if (s->length > diff)
+      if (f_pos_leq (*tail, s_end))
 	{
-	  bytes = s->length - diff;
+	  bytes = s_end - *tail;
 	  *tail = *tail + bytes;
 	  ooo_segment_free (f, s_index);
 	  break;
@@ -339,7 +324,6 @@ ooo_segment_try_collect (svm_fifo_t * f, u32 n_bytes_enqueued, u32 * tail)
       if (s->next != OOO_SEGMENT_INVALID_INDEX)
 	{
 	  s = pool_elt_at_index (f->ooo_segments, s->next);
-	  diff = *tail - s->start;
 	  ooo_segment_free (f, s_index);
 	}
       /* End of search */
@@ -1149,8 +1133,8 @@ svm_fifo_peek (svm_fifo_t * f, u32 offset, u32 len, u8 * dst)
   /* current size of fifo can only increase during peek: SPSC */
   cursize = f_cursize (f, head, tail);
 
-  if (PREDICT_FALSE (cursize < offset))
-    return SVM_FIFO_EEMPTY;
+  if (PREDICT_FALSE (cursize <= offset))
+    return offset ? 0 : SVM_FIFO_EEMPTY;
 
   len = clib_min (cursize - offset, len);
   head_idx = head + offset;
@@ -1650,8 +1634,8 @@ format_svm_fifo (u8 * s, va_list * args)
 
   if (verbose > 1)
     s = format (s, "%Uvpp session %d thread %d app session %d thread %d\n",
-		format_white_space, indent, f->shr->master_session_index,
-		f->master_thread_index, f->shr->client_session_index,
+		format_white_space, indent, f->vpp_session_index,
+		f->master_thread_index, f->app_session_index,
 		f->client_thread_index);
 
   if (verbose)
@@ -1666,10 +1650,3 @@ format_svm_fifo (u8 * s, va_list * args)
 }
 
 #endif
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

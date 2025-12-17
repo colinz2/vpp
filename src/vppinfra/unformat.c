@@ -1,41 +1,10 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright (c) 2001, 2002, 2003 Eliot Dresselhaus
  */
-/*
-  Copyright (c) 2001, 2002, 2003 Eliot Dresselhaus
-
-  Permission is hereby granted, free of charge, to any person obtaining
-  a copy of this software and associated documentation files (the
-  "Software"), to deal in the Software without restriction, including
-  without limitation the rights to use, copy, modify, merge, publish,
-  distribute, sublicense, and/or sell copies of the Software, and to
-  permit persons to whom the Software is furnished to do so, subject to
-  the following conditions:
-
-  The above copyright notice and this permission notice shall be
-  included in all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
 
 #include <vppinfra/format.h>
+#include <fcntl.h>
 
 /* Call user's function to fill input buffer. */
 __clib_export uword
@@ -1045,11 +1014,43 @@ clib_file_fill_buffer (unformat_input_t * input)
     return input->index;
 }
 
+static void
+unformat_close_fd (unformat_input_t *input)
+{
+  int fd = pointer_to_uword (input->fill_buffer_arg);
+  close (fd);
+}
+
 __clib_export void
 unformat_init_clib_file (unformat_input_t * input, int file_descriptor)
 {
   unformat_init (input, clib_file_fill_buffer,
 		 uword_to_pointer (file_descriptor, void *));
+}
+
+__clib_export uword
+unformat_init_file (unformat_input_t *input, char *fmt, ...)
+{
+  va_list va;
+  u8 *path;
+  int fd;
+
+  va_start (va, fmt);
+  path = va_format (0, fmt, &va);
+  va_end (va);
+  vec_add1 (path, 0);
+
+  fd = open ((char *) path, 0);
+  vec_free (path);
+
+  if (fd >= 0)
+    {
+      unformat_init (input, clib_file_fill_buffer,
+		     uword_to_pointer (fd, void *));
+      input->free = unformat_close_fd;
+      return 1;
+    }
+  return 0;
 }
 
 /* Take input from Unix environment variable. */
@@ -1086,13 +1087,94 @@ unformat_data_size (unformat_input_t * input, va_list * args)
   return 1;
 }
 
+__clib_export uword
+unformat_c_string_array (unformat_input_t *input, va_list *va)
+{
+  char *str = va_arg (*va, char *);
+  u32 array_len = va_arg (*va, u32);
+  uword c, rv = 0;
+  u8 *s = 0;
+
+  if (unformat (input, "%v", &s) == 0)
+    return 0;
+
+  c = vec_len (s);
+
+  if (c > 0 && c < array_len)
+    {
+      clib_memcpy (str, s, c);
+      str[c] = 0;
+      rv = 1;
+    }
+
+  vec_free (s);
+  return rv;
+}
+
+static uword
+__unformat_quoted_string (unformat_input_t *input, u8 **sp, char quote)
+{
+  u8 *s = 0;
+  uword c, p = 0;
+
+  while ((c = unformat_get_input (input)) != UNFORMAT_END_OF_INPUT)
+    if (!is_white_space (c))
+      break;
+
+  if (c != quote)
+    return 0;
+
+  while ((c = unformat_get_input (input)) != UNFORMAT_END_OF_INPUT)
+    {
+      if (c == quote && p != '\\')
+	{
+	  *sp = s;
+	  return 1;
+	}
+      vec_add1 (s, c);
+      p = c;
+    }
+  vec_free (s);
+
+  return 0;
+}
+
+__clib_export uword
+unformat_single_quoted_string (unformat_input_t *input, va_list *va)
+{
+  return __unformat_quoted_string (input, va_arg (*va, u8 **), '\'');
+}
+
+__clib_export uword
+unformat_double_quoted_string (unformat_input_t *input, va_list *va)
+{
+  return __unformat_quoted_string (input, va_arg (*va, u8 **), '"');
+}
+
 #endif /* CLIB_UNIX */
 
+__clib_export uword
+unformat_u8 (unformat_input_t *input, va_list *args)
+{
+  u8 *d = va_arg (*args, u8 *);
 
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+  u32 tmp;
+  if (!unformat (input, "%u", &tmp) || tmp > CLIB_U8_MAX)
+    return 0;
+
+  *d = tmp;
+  return 1;
+}
+
+__clib_export uword
+unformat_u16 (unformat_input_t *input, va_list *args)
+{
+  u16 *d = va_arg (*args, u16 *);
+
+  u32 tmp;
+  if (!unformat (input, "%u", &tmp) || tmp > CLIB_U16_MAX)
+    return 0;
+
+  *d = tmp;
+  return 1;
+}

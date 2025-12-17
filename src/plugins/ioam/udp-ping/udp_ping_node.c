@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/vnet.h>
@@ -34,6 +24,7 @@ typedef enum
   UDP_PING_NEXT_UDP_LOOKUP,
   UDP_PING_NEXT_ICMP,
   UDP_PING_NEXT_IP6_LOOKUP,
+  UDP_PING_NEXT_SRV6_LOCAL,
   UDP_PING_NEXT_IP6_DROP,
   UDP_PING_N_NEXT,
 } udp_ping_next_t;
@@ -93,14 +84,12 @@ format_udp_ping_trace (u8 * s, va_list * args)
   return s;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (udp_ping_node, static) =
 {
   .function = udp_ping_process,
   .type = VLIB_NODE_TYPE_PROCESS,
   .name = "udp-ping-process",
 };
-/* *INDENT-ON* */
 
 void
 udp_ping_calculate_timer_interval (void)
@@ -301,7 +290,6 @@ set_udp_ping_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_udp_ping_command, static) =
 {
   .path = "set udp-ping",
@@ -312,7 +300,6 @@ VLIB_CLI_COMMAND (set_udp_ping_command, static) =
       [disable]",
   .function = set_udp_ping_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 show_udp_ping_summary_cmd_fn (vlib_main_t * vm,
@@ -374,14 +361,12 @@ show_udp_ping_summary_cmd_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_udp_ping_cmd, static) =
 {
   .path = "show udp-ping summary",
   .short_help = "Summary of udp-ping",
   .function = show_udp_ping_summary_cmd_fn,
 };
-/* *INDENT-ON* */
 
 /**
  * @brief UDP-Ping Process node.
@@ -523,9 +508,6 @@ udp_ping_local_analyse (vlib_node_runtime_t * node, vlib_buffer_t * b0,
 			ip6_header_t * ip0, ip6_hop_by_hop_header_t * hbh0,
 			u16 * next0)
 {
-  ip6_main_t *im = &ip6_main;
-  ip_lookup_main_t *lm = &im->lookup_main;
-
   *next0 = UDP_PING_NEXT_IP6_DROP;
 
   /*
@@ -584,32 +566,47 @@ udp_ping_local_analyse (vlib_node_runtime_t * node, vlib_buffer_t * b0,
    * remote address. So pass it to SR processing as it may be local packet
    * afterall
    */
-  if (PREDICT_FALSE (hbh0->protocol == IPPROTO_IPV6_ROUTE))
-    goto end;
+  if (PREDICT_FALSE (hbh0->protocol == IP_PROTOCOL_IPV6_ROUTE))
+    *next0 = UDP_PING_NEXT_SRV6_LOCAL;
+  else
+    {
+      /* Other case remove hbh-ioam headers */
+      u64 *copy_dst0, *copy_src0;
+      u16 new_l0;
 
-  /* Other case remove hbh-ioam headers */
-  u64 *copy_dst0, *copy_src0;
-  u16 new_l0;
+      vlib_buffer_advance (b0, (hbh0->length + 1) << 3);
 
-  vlib_buffer_advance (b0, (hbh0->length + 1) << 3);
+      new_l0 =
+	clib_net_to_host_u16 (ip0->payload_length) - ((hbh0->length + 1) << 3);
 
-  new_l0 = clib_net_to_host_u16 (ip0->payload_length) -
-    ((hbh0->length + 1) << 3);
+      ip0->payload_length = clib_host_to_net_u16 (new_l0);
 
-  ip0->payload_length = clib_host_to_net_u16 (new_l0);
+      ip0->protocol = hbh0->protocol;
 
-  ip0->protocol = hbh0->protocol;
+      copy_src0 = (u64 *) ip0;
+      copy_dst0 = copy_src0 + (hbh0->length + 1);
+      copy_dst0[4] = copy_src0[4];
+      copy_dst0[3] = copy_src0[3];
+      copy_dst0[2] = copy_src0[2];
+      copy_dst0[1] = copy_src0[1];
+      copy_dst0[0] = copy_src0[0];
 
-  copy_src0 = (u64 *) ip0;
-  copy_dst0 = copy_src0 + (hbh0->length + 1);
-  copy_dst0[4] = copy_src0[4];
-  copy_dst0[3] = copy_src0[3];
-  copy_dst0[2] = copy_src0[2];
-  copy_dst0[1] = copy_src0[1];
-  copy_dst0[0] = copy_src0[0];
-
-end:
-  *next0 = lm->local_next_by_ip_protocol[hbh0->protocol];
+      if (PREDICT_FALSE (hbh0->protocol == IP_PROTOCOL_ICMP6))
+	{
+	  /* If next header is ICMP, then pass it to ICMP processing */
+	  *next0 = UDP_PING_NEXT_ICMP;
+	}
+      else if (PREDICT_FALSE (hbh0->protocol == IP_PROTOCOL_UDP))
+	{
+	  /* If next header is UDP, then pass it to UDP processing */
+	  *next0 = UDP_PING_NEXT_UDP_LOOKUP;
+	}
+      else
+	{
+	  /* If next header is not UDP or ICMP, then punt it */
+	  *next0 = UDP_PING_NEXT_PUNT;
+	}
+    }
   return;
 }
 
@@ -790,7 +787,6 @@ udp_ping_local_node_fn (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 /*
  * Node for udp-ping-local
  */
@@ -811,10 +807,10 @@ VLIB_REGISTER_NODE (udp_ping_local, static) =
       [UDP_PING_NEXT_UDP_LOOKUP] = "ip6-udp-lookup",
       [UDP_PING_NEXT_ICMP] = "ip6-icmp-input",
       [UDP_PING_NEXT_IP6_LOOKUP] = "ip6-lookup",
+      [UDP_PING_NEXT_SRV6_LOCAL] = "sr-localsid-d",
       [UDP_PING_NEXT_IP6_DROP] = "ip6-drop",
     },
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 udp_ping_init (vlib_main_t * vm)
@@ -828,17 +824,6 @@ udp_ping_init (vlib_main_t * vm)
   return 0;
 }
 
-/* *INDENT-OFF* */
-VLIB_INIT_FUNCTION (udp_ping_init) =
-{
-  .runs_after = VLIB_INITS("ip_main_init"),
+VLIB_INIT_FUNCTION (udp_ping_init) = {
+  .runs_after = VLIB_INITS ("ip_main_init"),
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

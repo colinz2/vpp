@@ -1,39 +1,7 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright (c) 2005,2009 Eliot Dresselhaus
  */
-/*
-  Copyright (c) 2005,2009 Eliot Dresselhaus
-
-  Permission is hereby granted, free of charge, to any person obtaining
-  a copy of this software and associated documentation files (the
-  "Software"), to deal in the Software without restriction, including
-  without limitation the rights to use, copy, modify, merge, publish,
-  distribute, sublicense, and/or sell copies of the Software, and to
-  permit persons to whom the Software is furnished to do so, subject to
-  the following conditions:
-
-  The above copyright notice and this permission notice shall be
-  included in all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
 
 /* High speed event logger */
 
@@ -444,21 +412,21 @@ elog_data_inline (elog_main_t * em, elog_event_type_t * type,
 #define ELOG_TYPE_INIT_FORMAT_AND_FUNCTION(fmt,func) \
   { .format = fmt, .function = func, }
 
-#define ELOG_TYPE_INIT(fmt) \
-  ELOG_TYPE_INIT_FORMAT_AND_FUNCTION(fmt,(char *) __FUNCTION__)
+#define ELOG_TYPE_INIT(fmt)                                                   \
+  ELOG_TYPE_INIT_FORMAT_AND_FUNCTION (fmt, (char *) __func__)
 
 #define ELOG_TYPE_DECLARE_HELPER(f,fmt,func)		\
   static elog_event_type_t __ELOG_TYPE_VAR(f) =		\
     ELOG_TYPE_INIT_FORMAT_AND_FUNCTION (fmt, func)
 
-#define ELOG_TYPE_DECLARE_FORMAT_AND_FUNCTION(f,fmt)		\
-  ELOG_TYPE_DECLARE_HELPER (f, fmt, (char *) __FUNCTION__)
+#define ELOG_TYPE_DECLARE_FORMAT_AND_FUNCTION(f, fmt)                         \
+  ELOG_TYPE_DECLARE_HELPER (f, fmt, (char *) __func__)
 
 #define ELOG_TYPE_DECLARE_FORMAT(f,fmt)		\
   ELOG_TYPE_DECLARE_HELPER (f, fmt, 0)
 
-/* Shorthands with and without __FUNCTION__.
-   D for decimal; X for hex.  F for __FUNCTION__. */
+/* Shorthands with and without __func__.
+   D for decimal; X for hex.  F for __func__. */
 #define ELOG_TYPE(f,fmt) ELOG_TYPE_DECLARE_FORMAT_AND_FUNCTION(f,fmt)
 #define ELOG_TYPE_D(f)  ELOG_TYPE_DECLARE_FORMAT (f, #f " %d")
 #define ELOG_TYPE_X(f)  ELOG_TYPE_DECLARE_FORMAT (f, #f " 0x%x")
@@ -568,11 +536,3 @@ char *format_one_elog_event (void *em_arg, void *ep_arg);
 #endif /* CLIB_UNIX */
 
 #endif /* included_clib_elog_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

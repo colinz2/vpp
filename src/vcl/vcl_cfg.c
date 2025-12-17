@@ -1,16 +1,5 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vcl/vcl_private.h>
@@ -28,7 +17,7 @@ vppcom_main_t _vppcom_main = {
 vppcom_main_t *vcm = &_vppcom_main;
 
 void
-vppcom_cfg_init (vppcom_cfg_t * vcl_cfg)
+vppcom_cfg_init (vcl_cfg_t *vcl_cfg)
 {
   ASSERT (vcl_cfg);
 
@@ -45,15 +34,10 @@ vppcom_cfg_init (vppcom_cfg_t * vcl_cfg)
   vcl_cfg->event_log_path = "/dev/shm";
 }
 
-#define VCFG_DBG(_lvl, _fmt, _args...) 			\
-{							\
-  if (vcm->debug > _lvl) 				\
-    fprintf (stderr, _fmt "\n", ##_args);		\
-}
 void
-vppcom_cfg_heapsize (char *conf_fname)
+vcl_cfg_parse_heapsize (char *conf_fname)
 {
-  vppcom_cfg_t *vcl_cfg = &vcm->cfg;
+  vcl_cfg_t *vcl_cfg = &vcm->cfg;
   FILE *fp;
   char inbuf[4096];
   int argc = 1;
@@ -63,8 +47,6 @@ vppcom_cfg_heapsize (char *conf_fname)
   int i;
   u8 *sizep;
   u32 size;
-  void *vcl_mem;
-  void *heap;
 
   fp = fopen (conf_fname, "r");
   if (fp == NULL)
@@ -180,52 +162,20 @@ defaulted:
     fclose (fp);
   if (argv != NULL)
     free (argv);
-
-  vcl_mem = mmap (0, vcl_cfg->heapsize, PROT_READ | PROT_WRITE,
-		  MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-  if (vcl_mem == MAP_FAILED)
-    {
-      VCFG_DBG (0, "VCL<%d>: ERROR: mmap(0, %lu == 0x%lx, "
-		"PROT_READ | PROT_WRITE,MAP_SHARED | MAP_ANONYMOUS, "
-		"-1, 0) failed!", getpid (),
-		(unsigned long) vcl_cfg->heapsize,
-		(unsigned long) vcl_cfg->heapsize);
-      ASSERT (vcl_mem != MAP_FAILED);
-      return;
-    }
-  heap = clib_mem_init_thread_safe (vcl_mem, vcl_cfg->heapsize);
-  if (!heap)
-    {
-      fprintf (stderr, "VCL<%d>: ERROR: clib_mem_init() failed!", getpid ());
-      ASSERT (heap);
-      return;
-    }
-  vcl_mem = clib_mem_alloc (sizeof (_vppcom_main));
-  if (!vcl_mem)
-    {
-      clib_warning ("VCL<%d>: ERROR: clib_mem_alloc() failed!", getpid ());
-      ASSERT (vcl_mem);
-      return;
-    }
-
-  clib_memcpy (vcl_mem, &_vppcom_main, sizeof (_vppcom_main));
-  vcm = vcl_mem;
-
-  VCFG_DBG (0, "VCL<%d>: allocated VCL heap = %p, size %lu (0x%lx)",
-	    getpid (), heap, (unsigned long) vcl_cfg->heapsize,
-	    (unsigned long) vcl_cfg->heapsize);
 }
 
 void
 vppcom_cfg_read_file (char *conf_fname)
 {
-  vppcom_cfg_t *vcl_cfg = &vcm->cfg;
+  vcl_cfg_t *vcl_cfg = &vcm->cfg;
   int fd;
   unformat_input_t _input, *input = &_input;
   unformat_input_t _line_input, *line_input = &_line_input;
   u8 vc_cfg_input = 0;
   struct stat s;
+#if VCL_BAPI_ENABLED
   u32 uid, gid;
+#endif
 
   fd = open (conf_fname, O_RDONLY);
   if (fd < 0)
@@ -279,29 +229,12 @@ vppcom_cfg_read_file (char *conf_fname)
 	      VCFG_DBG (0, "VCL<%d>: configured max-workers %u", getpid (),
 			vcl_cfg->max_workers);
 	    }
-	  else if (unformat (line_input, "api-socket-name %s",
-			     &vcl_cfg->vpp_bapi_socket_name))
-	    {
-	      vec_terminate_c_string (vcl_cfg->vpp_bapi_socket_name);
-	      VCFG_DBG (0, "VCL<%d>: configured api-socket-name (%s)",
-			getpid (), vcl_cfg->vpp_bapi_socket_name);
-	    }
 	  else if (unformat (line_input, "app-socket-api %s",
 			     &vcl_cfg->vpp_app_socket_api))
 	    {
 	      vec_terminate_c_string (vcl_cfg->vpp_app_socket_api);
 	      VCFG_DBG (0, "VCL<%d>: configured app-socket-api (%s)",
 			getpid (), vcl_cfg->vpp_app_socket_api);
-	    }
-	  else if (unformat (line_input, "uid %d", &uid))
-	    {
-	      vl_set_memory_uid (uid);
-	      VCFG_DBG (0, "VCL<%d>: configured uid %d", getpid (), uid);
-	    }
-	  else if (unformat (line_input, "gid %d", &gid))
-	    {
-	      vl_set_memory_gid (gid);
-	      VCFG_DBG (0, "VCL<%d>: configured gid %d", getpid (), gid);
 	    }
 	  else if (unformat (line_input, "segment-size 0x%lx",
 			     &vcl_cfg->segment_size))
@@ -422,30 +355,6 @@ vppcom_cfg_read_file (char *conf_fname)
 	      VCFG_DBG (0, "VCL<%d>: configured huge_page (%d)", getpid (),
 			vcl_cfg->huge_page);
 	    }
-	  else if (unformat (line_input, "namespace-secret %lu",
-			     &vcl_cfg->namespace_secret))
-	    {
-	      VCFG_DBG (0, "VCL<%d>: configured namespace_secret %llu "
-			"(0x%llx)", getpid (),
-			(unsigned long long) vcl_cfg->namespace_secret,
-			(unsigned long long) vcl_cfg->namespace_secret);
-	    }
-	  else if (unformat (line_input, "namespace-id %v",
-			     &vcl_cfg->namespace_id))
-	    {
-	      u32 max_nsid_vec_len = vcl_bapi_max_nsid_len ();
-	      u32 nsid_vec_len = vec_len (vcl_cfg->namespace_id);
-	      if (nsid_vec_len > max_nsid_vec_len)
-		{
-		  vec_set_len (vcl_cfg->namespace_id, max_nsid_vec_len);
-		  VCFG_DBG (0, "VCL<%d>: configured namespace_id is too long,"
-			    " truncated to %d characters!",
-			    getpid (), max_nsid_vec_len);
-		}
-
-	      VCFG_DBG (0, "VCL<%d>: configured namespace_id %s",
-			getpid (), (char *) vcl_cfg->namespace_id);
-	    }
 	  else if (unformat (line_input, "use-mq-eventfd"))
 	    {
 	      vcl_cfg->use_mq_eventfd = 1;
@@ -464,6 +373,57 @@ vppcom_cfg_read_file (char *conf_fname)
 	      VCFG_DBG (0, "VCL<%d>: configured with multithread workers",
 			getpid ());
 	    }
+	  else if (unformat (line_input, "app_original_dst"))
+	    {
+	      vcl_cfg->app_original_dst = 1;
+	      VCFG_DBG (0, "VCL<%d>: support original destination", getpid ());
+	    }
+#if VCL_BAPI_ENABLED
+	  else if (unformat (line_input, "namespace-secret %lu",
+			     &vcl_cfg->namespace_secret))
+	    {
+	      VCFG_DBG (0,
+			"VCL<%d>: configured namespace_secret %llu "
+			"(0x%llx)",
+			getpid (),
+			(unsigned long long) vcl_cfg->namespace_secret,
+			(unsigned long long) vcl_cfg->namespace_secret);
+	    }
+	  else if (unformat (line_input, "namespace-id %v",
+			     &vcl_cfg->namespace_id))
+	    {
+	      u32 max_nsid_vec_len = vcl_bapi_max_nsid_len ();
+	      u32 nsid_vec_len = vec_len (vcl_cfg->namespace_id);
+	      if (nsid_vec_len > max_nsid_vec_len)
+		{
+		  vec_set_len (vcl_cfg->namespace_id, max_nsid_vec_len);
+		  VCFG_DBG (0,
+			    "VCL<%d>: configured namespace_id is too long,"
+			    " truncated to %d characters!",
+			    getpid (), max_nsid_vec_len);
+		}
+
+	      VCFG_DBG (0, "VCL<%d>: configured namespace_id %s", getpid (),
+			(char *) vcl_cfg->namespace_id);
+	    }
+	  else if (unformat (line_input, "api-socket-name %s",
+			     &vcl_cfg->vpp_bapi_socket_name))
+	    {
+	      vec_terminate_c_string (vcl_cfg->vpp_bapi_socket_name);
+	      VCFG_DBG (0, "VCL<%d>: configured api-socket-name (%s)",
+			getpid (), vcl_cfg->vpp_bapi_socket_name);
+	    }
+	  else if (unformat (line_input, "uid %d", &uid))
+	    {
+	      vl_set_memory_uid (uid);
+	      VCFG_DBG (0, "VCL<%d>: configured uid %d", getpid (), uid);
+	    }
+	  else if (unformat (line_input, "gid %d", &gid))
+	    {
+	      vl_set_memory_gid (gid);
+	      VCFG_DBG (0, "VCL<%d>: configured gid %d", getpid (), gid);
+	    }
+#endif
 	  else if (unformat (line_input, "}"))
 	    {
 	      vc_cfg_input = 0;
@@ -494,10 +454,14 @@ file_done:
 }
 
 void
-vppcom_cfg (vppcom_cfg_t * vcl_cfg)
+vppcom_cfg (vcl_cfg_t *vcl_cfg)
 {
   char *conf_fname, *env_var_str;
 
+  VCFG_DBG (0,
+	    "VCL<%d>: Attempting to read configuration from env variables and "
+	    "config file.",
+	    getpid ());
   vppcom_cfg_init (vcl_cfg);
   env_var_str = getenv (VPPCOM_ENV_DEBUG);
   if (env_var_str)
@@ -519,7 +483,8 @@ vppcom_cfg (vppcom_cfg_t * vcl_cfg)
   conf_fname = getenv (VPPCOM_ENV_CONF);
   if (!conf_fname)
     conf_fname = VPPCOM_CONF_DEFAULT;
-  vppcom_cfg_heapsize (conf_fname);
+  vcl_cfg_parse_heapsize (conf_fname);
+  vcl_heap_alloc ();
   vppcom_cfg_read_file (conf_fname);
 
   /* Regrab cfg after heap initialization */
@@ -605,11 +570,3 @@ vppcom_cfg (vppcom_cfg_t * vcl_cfg)
 		getpid ());
     }
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #define _GNU_SOURCE
@@ -29,7 +19,7 @@
 #include <netlink/route/addr.h>
 
 #include <vlib/vlib.h>
-#include <vlib/unix/unix.h>
+#include <vlib/file.h>
 #include <vppinfra/error.h>
 #include <vppinfra/linux/netns.h>
 
@@ -205,7 +195,17 @@ nl_route_del (struct rtnl_route *rr, void *arg)
 static void
 nl_route_add (struct rtnl_route *rr, void *arg)
 {
-  FOREACH_VFT (nvl_rt_route_add, rr);
+  int is_replace = 0;
+
+  if (arg)
+    {
+      nl_msg_info_t *msg_info = (nl_msg_info_t *) arg;
+      struct nlmsghdr *nlh = nlmsg_hdr (msg_info->msg);
+
+      is_replace = (nlh->nlmsg_flags & NLM_F_REPLACE);
+    }
+
+  FOREACH_VFT_CTX (nvl_rt_route_add, rr, is_replace);
 }
 
 static void
@@ -338,6 +338,8 @@ nl_route_process_msgs (void)
   nl_msg_info_t *msg_info;
   int err, n_msgs = 0;
 
+  lcp_set_netlink_processing_active (1);
+
   /* process a batch of messages. break if we hit our limit */
   vec_foreach (msg_info, nm->nl_msg_queue)
     {
@@ -354,6 +356,8 @@ nl_route_process_msgs (void)
     vec_delete (nm->nl_msg_queue, n_msgs, 0);
 
   NL_DBG ("Processed %u messages", n_msgs);
+
+  lcp_set_netlink_processing_active (0);
 
   return n_msgs;
 }
@@ -431,10 +435,15 @@ lcp_nl_recv_dump_replies (nl_sock_type_t sock_type, int msg_limit,
   int done = 0;
   int n_msgs = 0;
 
+  lcp_set_netlink_processing_active (1);
+
 continue_reading:
   n_bytes = nl_recv (sk_route, &nla, &buf, /* creds */ NULL);
   if (n_bytes <= 0)
-    return n_bytes;
+    {
+      lcp_set_netlink_processing_active (0);
+      return n_bytes;
+    }
 
   hdr = (struct nlmsghdr *) buf;
   while (nlmsg_ok (hdr, n_bytes))
@@ -511,6 +520,8 @@ continue_reading:
     goto continue_reading;
 
 out:
+  lcp_set_netlink_processing_active (0);
+
   nlmsg_free (msg);
   free (buf);
 
@@ -711,7 +722,8 @@ lcp_nl_drain_messages (void)
   nl_main_t *nm = &nl_main;
 
   /* Read until there's an error */
-  while ((err = nl_recvmsgs_default (nm->sk_route)) > -1)
+  while ((err = nm->sk_route ? nl_recvmsgs_default (nm->sk_route) :
+			       -NLE_BAD_SOCK) > -1)
     ;
 
   /* If there was an error other then EAGAIN, signal process node */
@@ -734,7 +746,8 @@ lcp_nl_drain_messages (void)
 void
 lcp_nl_pair_add_cb (lcp_itf_pair_t *pair)
 {
-  lcp_nl_drain_messages ();
+  if (!lcp_get_netlink_processing_active ())
+    lcp_nl_drain_messages ();
 }
 
 static clib_error_t *
@@ -1012,11 +1025,3 @@ VLIB_PLUGIN_REGISTER () = {
   .description = "linux Control Plane - Netlink listener",
   .default_disabled = 1,
 };
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

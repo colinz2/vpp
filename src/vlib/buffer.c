@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * buffer.c: allocate/free network buffers.
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* buffer.c: allocate/free network buffers. */
 
 /**
  * @file
@@ -43,7 +11,8 @@
  * Allocate/free network buffers.
  */
 
-#include <vppinfra/linux/sysfs.h>
+#include <vppinfra/bitmap.h>
+#include <vppinfra/unix.h>
 #include <vlib/vlib.h>
 #include <vlib/unix/unix.h>
 #include <vlib/stats/stats.h>
@@ -57,9 +26,6 @@ STATIC_ASSERT_FITS_IN (vlib_buffer_t, flags, 16);
 STATIC_ASSERT_FITS_IN (vlib_buffer_t, ref_count, 16);
 STATIC_ASSERT_FITS_IN (vlib_buffer_t, buffer_pool_index, 16);
 #endif
-
-/* Make sure that buffer template size is not accidentally changed */
-STATIC_ASSERT_OFFSET_OF (vlib_buffer_t, template_end, 64);
 
 u16 __vlib_buffer_external_hdr_size = 0;
 
@@ -474,26 +440,28 @@ static uword
 vlib_buffer_alloc_size (uword ext_hdr_size, uword data_size)
 {
   uword alloc_size = ext_hdr_size + sizeof (vlib_buffer_t) + data_size;
-  alloc_size = CLIB_CACHE_LINE_ROUND (alloc_size);
+  alloc_size = round_pow2 (alloc_size, VLIB_BUFFER_ALIGN);
 
-  /* in case when we have even number of cachelines, we add one more for
+  /* in case when we have even number of 'cachelines', we add one more for
    * better cache occupancy */
-  alloc_size |= CLIB_CACHE_LINE_BYTES;
+  alloc_size |= VLIB_BUFFER_ALIGN;
 
   return alloc_size;
 }
 
 u8
-vlib_buffer_pool_create (vlib_main_t * vm, char *name, u32 data_size,
-			 u32 physmem_map_index)
+vlib_buffer_pool_create (vlib_main_t *vm, u32 data_size, u32 physmem_map_index,
+			 char *fmt, ...)
 {
   vlib_buffer_main_t *bm = vm->buffer_main;
   vlib_buffer_pool_t *bp;
   vlib_physmem_map_t *m = vlib_physmem_get_map (vm, physmem_map_index);
   uword start = pointer_to_uword (m->base);
   uword size = (uword) m->n_pages << m->log2_page_size;
-  uword i, j;
-  u32 alloc_size, n_alloc_per_page;
+  uword page_mask = ~pow2_mask (m->log2_page_size);
+  u8 *p;
+  u32 alloc_size;
+  va_list va;
 
   if (vec_len (bm->buffer_pools) >= 255)
     return ~0;
@@ -531,48 +499,57 @@ vlib_buffer_pool_create (vlib_main_t * vm, char *name, u32 data_size,
   bp->buffer_template.buffer_pool_index = bp->index;
   bp->buffer_template.ref_count = 1;
   bp->physmem_map_index = physmem_map_index;
-  bp->name = format (0, "%s%c", name, 0);
   bp->data_size = data_size;
   bp->numa_node = m->numa_node;
+  bp->log2_page_size = m->log2_page_size;
+
+  va_start (va, fmt);
+  bp->name = va_format (0, fmt, &va);
+  va_end (va);
 
   vec_validate_aligned (bp->threads, vlib_get_n_threads () - 1,
 			CLIB_CACHE_LINE_BYTES);
 
   alloc_size = vlib_buffer_alloc_size (bm->ext_hdr_size, data_size);
-  n_alloc_per_page = (1ULL << m->log2_page_size) / alloc_size;
+  bp->alloc_size = alloc_size;
 
   /* preallocate buffer indices memory */
-  bp->n_buffers = m->n_pages * n_alloc_per_page;
-  bp->buffers = clib_mem_alloc_aligned (bp->n_buffers * sizeof (u32),
-					CLIB_CACHE_LINE_BYTES);
+  bp->buffers = clib_mem_alloc_aligned (
+    round_pow2 ((size / alloc_size) * sizeof (u32), CLIB_CACHE_LINE_BYTES),
+    CLIB_CACHE_LINE_BYTES);
 
   clib_spinlock_init (&bp->lock);
 
-  for (j = 0; j < m->n_pages; j++)
-    for (i = 0; i < n_alloc_per_page; i++)
-      {
-	u8 *p;
-	u32 bi;
+  p = m->base;
 
-	p = m->base + (j << m->log2_page_size) + i * alloc_size;
-	p += bm->ext_hdr_size;
+  /* start with naturally aligned address */
+  p += alloc_size - (uword) p % alloc_size;
 
-	/*
-	 * Waste 1 buffer (maximum) so that 0 is never a valid buffer index.
-	 * Allows various places to ASSERT (bi != 0). Much easier
-	 * than debugging downstream crashes in successor nodes.
-	 */
-	if (p == m->base)
-	  continue;
+  /*
+   * Waste 1 buffer (maximum) so that 0 is never a valid buffer index.
+   * Allows various places to ASSERT (bi != 0). Much easier
+   * than debugging downstream crashes in successor nodes.
+   */
+  if (p == m->base)
+    p += alloc_size;
 
-	vlib_buffer_copy_template ((vlib_buffer_t *) p, &bp->buffer_template);
+  for (; p < (u8 *) m->base + size - alloc_size; p += alloc_size)
+    {
+      vlib_buffer_t *b;
+      u32 bi;
 
-	bi = vlib_get_buffer_index (vm, (vlib_buffer_t *) p);
+      /* skip if buffer spans across page boundary */
+      if (((uword) p & page_mask) != ((uword) (p + alloc_size) & page_mask))
+	continue;
 
-	bp->buffers[bp->n_avail++] = bi;
+      b = (vlib_buffer_t *) (p + bm->ext_hdr_size);
+      b->template = bp->buffer_template;
+      bi = vlib_get_buffer_index (vm, b);
+      bp->buffers[bp->n_avail++] = bi;
+      vlib_get_buffer (vm, bi);
+    }
 
-	vlib_get_buffer (vm, bi);
-      }
+  bp->n_buffers = bp->n_avail;
 
   return bp->index;
 }
@@ -590,14 +567,13 @@ format_vlib_buffer_pool (u8 * s, va_list * va)
 		   "Pool Name", "Index", "NUMA", "Size", "Data Size",
 		   "Total", "Avail", "Cached", "Used");
 
-  /* *INDENT-OFF* */
   vec_foreach (bpt, bp->threads)
     cached += bpt->n_cached;
-  /* *INDENT-ON* */
 
-  s = format (s, "%-20s%=6d%=6d%=6u%=11u%=6u%=8u%=8u%=8u",
-	      bp->name, bp->index, bp->numa_node, bp->data_size +
-	      sizeof (vlib_buffer_t) + vm->buffer_main->ext_hdr_size,
+  s = format (s, "%-20v%=6d%=6d%=6u%=11u%=6u%=8u%=8u%=8u", bp->name, bp->index,
+	      bp->numa_node,
+	      bp->data_size + sizeof (vlib_buffer_t) +
+		vm->buffer_main->ext_hdr_size,
 	      bp->data_size, bp->n_buffers, bp->n_avail, cached,
 	      bp->n_buffers - bp->n_avail - cached);
 
@@ -627,13 +603,11 @@ show_buffers (vlib_main_t *vm, unformat_input_t *input,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_buffers_command, static) = {
   .path = "show buffers",
   .short_help = "Show packet buffer allocation",
   .function = show_buffers,
 };
-/* *INDENT-ON* */
 
 clib_error_t *
 vlib_buffer_num_workers_change (vlib_main_t *vm)
@@ -657,7 +631,8 @@ vlib_buffer_main_init_numa_alloc (struct vlib_main_t *vm, u32 numa_node,
 				  u8 unpriv)
 {
   vlib_buffer_main_t *bm = vm->buffer_main;
-  u32 buffers_per_numa = bm->buffers_per_numa;
+  u32 default_buffers_per_numa = bm->default_buffers_per_numa;
+  u32 buffers_per_numa = bm->buffers_per_numa[numa_node];
   clib_error_t *error;
   u32 buffer_size;
   uword n_pages, pagesize;
@@ -666,6 +641,9 @@ vlib_buffer_main_init_numa_alloc (struct vlib_main_t *vm, u32 numa_node,
   ASSERT (log2_page_size != CLIB_MEM_PAGE_SZ_UNKNOWN);
 
   pagesize = clib_mem_page_bytes (log2_page_size);
+  if (pagesize == 0)
+    return clib_error_return (0, "page size unknown");
+
   buffer_size = vlib_buffer_alloc_size (bm->ext_hdr_size,
 					vlib_buffer_get_default_data_size
 					(vm));
@@ -673,9 +651,13 @@ vlib_buffer_main_init_numa_alloc (struct vlib_main_t *vm, u32 numa_node,
     return clib_error_return (0, "buffer size (%llu) is greater than page "
 			      "size (%llu)", buffer_size, pagesize);
 
-  if (buffers_per_numa == 0)
-    buffers_per_numa = unpriv ? VLIB_BUFFER_DEFAULT_BUFFERS_PER_NUMA_UNPRIV :
-      VLIB_BUFFER_DEFAULT_BUFFERS_PER_NUMA;
+  if (default_buffers_per_numa == 0)
+    default_buffers_per_numa = unpriv ?
+				       VLIB_BUFFER_DEFAULT_BUFFERS_PER_NUMA_UNPRIV :
+				       VLIB_BUFFER_DEFAULT_BUFFERS_PER_NUMA;
+
+  if (buffers_per_numa == ~0)
+    buffers_per_numa = default_buffers_per_numa;
 
   name = format (0, "buffers-numa-%d%c", numa_node, 0);
   n_pages = (buffers_per_numa - 1) / (pagesize / buffer_size) + 1;
@@ -694,7 +676,6 @@ vlib_buffer_main_init_numa_node (struct vlib_main_t *vm, u32 numa_node,
   vlib_buffer_main_t *bm = vm->buffer_main;
   u32 physmem_map_index;
   clib_error_t *error;
-  u8 *name = 0;
 
   if (bm->log2_page_size == CLIB_MEM_PAGE_SZ_UNKNOWN)
     {
@@ -725,14 +706,12 @@ vlib_buffer_main_init_numa_node (struct vlib_main_t *vm, u32 numa_node,
     return error;
 
 buffer_pool_create:
-  name = format (name, "default-numa-%d%c", numa_node, 0);
-  *index = vlib_buffer_pool_create (vm, (char *) name,
-				    vlib_buffer_get_default_data_size (vm),
-				    physmem_map_index);
+  *index =
+    vlib_buffer_pool_create (vm, vlib_buffer_get_default_data_size (vm),
+			     physmem_map_index, "default-numa-%d", numa_node);
 
   if (*index == (u8) ~ 0)
     error = clib_error_return (0, "maximum number of buffer pools reached");
-  vec_free (name);
 
 
   return error;
@@ -759,10 +738,8 @@ buffer_get_cached (vlib_buffer_pool_t * bp)
 
   clib_spinlock_lock (&bp->lock);
 
-  /* *INDENT-OFF* */
   vec_foreach (bpt, bp->threads)
     cached += bpt->n_cached;
-  /* *INDENT-ON* */
 
   clib_spinlock_unlock (&bp->lock);
 
@@ -820,7 +797,7 @@ clib_error_t *
 vlib_buffer_main_init (struct vlib_main_t * vm)
 {
   vlib_buffer_main_t *bm;
-  clib_error_t *err;
+  clib_error_t *err = 0;
   clib_bitmap_t *bmp = 0, *bmp_has_memory = 0;
   u32 numa_node;
   vlib_buffer_pool_t *bp;
@@ -834,13 +811,8 @@ vlib_buffer_main_init (struct vlib_main_t * vm)
 
   clib_spinlock_init (&bm->buffer_known_hash_lockp);
 
-  if ((err = clib_sysfs_read ("/sys/devices/system/node/online", "%U",
-			      unformat_bitmap_list, &bmp)))
-    clib_error_free (err);
-
-  if ((err = clib_sysfs_read ("/sys/devices/system/node/has_memory", "%U",
-			      unformat_bitmap_list, &bmp_has_memory)))
-    clib_error_free (err);
+  bmp = os_get_online_cpu_node_bitmap ();
+  bmp_has_memory = os_get_cpu_with_memory_bitmap ();
 
   if (bmp && bmp_has_memory)
     bmp = clib_bitmap_and (bmp, bmp_has_memory);
@@ -853,11 +825,14 @@ vlib_buffer_main_init (struct vlib_main_t * vm)
     clib_panic ("system have more than %u NUMA nodes",
 		VLIB_BUFFER_MAX_NUMA_NODES);
 
-  /* *INDENT-OFF* */
   clib_bitmap_foreach (numa_node, bmp)
     {
       u8 *index = bm->default_buffer_pool_index_for_numa + numa_node;
       index[0] = ~0;
+
+      if (bm->buffers_per_numa[numa_node] == 0)
+	continue;
+
       if ((err = vlib_buffer_main_init_numa_node (vm, numa_node, index)))
         {
 	  clib_error_report (err);
@@ -868,7 +843,6 @@ vlib_buffer_main_init (struct vlib_main_t * vm)
       if (first_valid_buffer_pool_index == 0xff)
         first_valid_buffer_pool_index = index[0];
     }
-  /* *INDENT-ON* */
 
   if (first_valid_buffer_pool_index == (u8) ~ 0)
     {
@@ -876,14 +850,12 @@ vlib_buffer_main_init (struct vlib_main_t * vm)
       goto done;
     }
 
-  /* *INDENT-OFF* */
   clib_bitmap_foreach (numa_node, bmp)
     {
       if (bm->default_buffer_pool_index_for_numa[numa_node]  == (u8) ~0)
 	bm->default_buffer_pool_index_for_numa[numa_node] =
 	  first_valid_buffer_pool_index;
     }
-  /* *INDENT-ON* */
 
   vec_foreach (bp, bm->buffer_pools)
   {
@@ -892,16 +864,16 @@ vlib_buffer_main_init (struct vlib_main_t * vm)
       continue;
 
     reg.entry_index =
-      vlib_stats_add_gauge ("/buffer-pools/%s/cached", bp->name);
+      vlib_stats_add_gauge ("/buffer-pools/%v/cached", bp->name);
     reg.collect_fn = buffer_gauges_collect_cached_fn;
     vlib_stats_register_collector_fn (&reg);
 
-    reg.entry_index = vlib_stats_add_gauge ("/buffer-pools/%s/used", bp->name);
+    reg.entry_index = vlib_stats_add_gauge ("/buffer-pools/%v/used", bp->name);
     reg.collect_fn = buffer_gauges_collect_used_fn;
     vlib_stats_register_collector_fn (&reg);
 
     reg.entry_index =
-      vlib_stats_add_gauge ("/buffer-pools/%s/available", bp->name);
+      vlib_stats_add_gauge ("/buffer-pools/%v/available", bp->name);
     reg.collect_fn = buffer_gauges_collect_available_fn;
     vlib_stats_register_collector_fn (&reg);
   }
@@ -914,18 +886,48 @@ done:
 }
 
 static clib_error_t *
+vlib_buffers_numa_configure (vlib_buffer_main_t *bm, u32 numa_node,
+			     unformat_input_t *input)
+{
+  u32 buffers = ~0;
+
+  if (numa_node >= VLIB_BUFFER_MAX_NUMA_NODES)
+    return clib_error_return (0, "invalid numa node");
+
+  if (!input)
+    return 0;
+
+  unformat_skip_white_space (input);
+  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (input, "buffers %u", &buffers))
+	;
+      else
+	return unformat_parse_error (input);
+    }
+
+  bm->buffers_per_numa[numa_node] = buffers;
+  return 0;
+}
+
+static clib_error_t *
 vlib_buffers_configure (vlib_main_t * vm, unformat_input_t * input)
 {
   vlib_buffer_main_t *bm;
+  u32 numa_node;
+  unformat_input_t sub_input;
+  clib_error_t *error = 0;
 
   vlib_buffer_main_alloc (vm);
 
   bm = vm->buffer_main;
   bm->log2_page_size = CLIB_MEM_PAGE_SZ_UNKNOWN;
+  memset (bm->buffers_per_numa, ~0, sizeof (bm->buffers_per_numa));
 
   while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
     {
-      if (unformat (input, "buffers-per-numa %u", &bm->buffers_per_numa))
+      if (unformat (input, "buffers-per-numa %u",
+		    &bm->default_buffers_per_numa))
 	;
       else if (unformat (input, "page-size %U", unformat_log2_page_size,
 			 &bm->log2_page_size))
@@ -933,6 +935,15 @@ vlib_buffers_configure (vlib_main_t * vm, unformat_input_t * input)
       else if (unformat (input, "default data-size %u",
 			 &bm->default_data_size))
 	;
+      else if (unformat (input, "numa %u %U", &numa_node,
+			 unformat_vlib_cli_sub_input, &sub_input))
+	{
+	  error = vlib_buffers_numa_configure (bm, numa_node, &sub_input);
+	  unformat_free (&sub_input);
+
+	  if (error)
+	    return error;
+	}
       else
 	return unformat_parse_error (input);
     }
@@ -977,10 +988,3 @@ vlib_buffer_set_alloc_free_callback (
 }
 
 /** @endcond */
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

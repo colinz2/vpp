@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef SRC_VNET_TCP_TCP_INLINES_H_
@@ -56,7 +46,7 @@ tcp_buffer_hdr (vlib_buffer_t * b)
 }
 
 always_inline tcp_connection_t *
-tcp_connection_get (u32 conn_index, u32 thread_index)
+tcp_connection_get (u32 conn_index, clib_thread_index_t thread_index)
 {
   tcp_worker_ctx_t *wrk = tcp_get_worker (thread_index);
   if (PREDICT_FALSE (pool_is_free_index (wrk->connections, conn_index)))
@@ -65,10 +55,10 @@ tcp_connection_get (u32 conn_index, u32 thread_index)
 }
 
 always_inline tcp_connection_t *
-tcp_connection_get_if_valid (u32 conn_index, u32 thread_index)
+tcp_connection_get_if_valid (u32 conn_index, clib_thread_index_t thread_index)
 {
   tcp_worker_ctx_t *wrk;
-  if (thread_index >= vec_len (tcp_main.wrk_ctx))
+  if (thread_index >= vec_len (tcp_main.wrk))
     return 0;
   wrk = tcp_get_worker (thread_index);
   if (pool_is_free_index (wrk->connections, conn_index))
@@ -215,9 +205,9 @@ tcp_is_lost_fin (tcp_connection_t * tc)
  * Time used to generate timestamps, not the timestamp
  */
 always_inline u32
-tcp_time_tstamp (u32 thread_index)
+tcp_time_tstamp (clib_thread_index_t thread_index)
 {
-  return tcp_main.wrk_ctx[thread_index].time_tstamp;
+  return tcp_main.wrk[thread_index].time_tstamp;
 }
 
 /**
@@ -226,14 +216,13 @@ tcp_time_tstamp (u32 thread_index)
 always_inline u32
 tcp_tstamp (tcp_connection_t * tc)
 {
-  return (tcp_main.wrk_ctx[tc->c_thread_index].time_tstamp -
-	  tc->timestamp_delta);
+  return (tcp_main.wrk[tc->c_thread_index].time_tstamp - tc->timestamp_delta);
 }
 
 always_inline f64
-tcp_time_now_us (u32 thread_index)
+tcp_time_now_us (clib_thread_index_t thread_index)
 {
-  return tcp_main.wrk_ctx[thread_index].time_us;
+  return tcp_main.wrk[thread_index].time_us;
 }
 
 always_inline void
@@ -484,11 +473,3 @@ vlib_buffer_push_tcp (vlib_buffer_t * b, u16 sp_net, u16 dp_net, u32 seq,
 }
 
 #endif /* SRC_VNET_TCP_TCP_INLINES_H_ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

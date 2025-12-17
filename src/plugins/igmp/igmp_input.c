@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <vlib/vlib.h>
@@ -219,7 +206,6 @@ igmp_input (vlib_main_t * vm, vlib_node_runtime_t * node,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (igmp_input_node) =
 {
   .function = igmp_input,
@@ -239,7 +225,6 @@ VLIB_REGISTER_NODE (igmp_input_node) =
       [IGMP_INPUT_NEXT_PARSE_REPORT] = "igmp-parse-report",
   }
 };
-/* *INDENT-ON* */
 
 static uword
 igmp_parse_query (vlib_main_t * vm, vlib_node_runtime_t * node,
@@ -325,7 +310,6 @@ igmp_parse_query (vlib_main_t * vm, vlib_node_runtime_t * node,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (igmp_parse_query_node) =
 {
   .function = igmp_parse_query,
@@ -343,7 +327,6 @@ VLIB_REGISTER_NODE (igmp_parse_query_node) =
     [IGMP_PARSE_QUERY_NEXT_DROP] = "error-drop",
   }
 };
-/* *INDENT-ON* */
 
 static uword
 igmp_parse_report (vlib_main_t * vm, vlib_node_runtime_t * node,
@@ -436,7 +419,6 @@ igmp_parse_report (vlib_main_t * vm, vlib_node_runtime_t * node,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (igmp_parse_report_node) =
 {
   .function = igmp_parse_report,
@@ -454,7 +436,6 @@ VLIB_REGISTER_NODE (igmp_parse_report_node) =
     [IGMP_PARSE_REPORT_NEXT_DROP] = "error-drop",
   }
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 igmp_input_init (vlib_main_t * vm)
@@ -466,17 +447,6 @@ igmp_input_init (vlib_main_t * vm)
   return (0);
 }
 
-/* *INDENT-OFF* */
-VLIB_INIT_FUNCTION (igmp_input_init) =
-{
-  .runs_after = VLIB_INITS("igmp_init"),
+VLIB_INIT_FUNCTION (igmp_input_init) = {
+  .runs_after = VLIB_INITS ("igmp_init"),
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -538,6 +538,8 @@ vrrp_garp_or_na_send (vrrp_vr_t * vr)
 
   vlib_put_frame_to_node (vm, vmp->intf_output_node_idx, to_frame);
 
+  vec_free (bi);
+
   return 0;
 }
 
@@ -770,12 +772,3 @@ vrrp_vr_multicast_group_join (vrrp_vr_t * vr)
 
   return f->n_vectors;
 }
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

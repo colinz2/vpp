@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/ip/ip.h>
@@ -22,13 +12,16 @@ cnat_snat_policy_main_t cnat_snat_policy_main;
 uword
 unformat_cnat_snat_interface_map_type (unformat_input_t *input, va_list *args)
 {
-  u8 *a = va_arg (*args, u8 *);
+  cnat_snat_interface_map_type_t *a =
+    va_arg (*args, cnat_snat_interface_map_type_t *);
   if (unformat (input, "include-v4"))
     *a = CNAT_SNAT_IF_MAP_INCLUDE_V4;
   else if (unformat (input, "include-v6"))
     *a = CNAT_SNAT_IF_MAP_INCLUDE_V6;
   else if (unformat (input, "k8s"))
     *a = CNAT_SNAT_IF_MAP_INCLUDE_POD;
+  else if (unformat (input, "host"))
+    *a = CNAT_SNAT_IF_MAP_INCLUDE_HOST;
   else
     return 0;
   return 1;
@@ -48,6 +41,9 @@ format_cnat_snat_interface_map_type (u8 *s, va_list *args)
       break;
     case CNAT_SNAT_IF_MAP_INCLUDE_POD:
       s = format (s, "k8s pod");
+      break;
+    case CNAT_SNAT_IF_MAP_INCLUDE_HOST:
+      s = format (s, "k8s host");
       break;
     default:
       s = format (s, "(unknown)");
@@ -108,7 +104,7 @@ cnat_snat_policy_add_del_if_command_fn (vlib_main_t *vm,
   vnet_main_t *vnm = vnet_get_main ();
   int is_add = 1;
   u32 sw_if_index = ~0;
-  u32 table = 0;
+  cnat_snat_interface_map_type_t table = CNAT_SNAT_IF_MAP_INCLUDE_V4;
   int rv;
 
   while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
@@ -295,6 +291,14 @@ cnat_snat_policy_k8s (vlib_buffer_t *b, cnat_session_t *session)
   ip46_address_t *dst_addr = &session->key.cs_ip[VLIB_TX];
   u32 in_if = vnet_buffer (b)->sw_if_index[VLIB_RX];
   u32 out_if = vnet_buffer (b)->sw_if_index[VLIB_TX];
+
+  /* we should never snat traffic that we punt to the host, pass traffic as it
+   * is for us */
+  if (clib_bitmap_get (cpm->interface_maps[CNAT_SNAT_IF_MAP_INCLUDE_HOST],
+		       out_if))
+    {
+      return 0;
+    }
 
   /* source nat for outgoing connections */
   if (cnat_snat_policy_interface_enabled (in_if, af))
@@ -584,11 +588,3 @@ cnat_snat_init (vlib_main_t *vm)
 }
 
 VLIB_INIT_FUNCTION (cnat_snat_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

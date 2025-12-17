@@ -26,25 +26,11 @@ class Field(object):
 
     def __str__(self):
         if self.len is None:
-            return "Field(name: %s, type: %s)" % (self.name, self.type)
-        elif type(self.len) == dict:
-            return "Field(name: %s, type: %s, length: %s)" % (
-                self.name,
-                self.type,
-                self.len,
-            )
+            return f"Field(name: {self.name}, type: {self.type})"
         elif self.len > 0:
-            return "Field(name: %s, type: %s, length: %s)" % (
-                self.name,
-                self.type,
-                self.len,
-            )
+            return "Field(name: {self.name}, type: {self.type}, length: {self.len})"
         else:
-            return "Field(name: %s, type: %s, variable length stored in: %s)" % (
-                self.name,
-                self.type,
-                self.nelem_field,
-            )
+            return "Field(name: {self.name}, type: {self.type}, VLA length in: {self.nelem_field})"
 
     def is_vla(self):
         return self.nelem_field is not None
@@ -158,6 +144,7 @@ class Message(object):
         self.header = None
         self.is_reply = json_parser.is_reply(self.name)
         self.is_event = json_parser.is_event(self.name)
+        self.is_stream = json_parser.is_stream(self.name)
         fields = []
         for header in get_msg_header_defs(
             struct_type_class, field_class, json_parser, logger
@@ -196,12 +183,18 @@ class Message(object):
                             "array `%s' doesn't have reference to member "
                             "containing the actual length" % (name, field[1])
                         )
-                    if field[0] == "string" and field[2] > 0:
-                        field_type = json_parser.lookup_type_like_id("u8")
+                    if field[0] == "string" and field[2] == 0:
+                        field_type = json_parser.lookup_type_like_id("vl_api_string_t")
+                        p = field_class(field_name=field[1], field_type=field_type)
+                    else:
+                        if field[0] == "string" and field[2] > 0:
+                            field_type = json_parser.lookup_type_like_id("u8")
 
-                    p = field_class(
-                        field_name=field[1], field_type=field_type, array_len=field[2]
-                    )
+                        p = field_class(
+                            field_name=field[1],
+                            field_type=field_type,
+                            array_len=field[2],
+                        )
                 elif l == 4:
                     nelem_field = None
                     for f in fields:
@@ -254,13 +247,47 @@ class StructType(Type, Struct):
                 p = field_class(field_name=field[1], field_type=field_type)
             elif len(field) == 3:
                 if field[2] == 0:
-                    raise ParseError(
-                        "While parsing type `%s': array `%s' has "
-                        "variable length" % (name, field[1])
+                    if name == "vl_api_string_t":
+                        p = None
+                        for f in fields:
+                            if f.name == "length":
+                                nelem_field = f
+                                p = field_class(
+                                    field_name=field[1],
+                                    field_type=field_type,
+                                    array_len=field[2],
+                                    nelem_field=nelem_field,
+                                )
+                                break
+                        if p is None:
+                            raise ParseError(
+                                "While parsing type `%s': missing `length'" % name
+                            )
+                    else:
+                        raise ParseError(
+                            "While parsing type `%s': array `%s' has "
+                            "variable length" % (name, field[1])
+                        )
+                elif type(field[2]) is dict:
+                    # the concept of default values is broken beyond repair:
+                    #
+                    # if following is allowed:
+                    # typedef feature1 { u32 table_id[default=0xffffffff]; }
+                    # typedef feature2 { u32 hash_buckets[default=1024]; }
+                    # union here_we_go { vl_api_feature1_t this; vl_api_feature2_t that; };
+                    #
+                    # what does it mean to set the defaults for instance of here_we_go?
+                    #
+                    # because of that, we parse it here, but don't do anything about it...
+                    if len(field[2]) != 1 or "default" not in field[2]:
+                        raise ParseError(
+                            f"Don't know how to parse field `{field}' of type definition for type `{t}'"
+                        )
+                    p = field_class(field_name=field[1], field_type=field_type)
+                else:
+                    p = field_class(
+                        field_name=field[1], field_type=field_type, array_len=field[2]
                     )
-                p = field_class(
-                    field_name=field[1], field_type=field_type, array_len=field[2]
-                )
             elif len(field) == 4:
                 nelem_field = None
                 for f in fields:
@@ -343,9 +370,16 @@ class JsonParser(object):
             ]
         }
 
-        self.types["string"] = simple_type_class("vl_api_string_t")
+        self.types["string"] = simple_type_class("u8")
+        self.types["vl_api_string_t"] = struct_type_class(
+            ["vl_api_string_t", ["u32", "length"], ["u8", "buf", 0]],
+            self,
+            field_class,
+            logger,
+        )
         self.replies = set()
         self.events = set()
+        self.streams = set()
         self.simple_type_class = simple_type_class
         self.enum_class = enum_class
         self.union_class = union_class
@@ -384,6 +418,8 @@ class JsonParser(object):
                 if "events" in self.services[k]:
                     for x in self.services[k]["events"]:
                         self.events.add(x)
+                if "stream_msg" in self.services[k]:
+                    self.streams.add(self.services[k]["stream_msg"])
             for e in j["enums"]:
                 name = e[0]
                 value_pairs = e[1:-1]
@@ -521,6 +557,20 @@ class JsonParser(object):
     def is_event(self, message):
         return message in self.events
 
+    def is_stream(self, message):
+        return message in self.streams
+
+    def has_stream_msg(self, message):
+        return (
+            message.name in self.services
+            and "stream_msg" in self.services[message.name]
+        )
+
+    def get_stream_msg(self, message):
+        if not self.has_stream_msg(message):
+            return None
+        return self.messages[self.services[message.name]["stream_msg"]]
+
     def get_reply(self, message):
         return self.messages[self.services[message]["reply"]]
 
@@ -532,13 +582,15 @@ class JsonParser(object):
             remove = []
             for n, m in j.items():
                 try:
-                    if not m.is_reply and not m.is_event:
+                    if not m.is_reply and not m.is_event and not m.is_stream:
                         try:
                             m.reply = self.get_reply(n)
+                            m.reply_is_stream = False
+                            m.has_stream_msg = self.has_stream_msg(m)
                             if "stream" in self.services[m.name]:
                                 m.reply_is_stream = self.services[m.name]["stream"]
-                            else:
-                                m.reply_is_stream = False
+                            if m.has_stream_msg:
+                                m.stream_msg = self.get_stream_msg(m)
                             m.reply.request = m
                         except:
                             raise ParseError("Cannot find reply to message `%s'" % n)

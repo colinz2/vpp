@@ -2,11 +2,12 @@ import argparse
 import os
 import psutil
 import time
+from vpp_qemu_utils import can_create_namespaces
 
 
 def positive_int_or_default(default):
     def positive_integer(v):
-        if v is None or v == "":
+        if v is None or v == "" or int(v) == default:
             return default
         if int(v) <= 0:
             raise ValueError("value must be positive")
@@ -17,7 +18,7 @@ def positive_int_or_default(default):
 
 def positive_float_or_default(default):
     def positive_float(v):
-        if v is None or v == "":
+        if v is None or v == "" or float(v) == default:
             return default
         if float(v) <= 0:
             raise ValueError("value must be positive")
@@ -150,6 +151,21 @@ parser.add_argument(
     "--filter", action="store", metavar="FILTER_EXPRESSION", help=filter_help_string
 )
 
+skip_filter_help_string = """\
+expression consists of one or more filters separated by commas (',')
+filter consists of 3 string selectors separated by dots ('.')
+
+The syntax is identical to the expression used to select the tests,
+except this one one has the effect to skip the tests that match it.
+"""
+
+parser.add_argument(
+    "--skip-filter",
+    action="store",
+    metavar="SKIP_FILTER_EXPR",
+    help=skip_filter_help_string,
+)
+
 default_retries = 0
 
 parser.add_argument(
@@ -191,10 +207,16 @@ parser.add_argument(
 )
 
 parser.add_argument("--extended", action="store_true", help="run extended tests")
+parser.add_argument(
+    "--skip-netns-tests",
+    action="store_true",
+    help="skip tests involving netns operations",
+)
 
 parser.add_argument(
     "--sanity", action="store_true", help="perform sanity vpp run before running tests"
 )
+parser.add_argument("--api-preload", action="store_true", help="preload API files")
 
 parser.add_argument(
     "--force-foreground",
@@ -327,6 +349,13 @@ parser.add_argument(
     help="max cpus used by vpp",
 )
 
+parser.add_argument(
+    "--vpp-opt-deps-library-path",
+    action="store",
+    default=None,
+    help="path to vpp-opt-deps library directory",
+)
+
 variant_help_string = """\
 specify which march node variant to unit test
   e.g. --variant=skx - test the skx march variants
@@ -381,6 +410,15 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--excluded-plugin",
+    dest="excluded_plugins",
+    required=False,
+    action="append",
+    default=[],
+    help="Exclude the tests that indicate they require this plugin(s)",
+)
+
+parser.add_argument(
     "-d",
     "--socket-dir",
     dest="socket_dir",
@@ -391,6 +429,15 @@ parser.add_argument(
     "The directory must contain VPP's socket files:api.sock & stats.sock.\n"
     "Default: /var/run/vpp if VPP is started as the root user, else "
     "/var/run/user/${uid}/vpp.",
+)
+
+default_decode_pcaps = "failed"
+parser.add_argument(
+    "--decode-pcaps",
+    action="store",
+    choices=["none", "failed", "all"],
+    default=default_decode_pcaps,
+    help=f"if set, decode all pcap files from a test run (default: {default_decode_pcaps})",
 )
 
 config = parser.parse_args()
@@ -443,6 +490,10 @@ elif config.max_vpp_cpus > 0:
     max_vpp_cpus = min(config.max_vpp_cpus, num_cpus)
 else:
     max_vpp_cpus = num_cpus
+
+if not config.skip_netns_tests:
+    if not can_create_namespaces():
+        config.skip_netns_tests = True
 
 if __name__ == "__main__":
     print("Provided arguments:")

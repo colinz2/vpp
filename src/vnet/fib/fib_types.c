@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/ip/ip.h>
@@ -708,6 +698,17 @@ unformat_fib_route_path (unformat_input_t * input, va_list * args)
             rpath->frp_proto = DPO_PROTO_IP4;
             rpath->frp_flags = FIB_ROUTE_PATH_INTF_RX;
         }
+        else if (unformat (input, "rx-ip6 %U",
+                           unformat_vnet_sw_interface, vnm,
+                           &rpath->frp_sw_if_index))
+        {
+            rpath->frp_proto = DPO_PROTO_IP6;
+            rpath->frp_flags = FIB_ROUTE_PATH_INTF_RX;
+        }
+      else if (unformat (input, "drop"))
+        {
+          rpath->frp_flags = FIB_ROUTE_PATH_DROP;
+        }
       else if (unformat (input, "local"))
 	{
 	  clib_memset (&rpath->frp_addr, 0, sizeof (rpath->frp_addr));
@@ -775,6 +776,7 @@ fib_route_path_is_attached (const fib_route_path_t *rpath)
      * L3 game with these
      */
     if (rpath->frp_flags & (FIB_ROUTE_PATH_DVR |
+                            FIB_ROUTE_PATH_INTF_RX |
                             FIB_ROUTE_PATH_UDP_ENCAP))
     {
         return (0);

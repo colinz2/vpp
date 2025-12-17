@@ -1,19 +1,8 @@
-/*
- * l2_input.c : layer 2 input packet processing
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2013 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* l2_input.c : layer 2 input packet processing */
 
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
@@ -646,13 +635,11 @@ done:
  * Example of how to remove an interface from a Layer2 bridge-domain:
  * @cliexcmd{set interface l3 GigabitEthernet0/a/0.200}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (int_l2_bridge_cli, static) = {
   .path = "set interface l2 bridge",
   .short_help = "set interface l2 bridge <interface> <bridge-domain-id> [bvi|uu-fwd] [shg]",
   .function = int_l2_bridge,
 };
-/* *INDENT-ON* */
 
 /**
  * Set subinterface in xconnect mode with another interface.
@@ -712,13 +699,11 @@ done:
  * @cliexcmd{set interface l3 GigabitEthernet0/8/0.300}
  * @cliexcmd{set interface l3 GigabitEthernet0/9/0.300}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (int_l2_xc_cli, static) = {
   .path = "set interface l2 xconnect",
   .short_help = "set interface l2 xconnect <interface> <peer interface>",
   .function = int_l2_xc,
 };
-/* *INDENT-ON* */
 
 /**
  * Set subinterface in L3 mode.
@@ -762,13 +747,11 @@ done:
  * Example of how to set the mode of an interface to Layer 3:
  * @cliexcmd{set interface l3 GigabitEthernet0/8/0.200}
 ?*/
-/* *INDENT-OFF* */
      VLIB_CLI_COMMAND (int_l3_cli, static) = {
   .path = "set interface l3",
   .short_help = "set interface l3 <interface>",
   .function = int_l3,
 };
-/* *INDENT-ON* */
 
 /**
  * Show interface mode.
@@ -810,9 +793,7 @@ show_int_mode (vlib_main_t * vm,
       /* Gather interfaces. */
       sis = vec_new (vnet_sw_interface_t, pool_elts (im->sw_interfaces));
       vec_set_len (sis, 0);
-      /* *INDENT-OFF* */
       pool_foreach (si, im->sw_interfaces) { vec_add1 (sis, si[0]); }
-      /* *INDENT-ON* */
     }
 
   vec_foreach (si, sis)
@@ -878,13 +859,11 @@ done:
  * l2 bridge GigabitEthernet0/8/0.200 bd_id 200 shg 0
  * @cliexend
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_l2_mode, static) = {
   .path = "show mode",
   .short_help = "show mode [<if-name1> <if-name2> ...]",
   .function = show_int_mode,
 };
-/* *INDENT-ON* */
 
 #define foreach_l2_init_function                \
 _(feat_bitmap_drop_init)                        \
@@ -917,11 +896,3 @@ while (0);
 }
 
 VLIB_INIT_FUNCTION (l2_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef __IPSEC_H__
 #define __IPSEC_H__
 
@@ -93,8 +84,6 @@ typedef struct
   add_del_sa_sess_cb_t add_del_sa_sess_cb;
   /* check support function */
   check_support_cb_t check_support_cb;
-  /* enable or disable function */
-  enable_disable_cb_t enable_disable_cb;
   u32 esp4_encrypt_node_index;
   u32 esp4_decrypt_node_index;
   u32 esp4_encrypt_next_index;
@@ -114,32 +103,34 @@ typedef struct
 
 typedef struct
 {
-  vnet_crypto_op_id_t enc_op_id;
-  vnet_crypto_op_id_t dec_op_id;
-  vnet_crypto_alg_t alg;
-  u8 iv_size;
-  u8 block_align;
-  u8 icv_size;
+  const vnet_crypto_op_id_t enc_op_id;
+  const vnet_crypto_op_id_t dec_op_id;
+  const vnet_crypto_alg_t alg;
+  const u8 iv_size;
+  const u8 block_align;
+  const u8 icv_size;
+  const u8 is_aead : 1;
+  const u8 is_ctr : 1;
+  const u8 is_null_gmac : 1;
+  ipsec_build_op_tmpl_fn_t bld_enc_op_tmpl[VNET_CRYPTO_HANDLER_N_TYPES];
 } ipsec_main_crypto_alg_t;
 
 typedef struct
 {
-  vnet_crypto_op_id_t op_id;
-  vnet_crypto_alg_t alg;
-  u8 icv_size;
+  const vnet_crypto_op_id_t op_id;
+  const vnet_crypto_alg_t alg;
+  const u8 icv_size;
+  ipsec_build_op_tmpl_fn_t bld_integ_op_tmpl[VNET_CRYPTO_HANDLER_N_TYPES];
 } ipsec_main_integ_alg_t;
 
 typedef struct
 {
   CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
   vnet_crypto_op_t *crypto_ops;
-  vnet_crypto_op_t *integ_ops;
   vnet_crypto_op_t *chained_crypto_ops;
-  vnet_crypto_op_t *chained_integ_ops;
   vnet_crypto_op_chunk_t *chunks;
   vnet_crypto_async_frame_t **async_frames;
 } ipsec_per_thread_data_t;
-
 typedef struct
 {
   /* pool of tunnel instances */
@@ -226,10 +217,10 @@ typedef struct
   u32 esp_default_backend;
 
   /* crypto alg data */
-  ipsec_main_crypto_alg_t *crypto_algs;
+  ipsec_main_crypto_alg_t crypto_algs[IPSEC_CRYPTO_N_ALG];
 
   /* crypto integ data */
-  ipsec_main_integ_alg_t *integ_algs;
+  ipsec_main_integ_alg_t integ_algs[IPSEC_INTEG_N_ALG];
 
   /* per-thread data */
   ipsec_per_thread_data_t *ptd;
@@ -250,6 +241,8 @@ typedef struct
   u32 esp4_dec_tun_fq_index;
   u32 esp6_dec_tun_fq_index;
 
+  u32 handoff_queue_size;
+
   /* Number of buckets for flow cache */
   u32 ipsec4_out_spd_hash_num_buckets;
   u32 ipsec4_out_spd_flow_cache_entries;
@@ -263,6 +256,10 @@ typedef struct
 
   u8 async_mode;
   u16 msg_id_base;
+
+  ipsec_sa_t *sa_pool;
+  ipsec_sa_inb_rt_t **inb_sa_runtimes;
+  ipsec_sa_outb_rt_t **outb_sa_runtimes;
 } ipsec_main_t;
 
 typedef enum ipsec_format_flags_t_
@@ -354,8 +351,9 @@ ipsec_spinlock_unlock (i32 *lock)
  */
 always_inline void
 ipsec_set_next_index (vlib_buffer_t *b, vlib_node_runtime_t *node,
-		      u32 thread_index, u32 err, u32 ipsec_sa_err, u16 index,
-		      u16 *nexts, u16 drop_next, u32 sa_index)
+		      clib_thread_index_t thread_index, u32 err,
+		      u32 ipsec_sa_err, u16 index, u16 *nexts, u16 drop_next,
+		      u32 sa_index)
 {
   nexts[index] = drop_next;
   b->error = node->errors[err];
@@ -381,8 +379,7 @@ u32 ipsec_register_esp_backend (
   const char *esp6_decrypt_node_name, const char *esp6_decrypt_tun_node_name,
   const char *esp_mpls_encrypt_tun_node_name,
   check_support_cb_t esp_check_support_cb,
-  add_del_sa_sess_cb_t esp_add_del_sa_sess_cb,
-  enable_disable_cb_t enable_disable_cb);
+  add_del_sa_sess_cb_t esp_add_del_sa_sess_cb);
 
 int ipsec_select_ah_backend (ipsec_main_t * im, u32 ah_backend_idx);
 int ipsec_select_esp_backend (ipsec_main_t * im, u32 esp_backend_idx);
@@ -397,12 +394,6 @@ extern clib_error_t *ipsec_register_next_header (vlib_main_t *vm,
 						 u8 next_header,
 						 const char *next_node);
 
-#endif /* __IPSEC_H__ */
+#include <vnet/ipsec/ipsec_funcs.h>
 
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+#endif /* __IPSEC_H__ */

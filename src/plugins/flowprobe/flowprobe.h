@@ -1,19 +1,9 @@
-/*
- * flowprobe.h - ipfix probe plug-in header file
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* flowprobe.h - ipfix probe plug-in header file */
+
 #ifndef __included_flowprobe_h__
 #define __included_flowprobe_h__
 
@@ -42,7 +32,6 @@ typedef enum
   FLOW_N_RECORDS = 1 << 5,
 } flowprobe_record_t;
 
-/* *INDENT-OFF* */
 typedef enum __attribute__ ((__packed__))
 {
   FLOW_VARIANT_IP4 = 0,
@@ -59,7 +48,6 @@ typedef enum __attribute__ ((__packed__))
   FLOW_DIRECTION_TX,
   FLOW_DIRECTION_BOTH,
 } flowprobe_direction_t;
-/* *INDENT-ON* */
 
 STATIC_ASSERT (sizeof (flowprobe_variant_t) == 1,
 	       "flowprobe_variant_t is expected to be 1 byte, "
@@ -79,7 +67,6 @@ typedef struct
   u16 *next_record_offset_per_worker;
 } flowprobe_protocol_context_t;
 
-/* *INDENT-OFF* */
 typedef struct __attribute__ ((aligned (8))) {
   u32 rx_sw_if_index;
   u32 tx_sw_if_index;
@@ -94,7 +81,6 @@ typedef struct __attribute__ ((aligned (8))) {
   flowprobe_variant_t which;
   flowprobe_direction_t direction;
 } flowprobe_key_t;
-/* *INDENT-ON* */
 
 typedef struct
 {
@@ -142,9 +128,7 @@ typedef struct
   u8 ht_log2len;		/* Hash table size is 2^log2len */
   u32 **hash_per_worker;
   flowprobe_entry_t **pool_per_worker;
-  /* *INDENT-OFF* */
   TWT (tw_timer_wheel) ** timers_per_worker;
-  /* *INDENT-ON* */
   u32 **expired_passive_per_worker;
 
   flowprobe_record_t record;
@@ -168,17 +152,11 @@ typedef struct
 extern flowprobe_main_t flowprobe_main;
 extern vlib_node_registration_t flowprobe_walker_node;
 
+void flowprobe_delete_by_index (u32 my_cpu_number, u32 poolindex);
+
 void flowprobe_flush_callback_ip4 (void);
 void flowprobe_flush_callback_ip6 (void);
 void flowprobe_flush_callback_l2 (void);
 u8 *format_flowprobe_entry (u8 * s, va_list * args);
 
 #endif
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

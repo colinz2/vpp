@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016-2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <stddef.h>
 #include <netinet/in.h>
 
@@ -45,7 +36,6 @@ typedef struct
   u8 action;
 } acl_fa_trace_t;
 
-/* *INDENT-OFF* */
 #define foreach_acl_fa_error \
 _(ACL_DROP, "ACL deny packets")  \
 _(ACL_PERMIT, "ACL permit packets")  \
@@ -64,7 +54,6 @@ typedef enum
     ACL_FA_N_ERROR,
 } acl_fa_error_t;
 
-/* *INDENT-ON* */
 
 typedef struct
 {
@@ -109,7 +98,6 @@ _(DROP, "dropped outbound non-whitelisted non-ip packets") \
 _(PERMIT, "permitted outbound whitelisted non-ip packets") \
 
 
-/* *INDENT-OFF* */
 
 typedef enum
 {
@@ -138,7 +126,6 @@ static char *fa_out_nonip_error_strings[] = {
   foreach_nonip_out_error
 #undef _
 };
-/* *INDENT-ON* */
 
 
 always_inline int
@@ -237,7 +224,6 @@ VLIB_NODE_FN (acl_out_nonip_node) (vlib_main_t * vm,
 }
 
 
-/* *INDENT-OFF* */
 
 VLIB_REGISTER_NODE (acl_in_nonip_node) =
 {
@@ -276,19 +262,8 @@ VLIB_REGISTER_NODE (acl_out_nonip_node) =
   }
 };
 
-VNET_FEATURE_INIT (acl_out_l2_nonip_fa_feature, static) =
-{
+VNET_FEATURE_INIT (acl_out_l2_nonip_fa_feature, static) = {
   .arc_name = "l2-output-nonip",
   .node_name = "acl-plugin-out-nonip-l2",
   .runs_before = VNET_FEATURES ("l2-output-feat-arc-end"),
 };
-
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <lisp/lisp-gpe/lisp_gpe_fwd_entry.h>
@@ -1356,7 +1346,6 @@ vnet_lisp_gpe_fwd_entry_flush (void)
   lisp_gpe_main_t *lgm = &lisp_gpe_main;
   lisp_gpe_fwd_entry_t *lfe;
 
-  /* *INDENT-OFF* */
   pool_foreach (lfe, lgm->lisp_fwd_entry_pool)
    {
     switch (fid_addr_type(&lfe->key->rmt))
@@ -1372,7 +1361,6 @@ vnet_lisp_gpe_fwd_entry_flush (void)
         break;
       }
   }
-  /* *INDENT-ON* */
 }
 
 static u8 *
@@ -1476,7 +1464,6 @@ lisp_gpe_fwd_entry_show (vlib_main_t * vm,
       return (NULL);
     }
 
-  /* *INDENT-OFF* */
   pool_foreach (lfe, lgm->lisp_fwd_entry_pool)
    {
     if ((vni == ~0) ||
@@ -1484,18 +1471,15 @@ lisp_gpe_fwd_entry_show (vlib_main_t * vm,
       vlib_cli_output (vm, "%U", format_lisp_gpe_fwd_entry, lfe,
 		       LISP_GPE_FWD_ENTRY_FORMAT_NONE);
   }
-  /* *INDENT-ON* */
 
   return (NULL);
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (lisp_gpe_fwd_entry_show_command, static) = {
   .path = "show gpe entry",
   .short_help = "show gpe entry vni <vni> vrf <vrf> [leid <leid>] reid <reid>",
   .function = lisp_gpe_fwd_entry_show,
 };
-/* *INDENT-ON* */
 
 clib_error_t *
 lisp_gpe_fwd_entry_init (vlib_main_t * vm)
@@ -1521,12 +1505,10 @@ vnet_lisp_gpe_get_fwd_entry_vnis (void)
   lisp_gpe_fwd_entry_t *lfe;
   u32 *vnis = 0;
 
-  /* *INDENT-OFF* */
   pool_foreach (lfe, lgm->lisp_fwd_entry_pool)
    {
     hash_set (vnis, lfe->key->vni, 0);
   }
-  /* *INDENT-ON* */
 
   return vnis;
 }
@@ -1538,7 +1520,6 @@ vnet_lisp_gpe_fwd_entries_get_by_vni (u32 vni)
   lisp_gpe_fwd_entry_t *lfe;
   lisp_api_gpe_fwd_entry_t *entries = 0, e;
 
-  /* *INDENT-OFF* */
   pool_foreach (lfe, lgm->lisp_fwd_entry_pool)
    {
     if (lfe->key->vni == vni)
@@ -1554,7 +1535,6 @@ vnet_lisp_gpe_fwd_entries_get_by_vni (u32 vni)
         vec_add1 (entries, e);
       }
   }
-  /* *INDENT-ON* */
 
   return entries;
 }
@@ -1583,11 +1563,3 @@ vnet_lisp_gpe_get_fwd_stats (vnet_lisp_gpe_add_del_fwd_entry_args_t * a,
 }
 
 VLIB_INIT_FUNCTION (lisp_gpe_fwd_entry_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

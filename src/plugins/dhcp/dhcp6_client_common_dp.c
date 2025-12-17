@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/ethernet/ethernet.h>
@@ -61,14 +51,12 @@ generate_client_duid (void)
   vnet_hw_interface_t *hi;
   ethernet_interface_t *eth_if = 0;
 
-  /* *INDENT-OFF* */
   pool_foreach (hi, im->hw_interfaces)
    {
     eth_if = ethernet_get_interface (&ethernet_main, hi->hw_if_index);
     if (eth_if)
       break;
   }
-  /* *INDENT-ON* */
 
   if (eth_if)
     clib_memcpy (client_duid.lla, &eth_if->address, 6);
@@ -425,7 +413,6 @@ dhcpv6_client_node_fn (vlib_main_t * vm, vlib_node_runtime_t * node,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (dhcpv6_client_node, static) = {
     .function = dhcpv6_client_node_fn,
     .name = "dhcpv6-client",
@@ -442,7 +429,6 @@ VLIB_REGISTER_NODE (dhcpv6_client_node, static) = {
 
     .format_trace = format_dhcpv6_client_trace,
 };
-/* *INDENT-ON* */
 
 void
 dhcp6_clients_enable_disable (u8 enable)
@@ -460,11 +446,3 @@ dhcp6_clients_enable_disable (u8 enable)
     udp_unregister_dst_port (vm, UDP_DST_PORT_dhcpv6_to_client,
 			     0 /* is_ip6 */ );
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

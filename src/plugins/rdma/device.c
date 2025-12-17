@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <unistd.h>
@@ -23,7 +10,7 @@
 
 #include <vppinfra/linux/sysfs.h>
 #include <vlib/vlib.h>
-#include <vlib/unix/unix.h>
+#include <vlib/file.h>
 #include <vlib/pci/pci.h>
 #include <vnet/ethernet/ethernet.h>
 #include <vnet/interface/rx_queue_funcs.h>
@@ -882,7 +869,7 @@ sysfs_path_to_pci_addr (char *path, vlib_pci_addr_t * addr)
   unformat_input_t in;
   u8 *s;
 
-  s = clib_sysfs_link_to_name (path);
+  s = clib_file_get_resolved_basename (path);
   if (!s)
     return 0;
 
@@ -1152,15 +1139,4 @@ rdma_init (vlib_main_t * vm)
   return 0;
 }
 
-VLIB_INIT_FUNCTION (rdma_init) =
-{
-  .runs_after = VLIB_INITS ("pci_bus_init"),
-};
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+VLIB_INIT_FUNCTION (rdma_init);

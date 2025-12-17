@@ -1,10 +1,9 @@
 """
-  BIER Tables and Routes
+BIER Tables and Routes
 """
 
 import socket
 from vpp_object import VppObject
-from vpp_ip_route import MPLS_LABEL_INVALID, VppRoutePath, VppMplsLabel
 
 
 class BIER_HDR_PAYLOAD:

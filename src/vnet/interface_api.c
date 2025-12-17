@@ -1,21 +1,13 @@
-/*
- *------------------------------------------------------------------
- * interface_api.c - vnet interface api
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
+
+/*
+ * interface_api.c - vnet interface api
+ */
+
+#define _GNU_SOURCE
+#include <string.h>
 
 #include <vnet/vnet.h>
 #include <vlibmemory/api.h>
@@ -384,8 +376,6 @@ vl_api_sw_interface_dump_t_handler (vl_api_sw_interface_dump_t * mp)
       vec_add1 (filter, 0);	/* Ensure it's a C string for strcasecmp() */
     }
 
-  char *strcasestr (char *, char *);	/* lnx hdr file botch */
-  /* *INDENT-OFF* */
   pool_foreach (swif, im->sw_interfaces)
    {
     if (!vnet_swif_is_api_visible (swif))
@@ -399,7 +389,6 @@ vl_api_sw_interface_dump_t_handler (vl_api_sw_interface_dump_t * mp)
 
     send_sw_interface_details (am, rp, swif, name, mp->context);
   }
-  /* *INDENT-ON* */
 
   vec_free (name);
   vec_free (filter);
@@ -579,7 +568,7 @@ ip_table_bind (fib_protocol_t fproto, u32 sw_if_index, u32 table_id)
   fib_index = fib_table_find (fproto, table_id);
   mfib_index = mfib_table_find (fproto, table_id);
 
-  if (~0 == fib_index || ~0 == mfib_index)
+  if (~0 == fib_index)
     {
       return (VNET_API_ERROR_NO_SUCH_FIB);
     }
@@ -601,7 +590,8 @@ ip_table_bind (fib_protocol_t fproto, u32 sw_if_index, u32 table_id)
   /* clang-format on */
 
   fib_table_bind (fproto, sw_if_index, fib_index);
-  mfib_table_bind (fproto, sw_if_index, mfib_index);
+  if (mfib_index != ~0)
+    mfib_table_bind (fproto, sw_if_index, mfib_index);
 
   return (0);
 }
@@ -808,14 +798,12 @@ link_state_process (vlib_main_t * vm,
 	  if (event_by_sw_if_index[i] == 0)
 	    continue;
 
-          /* *INDENT-OFF* */
           pool_foreach (reg, vam->interface_events_registrations)
            {
             vl_reg = vl_api_client_index_to_registration (reg->client_index);
             if (vl_reg)
 	      send_sw_interface_event (vam, reg, vl_reg, i, event_by_sw_if_index[i]);
           }
-          /* *INDENT-ON* */
 	}
       vec_reset_length (event_by_sw_if_index);
     }
@@ -831,13 +819,11 @@ static clib_error_t *sw_interface_add_del_function (vnet_main_t * vm,
 						    u32 sw_if_index,
 						    u32 flags);
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (link_state_process_node,static) = {
   .function = link_state_process,
   .type = VLIB_NODE_TYPE_PROCESS,
   .name = "vpe-link-state-process",
 };
-/* *INDENT-ON* */
 
 VNET_SW_INTERFACE_ADMIN_UP_DOWN_FUNCTION (admin_up_down_function);
 VNET_HW_INTERFACE_LINK_UP_DOWN_FUNCTION (link_up_down_function);
@@ -1024,19 +1010,17 @@ vl_api_sw_interface_set_interface_name_t_handler (
 {
   vl_api_sw_interface_set_interface_name_reply_t *rmp;
   vnet_main_t *vnm = vnet_get_main ();
-  u32 sw_if_index = ntohl (mp->sw_if_index);
-  vnet_sw_interface_t *si = vnet_get_sw_interface (vnm, sw_if_index);
   clib_error_t *error;
   int rv = 0;
+
+  VALIDATE_SW_IF_INDEX (mp);
+
+  u32 sw_if_index = ntohl (mp->sw_if_index);
+  vnet_sw_interface_t *si = vnet_get_sw_interface (vnm, sw_if_index);
 
   if (mp->name[0] == 0)
     {
       rv = VNET_API_ERROR_INVALID_VALUE;
-      goto out;
-    }
-  if (si == 0)
-    {
-      rv = VNET_API_ERROR_INVALID_SW_IF_INDEX;
       goto out;
     }
 
@@ -1048,6 +1032,7 @@ vl_api_sw_interface_set_interface_name_t_handler (
     }
 
 out:
+  BAD_SW_IF_INDEX_LABEL;
   REPLY_MACRO (VL_API_SW_INTERFACE_SET_INTERFACE_NAME_REPLY);
 }
 
@@ -1214,7 +1199,7 @@ out:
 static void
 send_interface_tx_placement_details (vnet_hw_if_tx_queue_t **all_queues,
 				     u32 index, vl_api_registration_t *rp,
-				     u32 native_context)
+				     u32 context)
 {
   vnet_main_t *vnm = vnet_get_main ();
   vl_api_sw_interface_tx_placement_details_t *rmp;
@@ -1223,7 +1208,6 @@ send_interface_tx_placement_details (vnet_hw_if_tx_queue_t **all_queues,
   uword *bitmap = q[0]->threads;
   u32 hw_if_index = q[0]->hw_if_index;
   vnet_hw_interface_t *hw_if = vnet_get_hw_interface (vnm, hw_if_index);
-  u32 context = clib_host_to_net_u32 (native_context);
 
   n_bits = clib_bitmap_count_set_bits (bitmap);
   u32 n = n_bits * sizeof (u32);
@@ -1335,7 +1319,7 @@ vl_api_sw_interface_set_tx_placement_t_handler (
   size = mp->array_size;
   for (u32 i = 0; i < size; i++)
     {
-      u32 thread_index = mp->threads[i];
+      clib_thread_index_t thread_index = mp->threads[i];
       bitmap = clib_bitmap_set (bitmap, thread_index, 1);
     }
 
@@ -1476,12 +1460,10 @@ vl_api_create_subif_t_handler (vl_api_create_subif_t * mp)
 
   BAD_SW_IF_INDEX_LABEL;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_CREATE_SUBIF_REPLY,
   ({
     rmp->sw_if_index = ntohl(sub_sw_if_index);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -1523,12 +1505,10 @@ vl_api_create_loopback_t_handler (vl_api_create_loopback_t * mp)
   mac_address_decode (mp->mac_address, &mac);
   rv = vnet_create_loopback_interface (&sw_if_index, (u8 *) & mac, 0, 0);
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_CREATE_LOOPBACK_REPLY,
   ({
     rmp->sw_if_index = ntohl (sw_if_index);
   }));
-  /* *INDENT-ON* */
 }
 
 static void vl_api_create_loopback_instance_t_handler
@@ -1545,12 +1525,10 @@ static void vl_api_create_loopback_instance_t_handler
   rv = vnet_create_loopback_interface (&sw_if_index, (u8 *) & mac,
 				       is_specified, user_instance);
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_CREATE_LOOPBACK_INSTANCE_REPLY,
   ({
     rmp->sw_if_index = ntohl (sw_if_index);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -1605,14 +1583,39 @@ static void
 }
 
 static void
+vl_api_pcap_set_filter_function_t_handler (
+  vl_api_pcap_set_filter_function_t *mp)
+{
+  vnet_main_t *vnm = vnet_get_main ();
+  vnet_pcap_t *pp = &vnm->pcap;
+  vl_api_pcap_set_filter_function_reply_t *rmp;
+  unformat_input_t input = { 0 };
+  vlib_is_packet_traced_fn_t *f;
+  char *filter_name;
+  int rv = 0;
+  filter_name = vl_api_from_api_to_new_c_string (&mp->filter_function_name);
+  unformat_init_cstring (&input, filter_name);
+  if (unformat (&input, "%U", unformat_vlib_trace_filter_function, &f) == 0)
+    {
+      rv = -1;
+      goto done;
+    }
+
+  pp->current_filter_function = f;
+
+done:
+  unformat_free (&input);
+  vec_free (filter_name);
+  REPLY_MACRO (VL_API_PCAP_SET_FILTER_FUNCTION_REPLY);
+}
+
+static void
 vl_api_pcap_trace_on_t_handler (vl_api_pcap_trace_on_t *mp)
 {
   vl_api_pcap_trace_on_reply_t *rmp;
   unformat_input_t filename, drop_err_name;
   vnet_pcap_dispatch_trace_args_t capture_args;
   int rv = 0;
-
-  VALIDATE_SW_IF_INDEX (mp);
 
   unformat_init_cstring (&filename, (char *) mp->filename);
   if (!unformat_user (&filename, unformat_vlib_tmpfile,
@@ -1621,6 +1624,8 @@ vl_api_pcap_trace_on_t_handler (vl_api_pcap_trace_on_t *mp)
       rv = VNET_API_ERROR_ILLEGAL_NAME;
       goto out;
     }
+
+  VALIDATE_SW_IF_INDEX (mp);
 
   capture_args.rx_enable = mp->capture_rx;
   capture_args.tx_enable = mp->capture_tx;
@@ -1637,6 +1642,7 @@ vl_api_pcap_trace_on_t_handler (vl_api_pcap_trace_on_t *mp)
   unformat_init_cstring (&drop_err_name, (char *) mp->error);
   unformat_user (&drop_err_name, unformat_vlib_error, vlib_get_main (),
 		 &capture_args.drop_err);
+  unformat_free (&drop_err_name);
 
   rv = vnet_pcap_dispatch_trace_configure (&capture_args);
 
@@ -1644,7 +1650,6 @@ vl_api_pcap_trace_on_t_handler (vl_api_pcap_trace_on_t *mp)
 
 out:
   unformat_free (&filename);
-  unformat_free (&drop_err_name);
 
   REPLY_MACRO (VL_API_PCAP_TRACE_ON_REPLY);
 }
@@ -1708,11 +1713,3 @@ interface_api_hookup (vlib_main_t * vm)
 }
 
 VLIB_API_INIT_FUNCTION (interface_api_hookup);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

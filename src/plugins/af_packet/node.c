@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * af_packet.c - linux kernel packet interface
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * af_packet.c - linux kernel packet interface
  */
 
 #include <linux/if_packet.h>
@@ -269,26 +258,19 @@ af_packet_v3_device_input_fn (vlib_main_t *vm, vlib_node_runtime_t *node,
   u32 block_nr = rx_queue->rx_req->req3.tp_block_nr;
   u8 *block_start = 0;
   uword n_trace = vlib_get_trace_count (vm, node);
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   u32 n_buffer_bytes = vlib_buffer_get_default_data_size (vm);
   u32 min_bufs = rx_queue->rx_req->req3.tp_frame_size / n_buffer_bytes;
   u32 num_pkts = 0;
   u32 rx_frame_offset = 0;
   block_desc_t *bd = 0;
-  vlib_buffer_t bt = {};
+  u32 sw_if_index = apif->sw_if_index;
   u8 is_ip = (apif->mode == AF_PACKET_IF_MODE_IP);
 
   if (is_ip)
     next_index = VNET_DEVICE_INPUT_NEXT_IP4_INPUT;
   else
-    {
-      next_index = VNET_DEVICE_INPUT_NEXT_ETHERNET_INPUT;
-      if (PREDICT_FALSE (apif->per_interface_next_index != ~0))
-	next_index = apif->per_interface_next_index;
-
-      /* redirect if feature path enabled */
-      vnet_feature_start_device_input_x1 (apif->sw_if_index, &next_index, &bt);
-    }
+    next_index = VNET_DEVICE_INPUT_NEXT_ETHERNET_INPUT;
 
   if ((((block_desc_t *) (block_start = rx_queue->rx_ring[block]))
 	 ->hdr.bh1.block_status &
@@ -416,8 +398,7 @@ af_packet_v3_device_input_fn (vlib_main_t *vm, vlib_node_runtime_t *node,
 		    {
 		      b0->total_length_not_including_first_buffer = 0;
 		      b0->flags = VLIB_BUFFER_TOTAL_LENGTH_VALID;
-		      vnet_buffer (b0)->sw_if_index[VLIB_RX] =
-			apif->sw_if_index;
+		      vnet_buffer (b0)->sw_if_index[VLIB_RX] = sw_if_index;
 		      vnet_buffer (b0)->sw_if_index[VLIB_TX] = (u32) ~0;
 		      first_b0 = b0;
 		      first_bi0 = bi0;
@@ -472,10 +453,12 @@ af_packet_v3_device_input_fn (vlib_main_t *vm, vlib_node_runtime_t *node,
 		    }
 		  else
 		    {
-		      /* copy feature arc data from template */
-		      first_b0->current_config_index = bt.current_config_index;
-		      vnet_buffer (first_b0)->feature_arc_index =
-			vnet_buffer (&bt)->feature_arc_index;
+		      next0 = VNET_DEVICE_INPUT_NEXT_ETHERNET_INPUT;
+		      if (PREDICT_FALSE (apif->per_interface_next_index != ~0))
+			next0 = apif->per_interface_next_index;
+		      /* redirect if feature path enabled */
+		      vnet_feature_start_device_input (sw_if_index, &next0,
+						       first_b0);
 		    }
 		}
 
@@ -577,25 +560,16 @@ af_packet_v2_device_input_fn (vlib_main_t *vm, vlib_node_runtime_t *node,
   u32 frame_num = rx_queue->rx_req->req.tp_frame_nr;
   u8 *block_start = rx_queue->rx_ring[block];
   uword n_trace = vlib_get_trace_count (vm, node);
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   u32 n_buffer_bytes = vlib_buffer_get_default_data_size (vm);
   u32 min_bufs = rx_queue->rx_req->req.tp_frame_size / n_buffer_bytes;
+  u32 sw_if_index = apif->sw_if_index;
   u8 is_ip = (apif->mode == AF_PACKET_IF_MODE_IP);
-  vlib_buffer_t bt = {};
 
   if (is_ip)
-    {
-      next_index = VNET_DEVICE_INPUT_NEXT_IP4_INPUT;
-    }
+    next_index = VNET_DEVICE_INPUT_NEXT_IP4_INPUT;
   else
-    {
-      next_index = VNET_DEVICE_INPUT_NEXT_ETHERNET_INPUT;
-      if (PREDICT_FALSE (apif->per_interface_next_index != ~0))
-	next_index = apif->per_interface_next_index;
-
-      /* redirect if feature path enabled */
-      vnet_feature_start_device_input_x1 (apif->sw_if_index, &next_index, &bt);
-    }
+    next_index = VNET_DEVICE_INPUT_NEXT_ETHERNET_INPUT;
 
   n_free_bufs = vec_len (apm->rx_buffers[thread_index]);
   if (PREDICT_FALSE (n_free_bufs < VLIB_FRAME_SIZE))
@@ -677,7 +651,7 @@ af_packet_v2_device_input_fn (vlib_main_t *vm, vlib_node_runtime_t *node,
 		{
 		  b0->total_length_not_including_first_buffer = 0;
 		  b0->flags = VLIB_BUFFER_TOTAL_LENGTH_VALID;
-		  vnet_buffer (b0)->sw_if_index[VLIB_RX] = apif->sw_if_index;
+		  vnet_buffer (b0)->sw_if_index[VLIB_RX] = sw_if_index;
 		  vnet_buffer (b0)->sw_if_index[VLIB_TX] = (u32) ~0;
 		  first_bi0 = bi0;
 		  first_b0 = vlib_get_buffer (vm, first_bi0);
@@ -733,10 +707,12 @@ af_packet_v2_device_input_fn (vlib_main_t *vm, vlib_node_runtime_t *node,
 		}
 	      else
 		{
-		  /* copy feature arc data from template */
-		  first_b0->current_config_index = bt.current_config_index;
-		  vnet_buffer (first_b0)->feature_arc_index =
-		    vnet_buffer (&bt)->feature_arc_index;
+		  next0 = VNET_DEVICE_INPUT_NEXT_ETHERNET_INPUT;
+		  if (PREDICT_FALSE (apif->per_interface_next_index != ~0))
+		    next0 = apif->per_interface_next_index;
+		  /* redirect if feature path enabled */
+		  vnet_feature_start_device_input (sw_if_index, &next0,
+						   first_b0);
 		}
 	    }
 
@@ -834,12 +810,3 @@ VLIB_REGISTER_NODE (af_packet_input_node) = {
   .n_errors = AF_PACKET_INPUT_N_ERROR,
   .error_strings = af_packet_input_error_strings,
 };
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include "ipip.h"
@@ -197,7 +187,6 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND(create_ipip_tunnel_command, static) = {
     .path = "create ipip tunnel",
     .short_help = "create ipip tunnel src <addr> dst <addr> [instance <n>] "
@@ -209,7 +198,6 @@ VLIB_CLI_COMMAND(delete_ipip_tunnel_command, static) = {
     .short_help = "delete ipip tunnel sw_if_index <sw_if_index>",
     .function = delete_ipip_tunnel_command_fn,
 };
-/* *INDENT-ON* */
 
 static u8 *
 format_ipip_tunnel (u8 * s, va_list * args)
@@ -274,10 +262,8 @@ show_ipip_tunnel_command_fn (vlib_main_t * vm,
 
   if (ti == ~0)
     {
-    /* *INDENT-OFF* */
     pool_foreach (t, gm->tunnels)
                   {vlib_cli_output(vm, "%U", format_ipip_tunnel, t); }
-    /* *INDENT-ON* */
     }
   else
     {
@@ -290,12 +276,10 @@ show_ipip_tunnel_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND(show_ipip_tunnel_command, static) = {
     .path = "show ipip tunnel",
     .function = show_ipip_tunnel_command_fn,
 };
-/* *INDENT-ON* */
 
 static u8 *
 format_ipip_tunnel_key (u8 * s, va_list * args)
@@ -318,12 +302,10 @@ ipip_tunnel_hash_show (vlib_main_t * vm,
   ipip_tunnel_key_t *key;
   u32 index;
 
-  /* *INDENT-OFF* */
   hash_foreach(key, index, im->tunnel_by_key,
   ({
       vlib_cli_output (vm, " %U -> %d", format_ipip_tunnel_key, key, index);
   }));
-  /* *INDENT-ON* */
 
   return NULL;
 }
@@ -331,14 +313,12 @@ ipip_tunnel_hash_show (vlib_main_t * vm,
 /**
  * show IPSEC tunnel protection hash tables
  */
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (ipip_tunnel_hash_show_node, static) =
 {
   .path = "show ipip tunnel-hash",
   .function = ipip_tunnel_hash_show,
   .short_help =  "show ipip tunnel-hash",
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 create_sixrd_tunnel_command_fn (vlib_main_t * vm,
@@ -464,7 +444,6 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND(create_sixrd_tunnel_command, static) = {
     .path = "create 6rd tunnel",
     .short_help = "create 6rd tunnel ip6-pfx <ip6-pfx> ip4-pfx <ip4-pfx> "
@@ -472,17 +451,8 @@ VLIB_CLI_COMMAND(create_sixrd_tunnel_command, static) = {
                   "[security-check]",
     .function = create_sixrd_tunnel_command_fn,
 };
-VLIB_CLI_COMMAND(delete_sixrd_tunnel_command, static) = {
-    .path = "delete 6rd tunnel",
-    .short_help = "delete 6rd tunnel sw_if_index <sw_if_index>",
-    .function = delete_sixrd_tunnel_command_fn,
+VLIB_CLI_COMMAND (delete_sixrd_tunnel_command, static) = {
+  .path = "delete 6rd tunnel",
+  .short_help = "delete 6rd tunnel sw_if_index <sw_if_index>",
+  .function = delete_sixrd_tunnel_command_fn,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

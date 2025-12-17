@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /**
  * \brief
  * The load-balance object represents an ECMP choice. The buckets of a load
@@ -48,6 +39,12 @@ typedef struct load_balance_main_t_
 } load_balance_main_t;
 
 extern load_balance_main_t load_balance_main;
+
+/**
+ * The maximum number of buckets that a load-balance object can have
+ * This must not overflow the lb_n_buckets field
+ */
+#define LB_MAX_BUCKETS 8192
 
 /**
  * The number of buckets that a load-balance object can have and still
@@ -176,6 +173,10 @@ typedef struct load_balance_t_ {
 
 STATIC_ASSERT(sizeof(load_balance_t) <= CLIB_CACHE_LINE_BYTES,
 	      "A load_balance object size exceeds one cacheline");
+STATIC_ASSERT (LB_MAX_BUCKETS <= CLIB_U16_MAX,
+	       "Too many buckets for load_balance object");
+STATIC_ASSERT (LB_MAX_BUCKETS && !(LB_MAX_BUCKETS & (LB_MAX_BUCKETS - 1)),
+	       "LB_MAX_BUCKETS must be a power of 2");
 
 /**
  * Flags controlling load-balance formatting/display
@@ -222,6 +223,14 @@ load_balance_get (index_t lbi)
     return (pool_elt_at_index(load_balance_pool, lbi));
 }
 
+static inline load_balance_t *
+load_balance_get_or_null (index_t lbi)
+{
+  if (pool_is_free_index (load_balance_pool, lbi))
+    return 0;
+  return (pool_elt_at_index (load_balance_pool, lbi));
+}
+
 #define LB_HAS_INLINE_BUCKETS(_lb)		\
     ((_lb)->lb_n_buckets <= LB_NUM_INLINE_BUCKETS)
 
@@ -242,5 +251,6 @@ load_balance_get_bucket_i (const load_balance_t *lb,
 }
 
 extern void load_balance_module_init(void);
+extern void load_balance_pool_alloc (uword size);
 
 #endif

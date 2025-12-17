@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <stdint.h>
@@ -183,7 +170,6 @@ bond_dump_ifs (bond_interface_details_t ** out_bondifs)
   bond_interface_details_t *r_bondifs = NULL;
   bond_interface_details_t *bondif = NULL;
 
-  /* *INDENT-OFF* */
   pool_foreach (bif, bm->interfaces) {
     vec_add2(r_bondifs, bondif, 1);
     clib_memset (bondif, 0, sizeof (*bondif));
@@ -201,7 +187,6 @@ bond_dump_ifs (bond_interface_details_t ** out_bondifs)
     bondif->active_members = vec_len (bif->active_members);
     bondif->members = vec_len (bif->members);
   }
-  /* *INDENT-ON* */
 
   *out_bondifs = r_bondifs;
 
@@ -309,6 +294,9 @@ bond_delete_neighbor (vlib_main_t * vm, bond_if_t * bif, member_if_t * mif)
 
   vnet_feature_enable_disable ("device-input", "bond-input",
 			       mif->sw_if_index, 0, 0, 0);
+
+  vnet_feature_enable_disable ("port-rx-eth", "bond-input", mif->sw_if_index,
+			       0, 0, 0);
 
   /* Put back the old mac */
   vnet_hw_interface_change_mac_address (vnm, mif_hw->hw_if_index,
@@ -547,7 +535,6 @@ bond_create_command_fn (vlib_main_t * vm, unformat_input_t * input,
   return args.error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (bond_create_command, static) = {
   .path = "create bond",
   .short_help = "create bond mode {round-robin | active-backup | broadcast | "
@@ -555,7 +542,6 @@ VLIB_CLI_COMMAND (bond_create_command, static) = {
     "[hw-addr <mac-address>] [id <if-id>] [gso]",
   .function = bond_create_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 bond_delete_command_fn (vlib_main_t * vm, unformat_input_t * input,
@@ -596,14 +582,12 @@ bond_delete_command_fn (vlib_main_t * vm, unformat_input_t * input,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (bond_delete__command, static) =
 {
   .path = "delete bond",
   .short_help = "delete bond {<interface> | sw_if_index <sw_idx>}",
   .function = bond_delete_command_fn,
 };
-/* *INDENT-ON* */
 
 void
 bond_add_member (vlib_main_t * vm, bond_add_member_args_t * args)
@@ -615,7 +599,7 @@ bond_add_member (vlib_main_t * vm, bond_add_member_args_t * args)
   vnet_interface_main_t *im = &vnm->interface_main;
   vnet_hw_interface_t *bif_hw, *mif_hw;
   vnet_sw_interface_t *sw;
-  u32 thread_index;
+  clib_thread_index_t thread_index;
   u32 mif_if_index;
 
   bif = bond_get_bond_if_by_sw_if_index (args->group);
@@ -768,13 +752,20 @@ bond_add_member (vlib_main_t * vm, bond_add_member_args_t * args)
 
   args->rv = vnet_feature_enable_disable ("device-input", "bond-input",
 					  mif->sw_if_index, 1, 0, 0);
+  if (args->rv)
+  {
+    args->error = clib_error_return (
+      0, "Error encountered on device input feature arc enable");
+  }
+
+  args->rv = vnet_feature_enable_disable ("port-rx-eth", "bond-input",
+					  mif->sw_if_index, 1, 0, 0);
 
   if (args->rv)
-    {
-      args->error =
-	clib_error_return (0,
-			   "Error encountered on input feature arc enable");
-    }
+  {
+    args->error =
+      clib_error_return (0, "Error encountered on port rx feature arc enable");
+  }
 }
 
 static clib_error_t *
@@ -823,14 +814,12 @@ add_member_interface_command_fn (vlib_main_t * vm, unformat_input_t * input,
   return args.error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (add_member_interface_command, static) = {
   .path = "bond add",
   .short_help = "bond add <BondEthernetx> <member-interface> "
                 "[passive] [long-timeout]",
   .function = add_member_interface_command_fn,
 };
-/* *INDENT-ON* */
 
 void
 bond_detach_member (vlib_main_t * vm, bond_detach_member_args_t * args)
@@ -887,13 +876,11 @@ detach_interface_command_fn (vlib_main_t * vm, unformat_input_t * input,
   return args.error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (detach_interface_command, static) = {
   .path = "bond del",
   .short_help = "bond del <member-interface>",
   .function = detach_interface_command_fn,
 };
-/* *INDENT-ON* */
 
 static void
 show_bond (vlib_main_t * vm)
@@ -905,7 +892,6 @@ show_bond (vlib_main_t * vm)
 		   "interface name", "sw_if_index", "mode",
 		   "load balance", "active members", "members");
 
-  /* *INDENT-OFF* */
   pool_foreach (bif, bm->interfaces)
    {
     vlib_cli_output (vm, "%-16U %-12d %-13U %-13U %-14u %u",
@@ -914,7 +900,6 @@ show_bond (vlib_main_t * vm)
 		     format_bond_load_balance, bif->lb,
 		     vec_len (bif->active_members), vec_len (bif->members));
   }
-  /* *INDENT-ON* */
 }
 
 static void
@@ -924,7 +909,6 @@ show_bond_details (vlib_main_t * vm)
   bond_if_t *bif;
   u32 *sw_if_index;
 
-  /* *INDENT-OFF* */
   pool_foreach (bif, bm->interfaces)
    {
     vlib_cli_output (vm, "%U", format_bond_interface_name, bif->dev_instance);
@@ -963,7 +947,6 @@ show_bond_details (vlib_main_t * vm)
     vlib_cli_output (vm, "  sw_if_index: %d", bif->sw_if_index);
     vlib_cli_output (vm, "  hw_if_index: %d", bif->hw_if_index);
   }
-  /* *INDENT-ON* */
 }
 
 static clib_error_t *
@@ -991,13 +974,11 @@ show_bond_fn (vlib_main_t * vm, unformat_input_t * input,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_bond_command, static) = {
   .path = "show bond",
   .short_help = "show bond [details]",
   .function = show_bond_fn,
 };
-/* *INDENT-ON* */
 
 void
 bond_set_intf_weight (vlib_main_t * vm, bond_set_intf_weight_args_t * args)
@@ -1097,14 +1078,12 @@ bond_set_intf_cmd (vlib_main_t * vm, unformat_input_t * input,
   return args.error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND(set_interface_bond_cmd, static) = {
   .path = "set interface bond",
   .short_help = "set interface bond <interface> | sw_if_index <idx>"
                 " weight <value>",
   .function = bond_set_intf_cmd,
 };
-/* *INDENT-ON* */
 
 clib_error_t *
 bond_cli_init (vlib_main_t * vm)
@@ -1122,11 +1101,3 @@ bond_cli_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (bond_cli_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

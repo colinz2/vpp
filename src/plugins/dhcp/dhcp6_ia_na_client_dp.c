@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vlib/vlib.h>
@@ -346,13 +336,11 @@ send_dhcp6_client_message_process (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (send_dhcp6_client_message_process_node, static) = {
     .function = send_dhcp6_client_message_process,
     .type = VLIB_NODE_TYPE_PROCESS,
     .name = "send-dhcp6-client-message-process",
 };
-/* *INDENT-ON* */
 
 void
 dhcp6_send_client_message (vlib_main_t * vm, u32 sw_if_index, u8 stop,
@@ -415,11 +403,3 @@ dhcp6_client_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (dhcp6_client_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

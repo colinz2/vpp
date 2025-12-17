@@ -1,19 +1,8 @@
-/*
- * node.c: MPLS input
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2012-2014 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* node.c: MPLS input */
 
 #include <vlib/vlib.h>
 #include <vnet/pg/pg.h>
@@ -75,7 +64,7 @@ mpls_input_inline (vlib_main_t * vm,
 {
   u32 n_left_from, next_index, * from, * to_next;
   mpls_main_t * mm = &mpls_main;
-  u32 thread_index = vlib_get_thread_index();
+  clib_thread_index_t thread_index = vlib_get_thread_index ();
   vlib_simple_counter_main_t * cm;
   vnet_main_t * vnm = vnet_get_main();
 
@@ -278,10 +267,8 @@ static clib_error_t * mpls_input_init (vlib_main_t * vm)
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_INIT_FUNCTION (mpls_input_init) =
 {
   .runs_after = VLIB_INITS("mpls_init"),
 };
-/* *INDENT-ON* */
 #endif /* CLIB_MARCH_VARIANT */

@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vlib/punt.h>
@@ -68,14 +58,10 @@ format_punt_trace (u8 * s, va_list * args)
 }
 
 always_inline u32
-punt_replicate (vlib_main_t * vm,
-		vlib_node_runtime_t * node,
-		u32 thread_index,
-		vlib_buffer_t * b0,
-		u32 bi0,
-		vlib_punt_reason_t pr0,
-		u32 * next_index,
-		u32 * n_left_to_next, u32 ** to_next, u32 * n_dispatched)
+punt_replicate (vlib_main_t *vm, vlib_node_runtime_t *node,
+		clib_thread_index_t thread_index, vlib_buffer_t *b0, u32 bi0,
+		vlib_punt_reason_t pr0, u32 *next_index, u32 *n_left_to_next,
+		u32 **to_next, u32 *n_dispatched)
 {
   /* multiple clients => replicate a copy to each */
   u16 n_clones0, n_cloned0, clone0;
@@ -134,13 +120,10 @@ punt_replicate (vlib_main_t * vm,
 }
 
 always_inline u32
-punt_dispatch_one (vlib_main_t * vm,
-		   vlib_node_runtime_t * node,
-		   vlib_combined_counter_main_t * cm,
-		   u32 thread_index,
-		   u32 bi0,
-		   u32 * next_index,
-		   u32 * n_left_to_next, u32 ** to_next, u32 * n_dispatched)
+punt_dispatch_one (vlib_main_t *vm, vlib_node_runtime_t *node,
+		   vlib_combined_counter_main_t *cm,
+		   clib_thread_index_t thread_index, u32 bi0, u32 *next_index,
+		   u32 *n_left_to_next, u32 **to_next, u32 *n_dispatched)
 {
   vlib_punt_reason_t pr0;
   vlib_buffer_t *b0;
@@ -280,7 +263,6 @@ VLIB_NODE_FN (punt_dispatch_node) (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (punt_dispatch_node) = {
   .name = "punt-dispatch",
   .vector_size = sizeof (u32),
@@ -293,7 +275,6 @@ VLIB_REGISTER_NODE (punt_dispatch_node) = {
   },
 };
 
-/* *INDENT-ON* */
 
 #ifndef CLIB_MARCH_VARIANT
 clib_error_t *
@@ -306,11 +287,3 @@ punt_node_init (vlib_main_t * vm)
 
 VLIB_INIT_FUNCTION (punt_node_init);
 #endif
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

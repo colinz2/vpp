@@ -1,18 +1,6 @@
-/*
-  Copyright (c) 2014 Cisco and/or its affiliates.
-
-  * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
-*/
+/* SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2014 Cisco and/or its affiliates.
+ */
 
 /** @cond DOCUMENTATION_IS_IN_BIHASH_DOC_H */
 
@@ -91,7 +79,8 @@ typedef struct
       u64 lock:1;
       u64 linear_search:1;
       u64 log2_pages:8;
-      u64 refcnt:16;
+      u64 refcnt : 13;	  /* limit kvp per bucket */
+      u64 generation : 5; /* incremented each update */
     };
     u64 as_u64;
   };
@@ -99,7 +88,6 @@ typedef struct
 
 STATIC_ASSERT_SIZEOF (BVT (clib_bihash_bucket), sizeof (u64));
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   /*
    * Backing store allocation. Since bihash manages its own
@@ -118,7 +106,6 @@ typedef CLIB_PACKED (struct {
   volatile u32 ready;
   u64 pad[1];
 }) BVT (clib_bihash_shared_header);
-/* *INDENT-ON* */
 
 STATIC_ASSERT_SIZEOF (BVT (clib_bihash_shared_header), 8 * sizeof (u64));
 
@@ -282,9 +269,7 @@ static inline void BV (clib_bihash_alloc_unlock) (BVT (clib_bihash) * h)
 
 static inline void BV (clib_bihash_lock_bucket) (BVT (clib_bihash_bucket) * b)
 {
-  /* *INDENT-OFF* */
   BVT (clib_bihash_bucket) mask = { .lock = 1 };
-  /* *INDENT-ON* */
   u64 old;
 
 try_again:
@@ -302,6 +287,7 @@ static inline void BV (clib_bihash_unlock_bucket)
   (BVT (clib_bihash_bucket) * b)
 {
   b->lock = 0;
+  clib_atomic_store_rel_n (&b->as_u64, b->as_u64);
 }
 
 static inline void *BV (clib_bihash_get_value) (BVT (clib_bihash) * h,
@@ -407,20 +393,42 @@ BV (clib_bihash_get_bucket) (BVT (clib_bihash) * h, u64 hash)
 #endif
 }
 
+static inline int
+BV (clib_bihash_search_need_retry) (BVT (clib_bihash_bucket) * b,
+				    BVT (clib_bihash_bucket) * savedb)
+{
+  BVT (clib_bihash_bucket) tmpb;
+  tmpb.as_u64 = clib_atomic_load_relax_n (&b->as_u64);
+  if (PREDICT_TRUE (tmpb.as_u64 == savedb->as_u64))
+    return 0;
+
+  savedb->as_u64 = tmpb.as_u64;
+  return 1;
+}
+
+static inline void
+BV (clib_bihash_wait_bucket_lock) (BVT (clib_bihash_bucket) * b,
+				   BVT (clib_bihash_bucket) * savedb)
+{
+  while (PREDICT_FALSE (savedb->lock))
+    {
+      CLIB_PAUSE ();
+      savedb->as_u64 = clib_atomic_load_acq_n (&b->as_u64);
+    }
+}
+
 static inline int BV (clib_bihash_search_inline_with_hash)
   (BVT (clib_bihash) * h, u64 hash, BVT (clib_bihash_kv) * key_result)
 {
   BVT (clib_bihash_kv) rv;
   BVT (clib_bihash_value) * v;
-  BVT (clib_bihash_bucket) * b;
+  BVT (clib_bihash_bucket) * b, localb;
   int i, limit;
 
-  /* *INDENT-OFF* */
   static const BVT (clib_bihash_bucket) mask = {
     .linear_search = 1,
     .log2_pages = -1
   };
-  /* *INDENT-ON* */
 
 #if BIHASH_LAZY_INSTANTIATE
   if (PREDICT_FALSE (h->instantiated == 0))
@@ -428,28 +436,25 @@ static inline int BV (clib_bihash_search_inline_with_hash)
 #endif
 
   b = BV (clib_bihash_get_bucket) (h, hash);
+  localb.as_u64 = clib_atomic_load_acq_n (&b->as_u64);
 
-  if (PREDICT_FALSE (BV (clib_bihash_bucket_is_empty) (b)))
+bucket_changed_retry:
+  BV (clib_bihash_wait_bucket_lock) (b, &localb);
+
+  if (PREDICT_FALSE (BV (clib_bihash_bucket_is_empty) (&localb)))
     return -1;
 
-  if (PREDICT_FALSE (b->lock))
-    {
-      volatile BVT (clib_bihash_bucket) * bv = b;
-      while (bv->lock)
-	CLIB_PAUSE ();
-    }
-
-  v = BV (clib_bihash_get_value) (h, b->offset);
+  v = BV (clib_bihash_get_value) (h, localb.offset);
 
   /* If the bucket has unresolvable collisions, use linear search */
   limit = BIHASH_KVP_PER_PAGE;
 
-  if (PREDICT_FALSE (b->as_u64 & mask.as_u64))
+  if (PREDICT_FALSE (localb.as_u64 & mask.as_u64))
     {
-      if (PREDICT_FALSE (b->linear_search))
-	limit <<= b->log2_pages;
+      if (PREDICT_FALSE (localb.linear_search))
+	limit <<= localb.log2_pages;
       else
-	v += extract_bits (hash, h->log2_nbuckets, b->log2_pages);
+	v += extract_bits (hash, h->log2_nbuckets, localb.log2_pages);
     }
 
   for (i = 0; i < limit; i++)
@@ -459,10 +464,29 @@ static inline int BV (clib_bihash_search_inline_with_hash)
 	  rv = v->kvp[i];
 	  if (BV (clib_bihash_is_free) (&rv))
 	    return -1;
+
+	  if (PREDICT_FALSE (
+		!BV (clib_bihash_key_compare) (rv.key, key_result->key)))
+	    {
+	      if (PREDICT_FALSE (
+		    BV (clib_bihash_search_need_retry) (b, &localb)))
+		goto bucket_changed_retry;
+	      continue;
+	    }
+
 	  *key_result = rv;
+
+	  if (PREDICT_FALSE (BV (clib_bihash_search_need_retry) (b, &localb)))
+	    goto bucket_changed_retry;
+
 	  return 0;
 	}
     }
+
+  /* Could have been reading state in the middle of split operation */
+  if (PREDICT_FALSE (BV (clib_bihash_search_need_retry) (b, &localb)))
+    goto bucket_changed_retry;
+
   return -1;
 }
 
@@ -515,15 +539,13 @@ static inline int BV (clib_bihash_search_inline_2_with_hash)
 {
   BVT (clib_bihash_kv) rv;
   BVT (clib_bihash_value) * v;
-  BVT (clib_bihash_bucket) * b;
+  BVT (clib_bihash_bucket) * b, localb;
   int i, limit;
 
-/* *INDENT-OFF* */
   static const BVT (clib_bihash_bucket) mask = {
     .linear_search = 1,
     .log2_pages = -1
   };
-/* *INDENT-ON* */
 
   ASSERT (valuep);
 
@@ -533,28 +555,25 @@ static inline int BV (clib_bihash_search_inline_2_with_hash)
 #endif
 
   b = BV (clib_bihash_get_bucket) (h, hash);
+  localb.as_u64 = clib_atomic_load_acq_n (&b->as_u64);
 
-  if (PREDICT_FALSE (BV (clib_bihash_bucket_is_empty) (b)))
+bucket_changed_retry:
+  BV (clib_bihash_wait_bucket_lock) (b, &localb);
+
+  if (PREDICT_FALSE (BV (clib_bihash_bucket_is_empty) (&localb)))
     return -1;
 
-  if (PREDICT_FALSE (b->lock))
-    {
-      volatile BVT (clib_bihash_bucket) * bv = b;
-      while (bv->lock)
-	CLIB_PAUSE ();
-    }
-
-  v = BV (clib_bihash_get_value) (h, b->offset);
+  v = BV (clib_bihash_get_value) (h, localb.offset);
 
   /* If the bucket has unresolvable collisions, use linear search */
   limit = BIHASH_KVP_PER_PAGE;
 
-  if (PREDICT_FALSE (b->as_u64 & mask.as_u64))
+  if (PREDICT_FALSE (localb.as_u64 & mask.as_u64))
     {
-      if (PREDICT_FALSE (b->linear_search))
-	limit <<= b->log2_pages;
+      if (PREDICT_FALSE (localb.linear_search))
+	limit <<= localb.log2_pages;
       else
-	v += extract_bits (hash, h->log2_nbuckets, b->log2_pages);
+	v += extract_bits (hash, h->log2_nbuckets, localb.log2_pages);
     }
 
   for (i = 0; i < limit; i++)
@@ -564,10 +583,29 @@ static inline int BV (clib_bihash_search_inline_2_with_hash)
 	  rv = v->kvp[i];
 	  if (BV (clib_bihash_is_free) (&rv))
 	    return -1;
+
+	  if (PREDICT_FALSE (
+		!BV (clib_bihash_key_compare) (rv.key, search_key->key)))
+	    {
+	      if (PREDICT_FALSE (
+		    BV (clib_bihash_search_need_retry) (b, &localb)))
+		goto bucket_changed_retry;
+	      continue;
+	    }
+
 	  *valuep = rv;
+
+	  if (PREDICT_FALSE (BV (clib_bihash_search_need_retry) (b, &localb)))
+	    goto bucket_changed_retry;
+
 	  return 0;
 	}
     }
+
+  /* Could have been reading state in the middle of split operation */
+  if (PREDICT_FALSE (BV (clib_bihash_search_need_retry) (b, &localb)))
+    goto bucket_changed_retry;
+
   return -1;
 }
 
@@ -587,11 +625,3 @@ static inline int BV (clib_bihash_search_inline_2)
 #endif /* __included_bihash_template_h__ */
 
 /** @endcond */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

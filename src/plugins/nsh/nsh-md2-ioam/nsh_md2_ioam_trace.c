@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
 #include <vppinfra/error.h>
@@ -38,7 +29,6 @@ typedef union
 } time_u64_t;
 
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED(struct {
   u16 class;
   u8 type;
@@ -48,7 +38,6 @@ typedef CLIB_PACKED(struct {
   u8 reserve;
   u32 elts[0]; /* Variable type. So keep it generic */
 }) nsh_md2_ioam_trace_option_t;
-/* *INDENT-ON* */
 
 
 #define foreach_nsh_md2_ioam_trace_stats				\
@@ -333,13 +322,11 @@ nsh_md2_ioam_show_ioam_trace_cmd_fn (vlib_main_t * vm,
 }
 
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (nsh_md2_ioam_show_ioam_trace_cmd, static) = {
   .path = "show ioam nsh-lisp-gpe trace",
   .short_help = "iOAM trace statistics",
   .function = nsh_md2_ioam_show_ioam_trace_cmd_fn,
 };
-/* *INDENT-ON* */
 
 
 int
@@ -376,12 +363,10 @@ nsh_md2_ioam_trace_init (vlib_main_t * vm)
   return (0);
 }
 
-/* *INDENT-OFF* */
 VLIB_INIT_FUNCTION (nsh_md2_ioam_trace_init) =
 {
   .runs_after = VLIB_INITS ("nsh_init", "nsh_md2_ioam_init"),
 };
-/* *INDENT-ON* */
 
 int
 nsh_md2_ioam_trace_profile_cleanup (void)
@@ -450,13 +435,3 @@ nsh_md2_ioam_trace_profile_setup (void)
 
   return (0);
 }
-
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

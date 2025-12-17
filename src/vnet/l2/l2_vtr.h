@@ -1,19 +1,8 @@
-/*
- * l2_vtr.h : layer 2 vlan tag rewrite processing
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2013 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* l2_vtr.h : layer 2 vlan tag rewrite processing */
 
 #ifndef included_vnet_l2_vtr_h
 #define included_vnet_l2_vtr_h
@@ -75,15 +64,13 @@ typedef struct
 always_inline u32
 l2_vtr_process (vlib_buffer_t * b0, vtr_config_t * config)
 {
-  u64 temp_8;
-  u32 temp_4;
   u8 *eth;
+  u8 save_macs[12];
 
   eth = vlib_buffer_get_current (b0);
 
   /* copy the 12B dmac and smac to a temporary location */
-  temp_8 = *((u64 *) eth);
-  temp_4 = *((u32 *) (eth + 8));
+  clib_memcpy_fast (save_macs, eth, sizeof (save_macs));
 
   /* adjust for popped tags */
   eth += config->pop_bytes;
@@ -95,7 +82,8 @@ l2_vtr_process (vlib_buffer_t * b0, vtr_config_t * config)
     }
 
   /* copy the 2 new tags to the start of the packet  */
-  *((u64 *) (eth + 12 - 8)) = config->raw_tags;
+  clib_memcpy_fast (eth + 12 - 8, &config->raw_tags,
+		    sizeof (config->raw_tags));
 
   /* TODO: set cos bits */
 
@@ -103,8 +91,7 @@ l2_vtr_process (vlib_buffer_t * b0, vtr_config_t * config)
   eth -= config->push_bytes;
 
   /* copy the 12 dmac and smac back to the packet */
-  *((u64 *) eth) = temp_8;
-  *((u32 *) (eth + 8)) = temp_4;
+  clib_memcpy_fast (eth, save_macs, sizeof (save_macs));
 
   /* Update l2 parameters */
   vnet_buffer (b0)->l2.l2_len +=
@@ -123,7 +110,6 @@ l2_vtr_process (vlib_buffer_t * b0, vtr_config_t * config)
 
   return 0;
 }
-
 
 /*
  *  Perform the egress pre-vlan tag rewrite EFP Filter check.
@@ -273,12 +259,3 @@ u32 l2pbb_get (vlib_main_t * vlib_main,
 	       ethernet_header_t * eth_hdr, u16 * b_vlanid, u32 * i_sid);
 
 #endif /* included_vnet_l2_vtr_h */
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

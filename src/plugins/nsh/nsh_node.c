@@ -1,19 +1,8 @@
-/*
- * nsh_node.c - nsh nodes
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2013 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* nsh_node.c - nsh nodes */
 
 #include <vnet/vnet.h>
 #include <vnet/plugin/plugin.h>
@@ -906,7 +895,6 @@ static char *nsh_node_error_strings[] = {
 #undef _
 };
 
-/* *INDENT-OFF* */
 
 /* register nsh-input node */
 VLIB_REGISTER_NODE (nsh_input_node) = {
@@ -978,12 +966,3 @@ VLIB_REGISTER_NODE (nsh_aware_vnf_proxy_node) =
 #undef _
   },
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

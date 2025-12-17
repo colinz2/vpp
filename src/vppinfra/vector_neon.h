@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef included_vector_neon_h
@@ -43,7 +33,6 @@ u8x16_compare_byte_mask (u8x16 v)
   return (u32) (vgetq_lane_u64 (x64, 0) + (vgetq_lane_u64 (x64, 1) << 8));
 }
 
-/* *INDENT-OFF* */
 #define foreach_neon_vec128i \
   _(i,8,16,s8) _(i,16,8,s16) _(i,32,4,s32)  _(i,64,2,s64)
 #define foreach_neon_vec128u \
@@ -109,7 +98,6 @@ u8x16_compare_byte_mask (u8x16 v)
 foreach_neon_vec128i foreach_neon_vec128u
 
 #undef _
-/* *INDENT-ON* */
 
 static_always_inline u16x8
 u16x8_byte_swap (u16x8 v)
@@ -194,6 +182,12 @@ static_always_inline u32
 u32x4_min_scalar (u32x4 v)
 {
   return vminvq_u32 (v);
+}
+
+static_always_inline u32
+u32x4_sum_elts (u32x4 v)
+{
+  return vaddvq_u32 (v);
 }
 
 #define u8x16_word_shift_left(x,n)  vextq_u8(u8x16_splat (0), x, 16 - n)
@@ -286,16 +280,94 @@ u8x16_store_partial (u8x16 r, u8 *data, uword n)
     data[0] = r[0];
 }
 
+#ifdef __ARM_FEATURE_CRYPTO
+static_always_inline u64x2
+u64x2_clmul64 (u64x2 a, const int a_hi, u64x2 b, const int b_hi)
+{
+  u64x2 p;
+
+  switch (a_hi + 2 * b_hi)
+    {
+    case 0:
+      p = (u64x2) vmull_p64 ((poly64_t) vget_low_p64 ((poly64x2_t) a),
+			     (poly64_t) vget_low_p64 ((poly64x2_t) b));
+      break;
+    case 1:
+      p = (u64x2) vmull_p64 ((poly64_t) vget_high_p64 ((poly64x2_t) a),
+			     (poly64_t) vget_low_p64 ((poly64x2_t) b));
+      break;
+    case 2:
+      p = (u64x2) vmull_p64 ((poly64_t) vget_low_p64 ((poly64x2_t) a),
+			     (poly64_t) vget_high_p64 ((poly64x2_t) b));
+      break;
+    case 3:
+      p = (u64x2) vmull_high_p64 ((poly64x2_t) a, (poly64x2_t) b);
+      break;
+    default:
+      __builtin_unreachable ();
+    }
+
+  return p;
+}
+#endif
+
 #define CLIB_HAVE_VEC128_MSB_MASK
 
 #define CLIB_HAVE_VEC128_UNALIGNED_LOAD_STORE
 #define CLIB_VEC128_SPLAT_DEFINED
-#endif /* included_vector_neon_h */
 
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+#define CLIB_VEC128_INSERT_DEFINED
+
+#define u8x16_insert(v, x, index) vsetq_lane_u8 (x, v, index)
+#define u16x8_insert(v, x, index) vsetq_lane_u16 (x, v, index)
+#define u32x4_insert(v, x, index) vsetq_lane_u32 (x, v, index)
+#define u64x2_insert(v, x, index) vsetq_lane_u64 (x, v, index)
+
+#define CLIB_VEC64_DYNAMIC_SHUFFLE_DEFINED
+static_always_inline u8x8
+u8x8_shuffle_dynamic (u8x8 v, u8x8 i)
+{
+  return vtbl1_u8 (v, i);
+}
+
+static_always_inline u16x4
+u16x4_shuffle_dynamic (u16x4 v, u16x4 i)
+{
+  /* indices_16 = {i0, i1, i2, i3}
+     indices_8  = {2*i0, 2*i0 + 1,
+		   2*i1, 2*i1 + 1,
+		   2*i2, 2*i2 + 1,
+		   2*i3, 2*i3 + 1}
+  */
+  u16x4 dbled = i << 1;
+  u16x4 plus_one = dbled + 1;
+  u8x8 low8 = vmovn_u16 (vcombine_u16 (dbled, dbled));
+  u8x8 high8 = vmovn_u16 (vcombine_u16 (plus_one, plus_one));
+  u8x8 indices_8 = vzip1_u8 (low8, high8);
+  return (u16x4) vtbl1_u8 ((u8x8) v, indices_8);
+}
+
+#define CLIB_VEC128_DYNAMIC_SHUFFLE_DEFINED
+#define u8x16_shuffle_dynamic(v, i) vqtbl1q_u8 (v, i)
+
+static_always_inline u16x8
+u16x8_shuffle_dynamic (u16x8 v, u16x8 i)
+{
+  u16x8 dbled = i << 1;
+  u16x8 plus_one = dbled + 1;
+  u8x16 dbled_u8 = vcombine_u8 (vmovn_u16 (dbled), vmovn_u16 (dbled));
+  u8x16 plus_one_u8 = vcombine_u8 (vmovn_u16 (plus_one), vmovn_u16 (plus_one));
+  u8x16 indices_8 = vzip1q_u8 (dbled_u8, plus_one_u8);
+  return (u16x8) vqtbl1q_u8 ((u8x16) v, indices_8);
+}
+
+static_always_inline u32x4
+u32x4_shuffle_dynamic (u32x4 v, u32x4 i)
+{
+  u32x4 fourtupled = i << 2;
+  const u8x16 mask1 = { 0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12 };
+  const u8x16 offset = { 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3 };
+  u8x16 new_mask = vqtbl1q_u8 ((u8x16) fourtupled, mask1) + offset;
+  return (u32x4) vqtbl1q_u8 ((u8x16) v, new_mask);
+}
+#endif /* included_vector_neon_h */

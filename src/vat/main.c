@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include "vat.h"
 #include <dlfcn.h>
 #include "plugin.h"
@@ -43,7 +34,6 @@ connect_to_vpe (char *name)
   return 0;
 }
 
-/* *INDENT-OFF* */
 
 vlib_global_main_t vlib_global_main;
 
@@ -423,7 +413,7 @@ main (int argc, char **argv)
   clib_error_t *error;
   vlib_main_t *vm;
 
-  clib_mem_init_thread_safe (0, 128 << 20);
+  clib_mem_init (0, 128 << 20);
   vlib_main_init ();
   vm = vlib_get_first_main ();
 
@@ -580,11 +570,3 @@ main (int argc, char **argv)
   vl_client_disconnect_from_vlib ();
   exit (0);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

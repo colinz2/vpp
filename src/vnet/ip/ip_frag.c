@@ -1,17 +1,5 @@
-/*---------------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2009-2014 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *---------------------------------------------------------------------------
  */
 /*
  * IPv4 Fragmentation Node
@@ -22,6 +10,7 @@
 #include "ip_frag.h"
 
 #include <vnet/ip/ip.h>
+#include <vnet/interface_output.h>
 
 typedef struct
 {
@@ -99,6 +88,15 @@ ip4_frag_do_fragment (vlib_main_t * vm, u32 from_bi, u16 mtu,
   u8 *org_from_packet, more;
 
   from_b = vlib_get_buffer (vm, from_bi);
+
+  if (from_b->flags & VNET_BUFFER_F_OFFLOAD)
+    {
+      vnet_calc_checksums_inline (vm, from_b, 1 /* is_v4 */, 0 /* is_v6 */);
+      vnet_calc_outer_checksums_inline (vm, from_b);
+      /* Packet is going to be fragmented, so remove GSO flag */
+      from_b->flags &= ~VNET_BUFFER_F_GSO;
+    }
+
   org_from_packet = vlib_buffer_get_current (from_b);
   ip4 = vlib_buffer_get_current (from_b) + l2unfragmentablesize;
 
@@ -163,23 +161,15 @@ ip4_frag_do_fragment (vlib_main_t * vm, u32 from_bi, u16 mtu,
       vec_add1 (*buffer, to_bi);
       frag_set_sw_if_index (to_b, org_from_b);
 
-      /* Copy ip4 header */
-      to_data = vlib_buffer_get_current (to_b);
+      /* Make sure we have as much space for headers as the original and copy
+       * ip4 header */
+      to_data = vlib_buffer_make_headroom (to_b, org_from_b->current_data);
       clib_memcpy_fast (to_data, org_from_packet, head_bytes);
       to_ip4 = (ip4_header_t *) (to_data + l2unfragmentablesize);
       to_data = (void *) (to_ip4 + 1);
       vnet_buffer (to_b)->l3_hdr_offset = to_b->current_data;
       vlib_buffer_copy_trace_flag (vm, from_b, to_bi);
       to_b->flags |= VNET_BUFFER_F_L3_HDR_OFFSET_VALID;
-
-      if (from_b->flags & VNET_BUFFER_F_L4_HDR_OFFSET_VALID)
-	{
-	  vnet_buffer (to_b)->l4_hdr_offset =
-	    (vnet_buffer (to_b)->l3_hdr_offset +
-	     (vnet_buffer (from_b)->l4_hdr_offset -
-	      vnet_buffer (from_b)->l3_hdr_offset));
-	  to_b->flags |= VNET_BUFFER_F_L4_HDR_OFFSET_VALID;
-	}
 
       /* Spin through from buffers filling up the to buffer */
       u16 left_in_to_buffer = len, to_ptr = 0;
@@ -220,9 +210,6 @@ ip4_frag_do_fragment (vlib_main_t * vm, u32 from_bi, u16 mtu,
 	clib_host_to_net_u16 (((len != rem) || more) << 13);
       to_ip4->length = clib_host_to_net_u16 (len + sizeof (ip4_header_t));
       to_ip4->checksum = ip4_header_checksum (to_ip4);
-
-      /* we've just done the IP checksum .. */
-      vnet_buffer_offload_flags_clear (to_b, VNET_BUFFER_OFFLOAD_F_IP_CKSUM);
 
       rem -= len;
       fo += len;
@@ -385,6 +372,15 @@ ip6_frag_do_fragment (vlib_main_t * vm, u32 from_bi, u16 mtu,
   u16 head_bytes;
 
   from_b = vlib_get_buffer (vm, from_bi);
+
+  if (from_b->flags & VNET_BUFFER_F_OFFLOAD)
+    {
+      vnet_calc_checksums_inline (vm, from_b, 0 /* is_v4 */, 1 /* is_v6 */);
+      vnet_calc_outer_checksums_inline (vm, from_b);
+      /* Packet is going to be fragmented, so remove GSO flag */
+      from_b->flags &= ~VNET_BUFFER_F_GSO;
+    }
+
   org_from_packet = vlib_buffer_get_current (from_b);
   ip6 = vlib_buffer_get_current (from_b) + l2unfragmentablesize;
 
@@ -434,8 +430,10 @@ ip6_frag_do_fragment (vlib_main_t * vm, u32 from_bi, u16 mtu,
       vec_add1 (*buffer, to_bi);
       frag_set_sw_if_index (to_b, org_from_b);
 
-      /* Copy ip6 header */
-      clib_memcpy_fast (to_b->data, org_from_packet,
+      /* Make sure we have as much space for headers as the original and copy
+       * ip6 header */
+      to_data = vlib_buffer_make_headroom (to_b, org_from_b->current_data);
+      clib_memcpy_fast (to_data, org_from_packet,
 			l2unfragmentablesize + sizeof (ip6_header_t));
       to_ip6 = vlib_buffer_get_current (to_b) + l2unfragmentablesize;
       to_frag_hdr = (ip6_frag_hdr_t *) (to_ip6 + 1);
@@ -443,15 +441,6 @@ ip6_frag_do_fragment (vlib_main_t * vm, u32 from_bi, u16 mtu,
 
       vnet_buffer (to_b)->l3_hdr_offset = to_b->current_data;
       to_b->flags |= VNET_BUFFER_F_L3_HDR_OFFSET_VALID;
-
-      if (from_b->flags & VNET_BUFFER_F_L4_HDR_OFFSET_VALID)
-	{
-	  vnet_buffer (to_b)->l4_hdr_offset =
-	    (vnet_buffer (to_b)->l3_hdr_offset +
-	     (vnet_buffer (from_b)->l4_hdr_offset -
-	      vnet_buffer (from_b)->l3_hdr_offset));
-	  to_b->flags |= VNET_BUFFER_F_L4_HDR_OFFSET_VALID;
-	}
       to_b->flags |= VNET_BUFFER_F_IS_IP6;
 
       /* Spin through from buffers filling up the to buffer */
@@ -500,7 +489,6 @@ ip6_frag_do_fragment (vlib_main_t * vm, u32 from_bi, u16 mtu,
   return IP_FRAG_ERROR_NONE;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip4_frag_node) = {
   .function = ip4_frag,
   .name = IP4_FRAG_NODE_NAME,
@@ -519,9 +507,7 @@ VLIB_REGISTER_NODE (ip4_frag_node) = {
 		  [IP_FRAG_NEXT_ICMP_ERROR] = "ip4-icmp-error",
 		  [IP_FRAG_NEXT_DROP] = "ip4-drop" },
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_frag_node) = {
   .function = ip6_frag,
   .name = IP6_FRAG_NODE_NAME,
@@ -540,12 +526,3 @@ VLIB_REGISTER_NODE (ip6_frag_node) = {
 		  [IP_FRAG_NEXT_ICMP_ERROR] = "error-drop",
 		  [IP_FRAG_NEXT_DROP] = "ip6-drop" },
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

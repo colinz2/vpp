@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #ifndef vpp_api_h_included
@@ -106,6 +93,25 @@ vapi_error_e vapi_connect (vapi_ctx_t ctx, const char *name,
 			   int max_outstanding_requests,
 			   int response_queue_size, vapi_mode_e mode,
 			   bool handle_keepalives);
+
+/**
+ * @brief connect to vpp
+ *
+ * @param ctx opaque vapi context, must be allocated using vapi_ctx_alloc first
+ * @param name application name
+ * @param path shared memory prefix or path to unix socket
+ * @param max_outstanding_requests max number of outstanding requests queued
+ * @param response_queue_size size of the response queue
+ * @param mode mode of operation - blocking or nonblocking
+ * @param handle_keepalives - if true, automatically handle memclnt_keepalive
+ * @param use_uds - if true, use unix domain socket transport
+ *
+ * @return VAPI_OK on success, other error code on error
+ */
+vapi_error_e vapi_connect_ex (vapi_ctx_t ctx, const char *name,
+			      const char *path, int max_outstanding_requests,
+			      int response_queue_size, vapi_mode_e mode,
+			      bool handle_keepalives, bool use_uds);
 
 /**
  * @brief connect to vpp from a client in same process
@@ -206,6 +212,18 @@ vapi_error_e vapi_wait (vapi_ctx_t ctx);
 /**
  * @brief pick next message sent by vpp and call the appropriate callback
  *
+ * @note if using block mode, it will be blocked indefinitely until the next
+ * msg available. If using non-blocking mode, it will block for time_wait
+ * seconds until the next msg available if time_wait > 0, or does not block if
+ * time_wait == 0.
+ *
+ * @return VAPI_OK on success, other error code on error
+ */
+vapi_error_e vapi_dispatch_one_timedwait (vapi_ctx_t ctx, u32 wait_time);
+
+/**
+ * @brief pick next message sent by vpp and call the appropriate callback
+ *
  * @return VAPI_OK on success, other error code on error
  */
 vapi_error_e vapi_dispatch_one (vapi_ctx_t ctx);
@@ -216,11 +234,11 @@ vapi_error_e vapi_dispatch_one (vapi_ctx_t ctx);
  *
  * @note the dispatch loop is interrupted if any error is encountered or
  * returned from the callback, in which case this error is returned as the
- * result of vapi_dispatch. In this case it might be necessary to call dispatch
- * again to process the remaining messages. Returning VAPI_EUSER from
- * a callback allows the user to break the dispatch loop (and distinguish
- * this case in the calling code from other failures). VAPI never returns
- * VAPI_EUSER on its own.
+ * result of vapi_dispatch. In this case it might be necessary to call
+ * dispatch again to process the remaining messages. Returning VAPI_EUSER
+ * from a callback allows the user to break the dispatch loop (and
+ * distinguish this case in the calling code from other failures). VAPI never
+ * returns VAPI_EUSER on its own.
  *
  * @return VAPI_OK on success, other error code on error
  */
@@ -292,11 +310,3 @@ void vapi_stop_rx_thread (vapi_ctx_t ctx);
 #endif
 
 #endif
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

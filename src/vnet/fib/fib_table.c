@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vlib/vlib.h>
@@ -24,6 +14,13 @@
 #include <vnet/fib/mpls_fib.h>
 
 const static char * fib_table_flags_strings[] = FIB_TABLE_ATTRIBUTES;
+
+/*
+ * Default names for IP4, IP6, and MPLS FIB table index 0.
+ * Nominally like "ipv6-VRF:0", but this will override that name if set
+ * in a config section of the startup.conf file.
+ */
+char *fib_table_default_names[FIB_PROTOCOL_MAX];
 
 fib_table_t *
 fib_table_get (fib_node_index_t index,
@@ -534,7 +531,11 @@ fib_table_route_path_fixup (const fib_prefix_t *prefix,
     else if (fib_route_path_is_attached(path))
     {
         path->frp_flags |= FIB_ROUTE_PATH_GLEAN;
-        fib_prefix_normalize(prefix, &path->frp_connected);
+        /*
+         * attached prefixes are not suitable as the source of ARP requests
+         * so don't save the prefix in the glean adj
+         */
+        clib_memset(&path->frp_connected, 0, sizeof(path->frp_connected));
     }
     if (*eflags & FIB_ENTRY_FLAG_DROP)
     {
@@ -1149,21 +1150,29 @@ fib_table_find_or_create_and_lock_i (fib_protocol_t proto,
 
     fib_table = fib_table_get(fi, proto);
 
-    if (NULL == fib_table->ft_desc)
+    if (fib_table->ft_desc)
+	    return fi;
+
+    if (name && name[0])
     {
-        if (name && name[0])
-        {
-            fib_table->ft_desc = format(NULL, "%s", name);
-        }
-        else
-        {
-            fib_table->ft_desc = format(NULL, "%U-VRF:%d",
-                                        format_fib_protocol, proto,
-                                        table_id);
-        }
+        fib_table->ft_desc = format(NULL, "%s", name);
+	return fi;
     }
 
-    return (fi);
+    if (table_id == 0)
+    {
+	char *default_name = fib_table_default_names[proto];
+	if (default_name && default_name[0])
+	{
+	    fib_table->ft_desc = format(NULL, "%s", default_name);
+	    return fi;
+	}
+    }
+
+    fib_table->ft_desc = format(NULL, "%U-VRF:%d",
+				format_fib_protocol, proto,
+				table_id);
+    return fi;
 }
 
 u32

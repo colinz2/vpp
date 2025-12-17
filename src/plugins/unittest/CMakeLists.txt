@@ -26,6 +26,7 @@ add_vpp_plugin(unittest
   crypto/aes_cbc.c
   crypto/aes_ctr.c
   crypto/aes_gcm.c
+  crypto/aes_gmac.c
   ${chacha20_poly1305}
   crypto/rfc2202_hmac_md5.c
   crypto/rfc2202_hmac_sha1.c
@@ -55,9 +56,12 @@ add_vpp_plugin(unittest
   tcp_test.c
   test_buffer.c
   unittest.c
+  udp_test.c
   util_test.c
   vlib_test.c
   counter_test.c
+  ring_buffer_test.c
+  histogram_test.c
 
   COMPONENT
   vpp-plugin-devtools

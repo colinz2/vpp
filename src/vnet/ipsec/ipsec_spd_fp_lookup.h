@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2022 Intel and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #ifndef IPSEC_SPD_FP_LOOKUP_H
@@ -96,9 +83,7 @@ single_rule_out_match_5tuple (ipsec_policy_t *policy, ipsec_fp_5tuple_t *match)
 static_always_inline int
 single_rule_in_match_5tuple (ipsec_policy_t *policy, ipsec_fp_5tuple_t *match)
 {
-
-  u32 da = clib_net_to_host_u32 (match->laddr.as_u32);
-  u32 sa = clib_net_to_host_u32 (match->raddr.as_u32);
+  u32 da, sa;
 
   if (policy->policy == IPSEC_POLICY_ACTION_PROTECT)
     {
@@ -109,26 +94,104 @@ single_rule_in_match_5tuple (ipsec_policy_t *policy, ipsec_fp_5tuple_t *match)
 
       if (ipsec_sa_is_set_IS_TUNNEL (s))
 	{
-	  if (da != clib_net_to_host_u32 (s->tunnel.t_dst.ip.ip4.as_u32))
-	    return (0);
+	  if (!policy->is_ipv6)
+	    {
+	      da = clib_net_to_host_u32 (match->laddr.as_u32);
+	      sa = clib_net_to_host_u32 (match->raddr.as_u32);
 
-	  if (sa != clib_net_to_host_u32 (s->tunnel.t_src.ip.ip4.as_u32))
-	    return (0);
+	      if (da != clib_net_to_host_u32 (s->tunnel.t_dst.ip.ip4.as_u32))
+		return (0);
+
+	      if (sa != clib_net_to_host_u32 (s->tunnel.t_src.ip.ip4.as_u32))
+		return (0);
+	    }
+	  else
+	    {
+	      if (ip6_address_compare (&match->ip6_laddr,
+				       &s->tunnel.t_dst.ip.ip6) != 0)
+		return (0);
+
+	      if (ip6_address_compare (&match->ip6_raddr,
+				       &s->tunnel.t_src.ip.ip6) != 0)
+		return (0);
+	    }
+	}
+      else
+	{
+	  if (!policy->is_ipv6)
+	    {
+	      da = clib_net_to_host_u32 (match->laddr.as_u32);
+	      sa = clib_net_to_host_u32 (match->raddr.as_u32);
+
+	      if (sa < clib_net_to_host_u32 (policy->raddr.start.ip4.as_u32))
+		return (0);
+
+	      if (sa > clib_net_to_host_u32 (policy->raddr.stop.ip4.as_u32))
+		return (0);
+
+	      if (da < clib_net_to_host_u32 (policy->laddr.start.ip4.as_u32))
+		return (0);
+
+	      if (da > clib_net_to_host_u32 (policy->laddr.stop.ip4.as_u32))
+		return (0);
+	    }
+	  else
+	    {
+	      if (ip6_address_compare (&match->ip6_laddr,
+				       &policy->laddr.start.ip6) < 0)
+		return (0);
+
+	      if (ip6_address_compare (&policy->laddr.stop.ip6,
+				       &match->ip6_laddr) < 0)
+		return (0);
+
+	      if (ip6_address_compare (&match->ip6_raddr,
+				       &policy->raddr.start.ip6) < 0)
+		return (0);
+
+	      if (ip6_address_compare (&policy->raddr.stop.ip6,
+				       &match->ip6_raddr) < 0)
+		return (0);
+	    }
 	}
     }
   else
     {
-      if (sa < clib_net_to_host_u32 (policy->raddr.start.ip4.as_u32))
-	return (0);
+      if (!policy->is_ipv6)
+	{
+	  da = clib_net_to_host_u32 (match->laddr.as_u32);
+	  sa = clib_net_to_host_u32 (match->raddr.as_u32);
 
-      if (sa > clib_net_to_host_u32 (policy->raddr.stop.ip4.as_u32))
-	return (0);
+	  if (sa < clib_net_to_host_u32 (policy->raddr.start.ip4.as_u32))
+	    return (0);
 
-      if (da < clib_net_to_host_u32 (policy->laddr.start.ip4.as_u32))
-	return (0);
+	  if (sa > clib_net_to_host_u32 (policy->raddr.stop.ip4.as_u32))
+	    return (0);
 
-      if (da > clib_net_to_host_u32 (policy->laddr.stop.ip4.as_u32))
-	return (0);
+	  if (da < clib_net_to_host_u32 (policy->laddr.start.ip4.as_u32))
+	    return (0);
+
+	  if (da > clib_net_to_host_u32 (policy->laddr.stop.ip4.as_u32))
+	    return (0);
+	}
+      else
+	{
+	  if (ip6_address_compare (&match->ip6_laddr,
+				   &policy->laddr.start.ip6) < 0)
+	    return (0);
+
+	  if (ip6_address_compare (&policy->laddr.stop.ip6,
+				   &match->ip6_laddr) < 0)
+	    return (0);
+
+	  if (ip6_address_compare (&match->ip6_raddr,
+				   &policy->raddr.start.ip6) < 0)
+	    return (0);
+
+	  if (ip6_address_compare (&policy->raddr.stop.ip6,
+				   &match->ip6_raddr) < 0)
+	    return (0);
+	}
     }
   return (1);
 }
@@ -196,13 +259,16 @@ ipsec_fp_in_ip6_policy_match_n (void *spd_fp, ipsec_fp_5tuple_t *tuples,
 		    {
 		      policy = im->policies + *policy_id;
 
-		      if ((last_priority[i] < policy->priority) &&
-			  (single_rule_in_match_5tuple (policy, match)))
+		      if (single_rule_in_match_5tuple (policy, match))
 			{
-			  last_priority[i] = policy->priority;
-			  if (policies[i] == 0)
-			    counter++;
-			  policies[i] = policy;
+			  if (last_priority[i] < policy->priority)
+			    {
+			      last_priority[i] = policy->priority;
+			      if (policies[i] == 0)
+				counter++;
+			      policies[i] = policy;
+			    }
+			  break;
 			}
 		    }
 		}
@@ -291,13 +357,16 @@ ipsec_fp_in_ip4_policy_match_n (void *spd_fp, ipsec_fp_5tuple_t *tuples,
 		    {
 		      policy = im->policies + *policy_id;
 
-		      if ((last_priority[i] < policy->priority) &&
-			  (single_rule_in_match_5tuple (policy, match)))
+		      if (single_rule_in_match_5tuple (policy, match))
 			{
-			  last_priority[i] = policy->priority;
-			  if (policies[i] == 0)
-			    counter++;
-			  policies[i] = policy;
+			  if (last_priority[i] < policy->priority)
+			    {
+			      last_priority[i] = policy->priority;
+			      if (policies[i] == 0)
+				counter++;
+			      policies[i] = policy;
+			    }
+			  break;
 			}
 		    }
 		}
@@ -418,6 +487,7 @@ ipsec_fp_out_ip6_policy_match_n (void *spd_fp, ipsec_fp_5tuple_t *tuples,
 			      policies[i] = policy;
 			      ids[i] = *policy_id;
 			    }
+			  break;
 			}
 		    }
 		}
@@ -511,14 +581,17 @@ ipsec_fp_out_ip4_policy_match_n (void *spd_fp, ipsec_fp_5tuple_t *tuples,
 		    {
 		      policy = im->policies + *policy_id;
 
-		      if ((last_priority[i] < policy->priority) &&
-			  (single_rule_out_match_5tuple (policy, match)))
+		      if (single_rule_out_match_5tuple (policy, match))
 			{
-			  last_priority[i] = policy->priority;
-			  if (policies[i] == 0)
-			    counter++;
-			  policies[i] = policy;
-			  ids[i] = *policy_id;
+			  if (last_priority[i] < policy->priority)
+			    {
+			      last_priority[i] = policy->priority;
+			      if (policies[i] == 0)
+				counter++;
+			      policies[i] = policy;
+			      ids[i] = *policy_id;
+			    }
+			  break;
 			}
 		    }
 		}

@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vnet/tcp/tcp.h>
 #include <vnet/tcp/tcp_inlines.h>
 
@@ -35,9 +26,7 @@
     }								\
 }
 
-/* *INDENT-OFF* */
 scoreboard_trace_elt_t sb_trace[] = {};
-/* *INDENT-ON* */
 
 static int
 tcp_test_scoreboard_replay (vlib_main_t * vm, unformat_input_t * input)
@@ -1004,16 +993,16 @@ tbt_seq_lt (u32 a, u32 b)
 }
 
 static void
-tcp_test_set_time (u32 thread_index, u32 val)
+tcp_test_set_time (clib_thread_index_t thread_index, u32 val)
 {
   session_main.wrk[thread_index].last_vlib_time = val;
-  tcp_set_time_now (&tcp_main.wrk_ctx[thread_index], val);
+  tcp_set_time_now (&tcp_main.wrk[thread_index], val);
 }
 
 static int
 tcp_test_delivery (vlib_main_t * vm, unformat_input_t * input)
 {
-  u32 thread_index = 0, snd_una, *min_seqs = 0;
+  clib_thread_index_t thread_index = 0, snd_una, *min_seqs = 0;
   tcp_rate_sample_t _rs = { 0 }, *rs = &_rs;
   tcp_connection_t _tc, *tc = &_tc;
   sack_scoreboard_t *sb = &tc->sack_sb;
@@ -1339,7 +1328,7 @@ tcp_test_delivery (vlib_main_t * vm, unformat_input_t * input)
 static int
 tcp_test_bt (vlib_main_t * vm, unformat_input_t * input)
 {
-  u32 thread_index = 0;
+  clib_thread_index_t thread_index = 0;
   tcp_rate_sample_t _rs = { 0 }, *rs = &_rs;
   tcp_connection_t _tc, *tc = &_tc;
   int __clib_unused verbose = 0, i;
@@ -1552,8 +1541,11 @@ tcp_test (vlib_main_t * vm,
 	  unformat_input_t * input, vlib_cli_command_t * cmd_arg)
 {
   int res = 0;
+  session_enable_disable_args_t args = { .is_en = 1,
+					 .rt_engine_type =
+					   RT_BACKEND_ENGINE_RULE_TABLE };
 
-  vnet_session_enable_disable (vm, 1);
+  vnet_session_enable_disable (vm, &args);
 
   while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
     {
@@ -1593,22 +1585,13 @@ tcp_test (vlib_main_t * vm,
 done:
   if (res)
     return clib_error_return (0, "TCP unit test failed");
+
+  vlib_cli_output (vm, "SUCCESS");
   return 0;
 }
 
-/* *INDENT-OFF* */
-VLIB_CLI_COMMAND (tcp_test_command, static) =
-{
+VLIB_CLI_COMMAND (tcp_test_command, static) = {
   .path = "test tcp",
   .short_help = "internal tcp unit tests",
   .function = tcp_test,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

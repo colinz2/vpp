@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <vnet/vnet.h>
@@ -42,14 +29,12 @@ vl_api_pipe_create_t_handler (vl_api_pipe_create_t * mp)
   rv = vnet_create_pipe_interface (is_specified, user_instance,
 				   &parent_sw_if_index, pipe_sw_if_index);
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_PIPE_CREATE_REPLY,
   ({
     rmp->sw_if_index = ntohl (parent_sw_if_index);
     rmp->pipe_sw_if_index[0] = ntohl (pipe_sw_if_index[0]);
     rmp->pipe_sw_if_index[1] = ntohl (pipe_sw_if_index[1]);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -123,11 +108,3 @@ pipe_api_hookup (vlib_main_t * vm)
 }
 
 VLIB_API_INIT_FUNCTION (pipe_api_hookup);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

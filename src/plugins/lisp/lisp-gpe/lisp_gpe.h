@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /**
  * @file
  * @brief LISP-GPE definitions.
@@ -36,22 +27,18 @@
 #include <vppinfra/bihash_template.h>
 
 /** IP4-UDP-LISP encap header */
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   ip4_header_t ip4;             /* 20 bytes */
   udp_header_t udp;             /* 8 bytes */
   lisp_gpe_header_t lisp;       /* 8 bytes */
 }) ip4_udp_lisp_gpe_header_t;
-/* *INDENT-ON* */
 
 /** IP6-UDP-LISP encap header */
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   ip6_header_t ip6;             /* 40 bytes */
   udp_header_t udp;             /* 8 bytes */
   lisp_gpe_header_t lisp;       /* 8 bytes */
 }) ip6_udp_lisp_gpe_header_t;
-/* *INDENT-ON* */
 
 #define foreach_lisp_gpe_ip_input_next          \
 _(DROP, "error-drop")                           \
@@ -330,11 +317,3 @@ u32 vnet_lisp_gpe_add_nsh_iface (lisp_gpe_main_t * lgm);
 void vnet_lisp_gpe_del_nsh_iface (lisp_gpe_main_t * lgm);
 
 #endif /* included_vnet_lisp_gpe_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

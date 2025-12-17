@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef __IP_TYPES_H__
@@ -75,13 +65,11 @@ typedef enum ip_feature_location_t_
 
 #define N_IP_FEATURE_LOCATIONS (IP_FEATURE_DROP+1)
 
-/* *INDENT-OFF* */
 typedef struct ip_address
 {
   ip46_address_t ip;
   ip_address_family_t version;
 } __clib_packed ip_address_t;
-/* *INDENT-ON* */
 
 #define IP_ADDRESS_V4_ALL_0S {.ip.ip4.as_u32 = 0, .version = AF_IP4}
 #define IP_ADDRESS_V6_ALL_0S {.ip.ip6.as_u64 = {0, 0}, .version = AF_IP6}
@@ -112,13 +100,11 @@ extern void ip_address_from_46 (const ip46_address_t * a,
 extern void ip_address_increment (ip_address_t * ip);
 extern void ip_address_reset (ip_address_t * ip);
 
-/* *INDENT-OFF* */
 typedef struct ip_prefix
 {
   ip_address_t addr;
   u8 len;
 } __clib_packed ip_prefix_t;
-/* *INDENT-ON* */
 
 #define ip_prefix_addr(_a) (_a)->addr
 #define ip_prefix_version(_a) ip_addr_version(&ip_prefix_addr(_a))
@@ -150,12 +136,11 @@ extern void ip6_prefix_max_address_host_order (ip6_address_t * ip, u8 plen,
 extern void ip6_preflen_to_mask (u8 pref_len, ip6_address_t * mask);
 extern u32 ip6_mask_to_preflen (ip6_address_t * mask);
 
-#endif /* __IP_TYPES_H__ */
+extern u8 ip4_is_local_host (ip4_address_t *ip4_address);
+extern u8 ip6_is_local_host (ip6_address_t *ip6_address);
+extern u8 ip_is_zero (ip46_address_t *ip46_address, u8 is_ip4);
+extern u8 ip_is_local_host (ip46_address_t *ip46_address, u8 is_ip4);
+extern void ip_copy (ip46_address_t *dst, ip46_address_t *src, u8 is_ip4);
+extern void ip_set (ip46_address_t *dst, void *src, u8 is_ip4);
 
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+#endif /* __IP_TYPES_H__ */

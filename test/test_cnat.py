@@ -2,9 +2,11 @@
 
 import unittest
 
-from framework import VppTestCase, VppTestRunner
-from vpp_ip import DpoProto, INVALID_INDEX
+from framework import VppTestCase
+from asfframework import VppTestRunner
+from vpp_ip import INVALID_INDEX
 from itertools import product
+from config import config
 
 from scapy.packet import Raw
 from scapy.layers.l2 import Ether
@@ -12,17 +14,9 @@ from scapy.layers.inet import IP, UDP, TCP, ICMP
 from scapy.layers.inet import IPerror, TCPerror, UDPerror, ICMPerror
 from scapy.layers.inet6 import IPv6, IPerror6, ICMPv6DestUnreach
 from scapy.layers.inet6 import ICMPv6EchoRequest, ICMPv6EchoReply
+from scapy.layers.inet6 import ICMPv6TimeExceeded
 
-import struct
-
-from ipaddress import (
-    ip_address,
-    ip_network,
-    IPv4Address,
-    IPv6Address,
-    IPv4Network,
-    IPv6Network,
-)
+from ipaddress import ip_network
 
 from vpp_object import VppObject
 from vpp_papi import VppEnum
@@ -41,7 +35,7 @@ class CnatCommonTestCase(VppTestCase):
     # turn the scanner off whilst testing otherwise sessions
     # will time out
     #
-    extra_vpp_punt_config = [
+    extra_vpp_config = [
         "cnat",
         "{",
         "session-db-buckets",
@@ -110,11 +104,12 @@ class Endpoint(object):
 
 
 class Translation(VppObject):
-    def __init__(self, test, iproto, vip, paths):
+    def __init__(self, test, iproto, vip, paths, fhc):
         self._test = test
         self.vip = vip
         self.iproto = iproto
         self.paths = paths
+        self.fhc = fhc
         self.id = None
 
     def __str__(self):
@@ -140,6 +135,7 @@ class Translation(VppObject):
                 "ip_proto": self._vl4_proto(),
                 "n_paths": len(self.paths),
                 "paths": self._encoded_paths(),
+                "flow_hash_config": self.fhc,
             }
         )
         self._test.registry.register(self, self._test.logger)
@@ -341,6 +337,7 @@ class CnatTestContext(object):
 # -------------------------------------------------------------------
 
 
+@unittest.skipIf("cnat" in config.excluded_plugins, "Exclude CNAT plugin tests")
 class TestCNatTranslation(CnatCommonTestCase):
     """CNat Translation"""
 
@@ -380,6 +377,41 @@ class TestCNatTranslation(CnatCommonTestCase):
             i.unconfig_ip6()
             i.admin_down()
         super(TestCNatTranslation, self).tearDown()
+
+    def cnat_fhc_translation(self):
+        """CNat Translation"""
+        self.logger.info(self.vapi.cli("sh cnat client"))
+        self.logger.info(self.vapi.cli("sh cnat translation"))
+
+        for nbr, translation in enumerate(self.mbtranslations):
+            vip = translation.vip
+
+            #
+            # Flows to the VIP with same ips and different source ports are loadbalanced identically
+            # in both cases of flow hash 0x03 (src ip and dst ip) and 0x08 (dst port)
+            #
+            ctx = CnatTestContext(self, translation.iproto, vip.is_v6)
+            for src_pgi, sport in product(range(N_REMOTE_HOSTS), [1234, 1233]):
+                # from client to vip
+                ctx.cnat_send(self.pg0, src_pgi, sport, self.pg1, vip.ip, vip.port)
+                dport1 = ctx.rxs[0][ctx.L4PROTO].dport
+                ctx._test.assertIn(
+                    dport1,
+                    [translation.paths[0][DST].port, translation.paths[1][DST].port],
+                )
+                ctx.cnat_expect(self.pg0, src_pgi, sport, self.pg1, nbr, dport1)
+
+                ctx.cnat_send(
+                    self.pg0, src_pgi, sport + 122, self.pg1, vip.ip, vip.port
+                )
+                dport2 = ctx.rxs[0][ctx.L4PROTO].dport
+                ctx._test.assertIn(
+                    dport2,
+                    [translation.paths[0][DST].port, translation.paths[1][DST].port],
+                )
+                ctx.cnat_expect(self.pg0, src_pgi, sport + 122, self.pg1, nbr, dport2)
+
+                ctx._test.assertEqual(dport1, dport2)
 
     def cnat_translation(self):
         """CNat Translation"""
@@ -470,7 +502,6 @@ class TestCNatTranslation(CnatCommonTestCase):
                     ctx.cnat_expect(self.pg0, src_pgi, sport, self.pg2, 0, 5000)
 
     def _test_icmp(self):
-
         #
         # Testing ICMP
         #
@@ -495,6 +526,46 @@ class TestCNatTranslation(CnatCommonTestCase):
             ctx.cnat_expect(self.pg0, 0, 1234, self.pg2, 0, vip.port)
             ctx.cnat_send_icmp_return_error().cnat_expect_icmp_error_return()
 
+    def _make_multi_backend_translations(self):
+        self.translations = []
+        self.mbtranslations = []
+        self.mbtranslations.append(
+            Translation(
+                self,
+                TCP,
+                Endpoint(ip="30.0.0.5", port=5555, is_v6=False),
+                [
+                    (
+                        Endpoint(is_v6=False),
+                        Endpoint(pg=self.pg1, pgi=0, port=4001, is_v6=False),
+                    ),
+                    (
+                        Endpoint(is_v6=False),
+                        Endpoint(pg=self.pg1, pgi=0, port=4005, is_v6=False),
+                    ),
+                ],
+                0x03,  # hash only on dst ip and src ip
+            ).add_vpp_config()
+        )
+        self.mbtranslations.append(
+            Translation(
+                self,
+                TCP,
+                Endpoint(ip="30.0.0.6", port=5555, is_v6=False),
+                [
+                    (
+                        Endpoint(is_v6=False),
+                        Endpoint(pg=self.pg1, pgi=1, port=4006, is_v6=False),
+                    ),
+                    (
+                        Endpoint(is_v6=False),
+                        Endpoint(pg=self.pg1, pgi=1, port=4007, is_v6=False),
+                    ),
+                ],
+                0x08,  # hash only on dst port
+            ).add_vpp_config()
+        )
+
     def _make_translations_v4(self):
         self.translations = []
         self.translations.append(
@@ -508,6 +579,7 @@ class TestCNatTranslation(CnatCommonTestCase):
                         Endpoint(pg=self.pg1, pgi=0, port=4001, is_v6=False),
                     )
                 ],
+                0x9F,
             ).add_vpp_config()
         )
         self.translations.append(
@@ -521,6 +593,7 @@ class TestCNatTranslation(CnatCommonTestCase):
                         Endpoint(pg=self.pg1, pgi=1, port=4002, is_v6=False),
                     )
                 ],
+                0x9F,
             ).add_vpp_config()
         )
         self.translations.append(
@@ -534,6 +607,7 @@ class TestCNatTranslation(CnatCommonTestCase):
                         Endpoint(pg=self.pg1, pgi=2, port=4003, is_v6=False),
                     )
                 ],
+                0x9F,
             ).add_vpp_config()
         )
 
@@ -550,6 +624,7 @@ class TestCNatTranslation(CnatCommonTestCase):
                         Endpoint(pg=self.pg1, pgi=0, port=4001, is_v6=True),
                     )
                 ],
+                0x9F,
             ).add_vpp_config()
         )
         self.translations.append(
@@ -563,6 +638,7 @@ class TestCNatTranslation(CnatCommonTestCase):
                         Endpoint(pg=self.pg1, pgi=1, port=4002, is_v6=True),
                     )
                 ],
+                0x9F,
             ).add_vpp_config()
         )
         self.translations.append(
@@ -576,6 +652,7 @@ class TestCNatTranslation(CnatCommonTestCase):
                         Endpoint(pg=self.pg1, pgi=2, port=4003, is_v6=True),
                     )
                 ],
+                0x9F,
             ).add_vpp_config()
         )
 
@@ -599,7 +676,13 @@ class TestCNatTranslation(CnatCommonTestCase):
         self._make_translations_v4()
         self.cnat_translation()
 
+    def test_cnat_fhc(self):
+        # """ CNat Translation flow hash config """
+        self._make_multi_backend_translations()
+        self.cnat_fhc_translation()
 
+
+@unittest.skipIf("cnat" in config.excluded_plugins, "Exclude CNAT plugin tests")
 class TestCNatSourceNAT(CnatCommonTestCase):
     """CNat Source NAT"""
 
@@ -678,12 +761,14 @@ class TestCNatSourceNAT(CnatCommonTestCase):
         self.sourcenat_test_tcp_udp_conf(TCP, is_v6=True)
         self.sourcenat_test_tcp_udp_conf(UDP, is_v6=True)
         self.sourcenat_test_icmp_echo_conf(is_v6=True)
+        self.sourcenat_test_icmp_traceroute_conf(is_v6=True)
 
     def test_snat_v4(self):
         # """ CNat Source Nat v4 """
         self.sourcenat_test_tcp_udp_conf(TCP)
         self.sourcenat_test_tcp_udp_conf(UDP)
         self.sourcenat_test_icmp_echo_conf()
+        self.sourcenat_test_icmp_traceroute_conf()
 
     def sourcenat_test_icmp_echo_conf(self, is_v6=False):
         ctx = CnatTestContext(self, ICMP, is_v6=is_v6)
@@ -691,6 +776,125 @@ class TestCNatSourceNAT(CnatCommonTestCase):
         ctx.cnat_send(self.pg0, 0, 0xFEED, self.pg1, 0, 8)
         ctx.cnat_expect(self.pg2, 0, None, self.pg1, 0, 8)
         ctx.cnat_send_return().cnat_expect_return()
+
+    def sourcenat_test_icmp_traceroute_conf(self, is_v6=False):
+        # IPv4 ICMP
+        if not is_v6:
+            # Create an ICMP traceroute packet with TTL set to 1.
+            # The CNAT translates the packet, but the NATted packet is dropped
+            # due to the TTL of 1. An ICMP Time Exceeded message is sent
+            # to the source (which is the NATted address).
+            # The packet will be translated once more to the original
+            # source IP address.
+
+            icmp = (
+                Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
+                / IP(
+                    ttl=1,
+                    src=self.pg0.remote_hosts[0].ip4,
+                    dst=self.pg1.remote_hosts[0].ip4,
+                )
+                / ICMP(id=0xFEED, type=8)  # ICMP Type Echo Request
+                / Raw()
+            )
+
+            self.rxs = self.send_and_expect(self.pg0, icmp, self.pg0)
+
+            for rx in self.rxs:
+                self.assert_packet_checksums_valid(rx)
+                self.assertEqual(rx[IP].dst, self.pg0.remote_hosts[0].ip4)
+                self.assertEqual(rx[IP].src, "172.16.1.1")
+                self.assertEqual(rx[ICMP].type, 11)  # ICMP Type 11 (Time Exceeded)
+                self.assertEqual(
+                    rx[ICMP].code, 0
+                )  # ICMP Code 0 (TTL Zero During Transit)
+                inner = rx[ICMP].payload
+                self.assertEqual(inner[IPerror].src, self.pg0.remote_hosts[0].ip4)
+                self.assertEqual(inner[IPerror].dst, self.pg1.remote_hosts[0].ip4)
+                self.assertEqual(inner[ICMPerror].type, 8)  # ICMP Echo Request
+                self.assertEqual(inner[ICMPerror].id, 0xFEED)
+
+            # source ---> NATted Transit ---> Transit 2 ... ---> Transit N ---> Destination
+            # Simulate an ICMP Time Exceeded message arriving at the NATted Transit
+            # from the Transit N-2 node. This occurs because the NATted packet
+            # is dropped due to a TTL of 1.
+            # An ICMP Time Exceeded message is sent back to the source
+            # (initially the NATted address). The CNAT then translates the message
+            # back to the original source IP address.
+
+            # For ICMP based traffic, snat session uses identifier for session key.
+            # snat allocates a new identifier. To hit the snat session from Transit N-2
+            # to NATed Transit, packet should use snat allocated identifier. To get the
+            # snat allocated identifier, echo request will be sent and captured at the
+            # destination, taken out the identifier from the packet and use it to set
+            # the identifier in the ICMP time exceed packet
+            icmp[IP].ttl = 64
+            rxs = self.send_and_expect(self.pg0, icmp, self.pg1)
+
+            icmp_error = (
+                Ether(src=self.pg1.remote_mac, dst=self.pg1.local_mac)
+                / IP(src="172.16.1.1", dst=self.pg2.remote_hosts[0].ip4)
+                / ICMP(type=11, code=0)
+                / IPerror(
+                    src=self.pg2.remote_hosts[0].ip4, dst=self.pg1.remote_hosts[0].ip4
+                )
+                / ICMPerror(id=rxs[0][ICMP].id, type=8)
+                / Raw()
+            )
+
+            self.rxs = self.send_and_expect(self.pg1, icmp_error, self.pg0)
+            for rx in self.rxs:
+                self.assert_packet_checksums_valid(rx)
+                self.assertEqual(rx[IP].dst, self.pg0.remote_hosts[0].ip4)
+                self.assertEqual(rx[IP].src, "172.16.1.1")
+                self.assertEqual(rx[ICMP].type, 11)  # ICMP Type 11 (Time Exceeded)
+                self.assertEqual(
+                    rx[ICMP].code, 0
+                )  # ICMP Code 0 (TTL Zero During Transit)
+                inner = rx[ICMP].payload
+                self.assertEqual(inner[IPerror].src, self.pg0.remote_hosts[0].ip4)
+                self.assertEqual(inner[IPerror].dst, self.pg1.remote_hosts[0].ip4)
+                self.assertEqual(inner[ICMPerror].type, 8)  # ICMP Echo Request
+                self.assertEqual(inner[ICMPerror].id, 0xFEED)
+
+        # IPv6 ICMPv6
+        if is_v6:
+
+            # Create an ICMPv6 traceroute packet with Hop Limit set to 1.
+            # The CNAT translates the packet, but the NATted packet is dropped
+            # due to the Hop Limit of 1. An ICMPv6 Time Exceeded message is sent
+            # back to the source (which is the NATted address).
+            # The CNAT translates the message once more to restore
+            # the original source IPv6 address.
+            icmp6 = (
+                Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
+                / IPv6(
+                    hlim=1,
+                    src=self.pg0.remote_hosts[0].ip6,
+                    dst=self.pg1.remote_hosts[0].ip6,
+                )
+                / ICMPv6EchoRequest(id=0xFEED)
+                / Raw()
+            )
+            self.rxs = self.send_and_expect(self.pg0, icmp6, self.pg0)
+
+            for rx in self.rxs:
+                self.assert_packet_checksums_valid(rx)
+                self.assertEqual(rx[IPv6].dst, self.pg0.remote_hosts[0].ip6)
+                self.assertEqual(rx[IPv6].src, "fd01:1::1")
+                self.assertEqual(
+                    rx[ICMPv6TimeExceeded].type, 3
+                )  # ICMPv6 Type 3 (Time Exceeded)
+                self.assertEqual(
+                    rx[ICMPv6TimeExceeded].code, 0
+                )  # ICMPv6 Code 0 (TTL Zero During Transit)
+                inner = rx[ICMPv6TimeExceeded].payload
+                self.assertEqual(inner[IPerror6].src, self.pg0.remote_hosts[0].ip6)
+                self.assertEqual(inner[IPerror6].dst, self.pg1.remote_hosts[0].ip6)
+                self.assertEqual(
+                    inner[ICMPv6EchoRequest].type, 128
+                )  # ICMPv6 Echo Request
+                self.assertEqual(inner[ICMPv6EchoRequest].id, 0xFEED)
 
     def sourcenat_test_tcp_udp_conf(self, L4PROTO, is_v6=False):
         ctx = CnatTestContext(self, L4PROTO, is_v6)
@@ -739,8 +943,9 @@ class TestCNatSourceNAT(CnatCommonTestCase):
         self.vapi.cnat_session_purge()
 
 
+@unittest.skipIf("cnat" in config.excluded_plugins, "Exclude CNAT plugin tests")
 class TestCNatDHCP(CnatCommonTestCase):
-    """CNat Translation"""
+    """CNat DHCP"""
 
     @classmethod
     def setUpClass(cls):
@@ -798,7 +1003,7 @@ class TestCNatDHCP(CnatCommonTestCase):
             (Endpoint(pg=self.pg1, is_v6=is_v6), Endpoint(pg=self.pg3, is_v6=is_v6)),
         ]
         ep = Endpoint(pg=self.pg0, is_v6=is_v6)
-        t = Translation(self, TCP, ep, paths).add_vpp_config()
+        t = Translation(self, TCP, ep, paths, 0x9F).add_vpp_config()
         # Add an address on every interface
         # and check it is reflected in the cnat config
         for pg in self.pg_interfaces:

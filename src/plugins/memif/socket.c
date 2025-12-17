@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #define _GNU_SOURCE
@@ -25,13 +12,12 @@
 #include <sys/un.h>
 #include <sys/uio.h>
 #include <sys/mman.h>
-#include <sys/prctl.h>
 #include <sys/eventfd.h>
 #include <inttypes.h>
 #include <limits.h>
 
 #include <vlib/vlib.h>
-#include <vlib/unix/unix.h>
+#include <vlib/file.h>
 #include <vnet/plugin/plugin.h>
 #include <vnet/ethernet/ethernet.h>
 #include <vpp/app/version.h>
@@ -446,14 +432,12 @@ memif_msg_receive (memif_if_t ** mifp, clib_socket_t * sock, clib_file_t * uf)
       if ((err = memif_init_regions_and_queues (mif)))
 	goto error;
       memif_msg_enq_init (mif);
-      /* *INDENT-OFF* */
       vec_foreach_index (i, mif->regions)
 	memif_msg_enq_add_region (mif, i);
       vec_foreach_index (i, mif->tx_queues)
 	memif_msg_enq_add_ring (mif, i, MEMIF_RING_S2M);
       vec_foreach_index (i, mif->rx_queues)
 	memif_msg_enq_add_ring (mif, i, MEMIF_RING_M2S);
-      /* *INDENT-ON* */
       memif_msg_enq_connect (mif);
       break;
 
@@ -632,6 +616,7 @@ memif_master_conn_fd_error (clib_file_t * uf)
       err = clib_error_return (0, "connection fd error");
       memif_disconnect (mif, err);
       clib_error_free (err);
+      return 0;
     }
   else
     {
@@ -695,11 +680,3 @@ error:
   clib_mem_free (client);
   return err;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

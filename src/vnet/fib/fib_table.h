@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef __FIB_TABLE_H__
@@ -121,6 +111,15 @@ typedef struct fib_table_t_
      */
     u8* ft_desc;
 } fib_table_t;
+
+
+/**
+ * @brief
+ *  Default names for IP4, IP6, and MPLS FIB table index 0.
+ *  Nominally like "ipv4-VRF:0", but this will override that name if set
+ *  in a config section of the startup.conf file.
+ */
+extern char *fib_table_default_names[FIB_PROTOCOL_MAX];
 
 /**
  * @brief
@@ -971,9 +970,7 @@ extern u8 *format_fib_table_memory(u8 *s, va_list *args);
 /**
  * Debug function
  */
-#if CLIB_DEBUG > 0
 extern void fib_table_assert_empty(const fib_table_t *fib_table);
-#endif
 
 
 #endif

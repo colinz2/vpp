@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/ip/ip.h>
@@ -145,27 +135,23 @@ ip_interface_has_address (u32 sw_if_index, ip46_address_t * ip, u8 is_ip4)
     {
       ip_lookup_main_t *lm4 = &ip4_main.lookup_main;
       ip4_address_t *ip4;
-      /* *INDENT-OFF* */
       foreach_ip_interface_address (lm4, ia, sw_if_index, 1 /* unnumbered */ ,
       ({
         ip4 = ip_interface_address_get_address (lm4, ia);
         if (ip4_address_compare (ip4, &ip->ip4) == 0)
           return 1;
       }));
-      /* *INDENT-ON* */
     }
   else
     {
       ip_lookup_main_t *lm6 = &ip6_main.lookup_main;
       ip6_address_t *ip6;
-      /* *INDENT-OFF* */
       foreach_ip_interface_address (lm6, ia, sw_if_index, 1 /* unnumbered */ ,
       ({
         ip6 = ip_interface_address_get_address (lm6, ia);
         if (ip6_address_compare (ip6, &ip->ip6) == 0)
           return 1;
       }));
-      /* *INDENT-ON* */
     }
   return 0;
 }
@@ -179,16 +165,13 @@ ip_interface_get_first_ip (u32 sw_if_index, u8 is_ip4)
 
   if (is_ip4)
     {
-      /* *INDENT-OFF* */
       foreach_ip_interface_address (lm4, ia, sw_if_index, 1 /* unnumbered */ ,
       ({
         return ip_interface_address_get_address (lm4, ia);
       }));
-      /* *INDENT-ON* */
     }
   else
     {
-      /* *INDENT-OFF* */
       foreach_ip_interface_address (lm6, ia, sw_if_index, 1 /* unnumbered */ ,
       ({
         ip6_address_t *rv;
@@ -197,7 +180,6 @@ ip_interface_get_first_ip (u32 sw_if_index, u8 is_ip4)
         if (!ip6_address_is_link_local_unicast (rv))
           return rv;
       }));
-      /* *INDENT-ON* */
     }
 
   return 0;
@@ -211,7 +193,6 @@ ip_interface_address_mark_one_interface (vnet_main_t *vnm,
   ip_lookup_main_t *lm6 = &ip6_main.lookup_main;
   ip_interface_address_t *ia = 0;
 
-  /* *INDENT-OFF* */
   foreach_ip_interface_address (lm4, ia, si->sw_if_index, 1 /* unnumbered */ ,
   ({
     ia->flags |= IP_INTERFACE_ADDRESS_FLAG_STALE;
@@ -220,7 +201,6 @@ ip_interface_address_mark_one_interface (vnet_main_t *vnm,
   ({
     ia->flags |= IP_INTERFACE_ADDRESS_FLAG_STALE;
   }));
-  /* *INDENT-ON* */
 
   return (WALK_CONTINUE);
 }
@@ -246,7 +226,6 @@ ip_interface_address_sweep_one_interface (vnet_main_t * vnm,
   u32 *ip4_masks = 0;
   int i;
 
-  /* *INDENT-OFF* */
   foreach_ip_interface_address (&im4->lookup_main, ia, si->sw_if_index, 1,
   ({
     if (ia->flags & IP_INTERFACE_ADDRESS_FLAG_STALE)
@@ -268,7 +247,6 @@ ip_interface_address_sweep_one_interface (vnet_main_t * vnm,
         vec_add1 (ip6_masks, ia->address_length);
       }
   }));
-  /* *INDENT-ON* */
 
   for (i = 0; i < vec_len (ip4_addrs); i++)
     ip4_add_del_interface_address (vm, si->sw_if_index, &ip4_addrs[i],
@@ -291,11 +269,3 @@ ip_interface_address_sweep (void)
   vnet_sw_interface_walk (vnet_get_main (),
 			  ip_interface_address_sweep_one_interface, NULL);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

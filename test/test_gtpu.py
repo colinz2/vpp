@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 
-import socket
 from util import ip4_range
 import unittest
-from framework import tag_fixme_vpp_workers
-from framework import VppTestCase, VppTestRunner
+from framework import VppTestCase
+from asfframework import VppTestRunner, tag_fixme_vpp_workers
 from template_bd import BridgeDomain
+from config import config
 
 from scapy.layers.l2 import Ether
-from scapy.packet import Raw
 from scapy.layers.inet import IP, UDP
 from scapy.layers.inet6 import IPv6
 from scapy.contrib.gtp import GTP_U_Header
-from scapy.utils import atol
 
 import util
 from vpp_ip_route import VppIpRoute, VppRoutePath
@@ -20,6 +18,7 @@ from vpp_ip import INVALID_INDEX
 
 
 @tag_fixme_vpp_workers
+@unittest.skipIf("gtpu" in config.excluded_plugins, "Exclude GTPU plugin tests")
 class TestGtpuUDP(VppTestCase):
     """GTPU UDP ports Test Case"""
 
@@ -38,9 +37,8 @@ class TestGtpuUDP(VppTestCase):
         self.pg0.config_ip6()
 
     def _check_udp_port_ip4(self, enabled=True):
-
         pkt = (
-            Ether(src=self.pg0.local_mac, dst=self.pg0.remote_mac)
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
             / IP(src=self.pg0.remote_ip4, dst=self.pg0.local_ip4)
             / UDP(sport=self.dport, dport=self.dport, chksum=0)
         )
@@ -58,9 +56,8 @@ class TestGtpuUDP(VppTestCase):
         self.ip4_err = err
 
     def _check_udp_port_ip6(self, enabled=True):
-
         pkt = (
-            Ether(src=self.pg0.local_mac, dst=self.pg0.remote_mac)
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
             / IPv6(src=self.pg0.remote_ip6, dst=self.pg0.local_ip6)
             / UDP(sport=self.dport, dport=self.dport, chksum=0)
         )
@@ -124,6 +121,7 @@ class TestGtpuUDP(VppTestCase):
         )
 
 
+@unittest.skipIf("gtpu" in config.excluded_plugins, "Exclude GTPU plugin tests")
 class TestGtpu(BridgeDomain, VppTestCase):
     """GTPU Test Case"""
 

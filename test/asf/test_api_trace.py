@@ -1,12 +1,10 @@
-import os
 import unittest
-from asfframework import VppTestCase, VppTestRunner
-from vpp_papi import VppEnum
+from asfframework import VppAsfTestCase, VppTestRunner
 import json
 import shutil
 
 
-class TestJsonApiTrace(VppTestCase):
+class TestJsonApiTrace(VppAsfTestCase):
     """JSON API trace related tests"""
 
     @classmethod
@@ -39,7 +37,7 @@ class TestJsonApiTrace(VppTestCase):
                 found = True
                 break
         self.assertTrue(found)
-        self.assertEquals(o["_msgname"], "show_version")
+        self.assertEqual(o["_msgname"], "show_version")
 
     def test_json_api_trace_replay(self):
         fname = "/tmp/create_loop.json"

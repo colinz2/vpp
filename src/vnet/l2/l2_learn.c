@@ -1,19 +1,8 @@
-/*
- * l2_learn.c : layer 2 learning using l2fib
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2013 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* l2_learn.c : layer 2 learning using l2fib */
 
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
@@ -439,7 +428,6 @@ VLIB_NODE_FN (l2learn_node) (vlib_main_t * vm,
   return l2learn_node_inline (vm, node, frame, 0 /* do_trace */ );
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (l2learn_node) = {
   .name = "l2-learn",
   .vector_size = sizeof (u32),
@@ -457,7 +445,6 @@ VLIB_REGISTER_NODE (l2learn_node) = {
         [L2LEARN_NEXT_L2FWD] = "l2-fwd",
   },
 };
-/* *INDENT-ON* */
 
 #ifndef CLIB_MARCH_VARIANT
 clib_error_t *
@@ -540,13 +527,11 @@ done:
  * Example of how to disable learning:
  * @cliexcmd{set interface l2 learn GigabitEthernet0/8/0 disable}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (int_learn_cli, static) = {
   .path = "set interface l2 learn",
   .short_help = "set interface l2 learn <interface> [disable]",
   .function = int_learn,
 };
-/* *INDENT-ON* */
 
 
 static clib_error_t *
@@ -570,12 +555,3 @@ l2learn_config (vlib_main_t * vm, unformat_input_t * input)
 VLIB_CONFIG_FUNCTION (l2learn_config, "l2learn");
 
 #endif
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

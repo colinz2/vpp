@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/vnet.h>
@@ -190,6 +180,7 @@ fib_api_path_decode (vl_api_fib_path_t *in,
         break;
     case FIB_API_PATH_TYPE_DROP:
         out->frp_flags |= FIB_ROUTE_PATH_DROP;
+        out->frp_sw_if_index = ntohl(in->sw_if_index);
         break;
     case FIB_API_PATH_TYPE_LOCAL:
         out->frp_flags |= FIB_ROUTE_PATH_LOCAL;
@@ -448,6 +439,9 @@ fib_api_route_add_del (u8 is_add,
                        fib_entry_flag_t entry_flags,
                        fib_route_path_t *rpaths)
 {
+    if (!fib_prefix_validate(prefix)) {
+          return (VNET_API_ERROR_INVALID_PREFIX_LENGTH);
+    }
     if (is_multipath)
     {
         if (vec_len(rpaths) == 0)
@@ -488,6 +482,21 @@ fib_api_route_add_del (u8 is_add,
     }
 
     return (0);
+}
+
+u8 *
+format_vl_api_address_union (u8 * s, va_list * args)
+{
+  const vl_api_address_union_t *addr =
+    va_arg (*args, vl_api_address_union_t *);
+  vl_api_address_family_t af = va_arg (*args, int);
+
+  if (ADDRESS_IP6 == af)
+    s = format (s, "%U", format_ip6_address, addr->ip6);
+  else
+    s = format (s, "%U", format_ip4_address, addr->ip4);
+
+  return s;
 }
 
 u8*

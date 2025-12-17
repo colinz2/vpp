@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef __included_dslite_h__
 #define __included_dslite_h__
 
@@ -22,7 +13,6 @@
 
 #include <nat/lib/lib.h>
 #include <nat/lib/alloc.h>
-#include <nat/lib/inlines.h>
 
 typedef struct
 {
@@ -61,7 +51,6 @@ typedef struct
   };
 } dslite_session_key_t;
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct
 {
   nat_session_key_t out2in;
@@ -72,7 +61,6 @@ typedef CLIB_PACKED (struct
   u64 total_bytes;
   u32 total_pkts;
 }) dslite_session_t;
-/* *INDENT-ON* */
 
 typedef struct
 {
@@ -180,11 +168,3 @@ u8 *format_dslite_trace (u8 * s, va_list * args);
 u8 *format_dslite_ce_trace (u8 * s, va_list * args);
 
 #endif /* __included_dslite_h__ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

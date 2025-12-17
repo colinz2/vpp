@@ -1,19 +1,8 @@
-/*
- * node.c
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* node.c */
 
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
@@ -271,7 +260,6 @@ srv6_ad_localsid_fn (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (srv6_ad_localsid_node) = {
   .function = srv6_ad_localsid_fn,
   .name = "srv6-ad-localsid",
@@ -286,7 +274,6 @@ VLIB_REGISTER_NODE (srv6_ad_localsid_node) = {
     [SRV6_AD_LOCALSID_NEXT_ERROR] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 
 /******************************* Rewriting node *******************************/
@@ -407,7 +394,6 @@ srv6_ad2_rewrite_fn (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (srv6_ad2_rewrite_node) = {
   .function = srv6_ad2_rewrite_fn,
   .name = "srv6-ad2-rewrite",
@@ -422,7 +408,6 @@ VLIB_REGISTER_NODE (srv6_ad2_rewrite_node) = {
     [SRV6_AD_REWRITE_NEXT_ERROR] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 
 /**
@@ -550,7 +535,6 @@ srv6_ad4_rewrite_fn (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (srv6_ad4_rewrite_node) = {
   .function = srv6_ad4_rewrite_fn,
   .name = "srv6-ad4-rewrite",
@@ -565,7 +549,6 @@ VLIB_REGISTER_NODE (srv6_ad4_rewrite_node) = {
       [SRV6_AD_REWRITE_NEXT_ERROR] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 
 /**
@@ -688,7 +671,6 @@ srv6_ad6_rewrite_fn (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (srv6_ad6_rewrite_node) = {
   .function = srv6_ad6_rewrite_fn,
   .name = "srv6-ad6-rewrite",
@@ -703,12 +685,3 @@ VLIB_REGISTER_NODE (srv6_ad6_rewrite_node) = {
       [SRV6_AD_REWRITE_NEXT_ERROR] = "error-drop",
   },
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
-*/

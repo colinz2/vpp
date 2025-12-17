@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2011-2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /**
  * @file
  * @brief LLDP nodes implementation
@@ -102,7 +93,6 @@ lldp_node_fn (vlib_main_t * vm, vlib_node_runtime_t * node,
 /*
  * lldp input graph node declaration
  */
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE(lldp_input_node, static) = {
   .function = lldp_node_fn,
   .name = "lldp-input",
@@ -120,7 +110,6 @@ VLIB_REGISTER_NODE(lldp_input_node, static) = {
               [LLDP_INPUT_NEXT_NORMAL] = "error-drop",
       },
 };
-/* *INDENT-ON* */
 
 /*
  * lldp process node function
@@ -230,13 +219,11 @@ lldp_process (vlib_main_t * vm, vlib_node_runtime_t * rt, vlib_frame_t * f)
 /*
  * lldp process node declaration
  */
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE(lldp_process_node, static) = {
   .function = lldp_process,
   .type = VLIB_NODE_TYPE_PROCESS,
   .name = "lldp-process",
 };
-/* *INDENT-ON* */
 
 void
 lldp_schedule_intf (lldp_main_t * lm, lldp_intf_t * n)
@@ -331,11 +318,3 @@ lldp_hw_interface_up_down (vnet_main_t * vnm, u32 hw_if_index, u32 flags)
 }
 
 VNET_HW_INTERFACE_LINK_UP_DOWN_FUNCTION (lldp_hw_interface_up_down);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

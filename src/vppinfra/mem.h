@@ -1,39 +1,7 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright (c) 2001, 2002, 2003 Eliot Dresselhaus
  */
-/*
-  Copyright (c) 2001, 2002, 2003 Eliot Dresselhaus
-
-  Permission is hereby granted, free of charge, to any person obtaining
-  a copy of this software and associated documentation files (the
-  "Software"), to deal in the Software without restriction, including
-  without limitation the rights to use, copy, modify, merge, publish,
-  distribute, sublicense, and/or sell copies of the Software, and to
-  permit persons to whom the Software is furnished to do so, subject to
-  the following conditions:
-
-  The above copyright notice and this permission notice shall be
-  included in all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
 
 #ifndef _included_clib_mem_h
 #define _included_clib_mem_h
@@ -51,7 +19,6 @@
 #include <sanitizer/asan_interface.h>
 #endif
 
-#define CLIB_MAX_MHEAPS 256
 #define CLIB_MAX_NUMAS 16
 #define CLIB_MEM_VM_MAP_FAILED ((void *) ~0)
 #define CLIB_MEM_ERROR (-1)
@@ -97,41 +64,35 @@ typedef struct _clib_mem_vm_map_hdr
   struct _clib_mem_vm_map_hdr *prev, *next;
 } clib_mem_vm_map_hdr_t;
 
-#define foreach_clib_mem_heap_flag                                            \
-  _ (0, LOCKED, "locked")                                                     \
-  _ (1, UNMAP_ON_DESTROY, "unmap-on-destroy")                                 \
-  _ (2, TRACED, "traced")
+struct clib_mem_heap_t;
+typedef struct clib_mem_heap_t clib_mem_heap_t;
 
-typedef enum
+typedef struct clib_mem_thread_main_t
 {
-#define _(i, v, s) CLIB_MEM_HEAP_F_##v = (1 << i),
-  foreach_clib_mem_heap_flag
-#undef _
-} clib_mem_heap_flag_t;
+  /* active heap */
+  clib_mem_heap_t *active_heap;
+
+  /* owning thread index */
+  clib_thread_index_t thread_index;
+
+  /* linked list of thread mains */
+  struct clib_mem_thread_main_t *next;
+
+  /* per-thread heap trace control */
+  int trace_thread_disable;
+} clib_mem_thread_main_t;
 
 typedef struct
 {
-  /* base address */
-  void *base;
+  /* main heap */
+  clib_mem_heap_t *main_heap;
 
-  /* dlmalloc mspace */
-  void *mspace;
+  /* list of all heaps */
+  clib_mem_heap_t **heaps;
 
-  /* heap size */
-  uword size;
+  /* linked list of thread mains */
+  struct clib_mem_thread_main_t *threads;
 
-  /* page size (log2) */
-  clib_mem_page_sz_t log2_page_sz:8;
-
-  /* flags */
-  clib_mem_heap_flag_t flags:8;
-
-  /* name - _MUST_ be last */
-  char name[0];
-} clib_mem_heap_t;
-
-typedef struct
-{
   /* log2 system page size */
   clib_mem_page_sz_t log2_page_sz;
 
@@ -141,14 +102,11 @@ typedef struct
   /* log2 system default hugepage size */
   clib_mem_page_sz_t log2_sys_default_hugepage_sz;
 
+  /* flags */
+  u8 alloc_free_intercept : 1;
+
   /* bitmap of available numa nodes */
   u32 numa_node_bitmap;
-
-  /* per CPU heaps */
-  void *per_cpu_mheaps[CLIB_MAX_MHEAPS];
-
-  /* per NUMA heaps */
-  void *per_numa_mheaps[CLIB_MAX_NUMAS];
 
   /* memory maps */
   clib_mem_vm_map_hdr_t *first_map, *last_map;
@@ -161,6 +119,7 @@ typedef struct
 } clib_mem_main_t;
 
 extern clib_mem_main_t clib_mem_main;
+extern __thread clib_mem_thread_main_t clib_mem_thread_main;
 
 /* Unspecified NUMA socket */
 #define VEC_NUMA_UNSPECIFIED (0xFF)
@@ -179,59 +138,6 @@ clib_mem_unpoison (const void volatile *p, uword s)
 #ifdef CLIB_SANITIZE_ADDR
   ASAN_UNPOISON_MEMORY_REGION (p, s);
 #endif
-}
-
-always_inline clib_mem_heap_t *
-clib_mem_get_per_cpu_heap (void)
-{
-  int cpu = os_get_thread_index ();
-  return clib_mem_main.per_cpu_mheaps[cpu];
-}
-
-always_inline void *
-clib_mem_set_per_cpu_heap (void *new_heap)
-{
-  int cpu = os_get_thread_index ();
-  void *old = clib_mem_main.per_cpu_mheaps[cpu];
-  clib_mem_main.per_cpu_mheaps[cpu] = new_heap;
-  return old;
-}
-
-always_inline void *
-clib_mem_get_per_numa_heap (u32 numa_id)
-{
-  ASSERT (numa_id < ARRAY_LEN (clib_mem_main.per_numa_mheaps));
-  return clib_mem_main.per_numa_mheaps[numa_id];
-}
-
-always_inline void *
-clib_mem_set_per_numa_heap (void *new_heap)
-{
-  int numa = os_get_numa_index ();
-  void *old = clib_mem_main.per_numa_mheaps[numa];
-  clib_mem_main.per_numa_mheaps[numa] = new_heap;
-  return old;
-}
-
-always_inline void
-clib_mem_set_thread_index (void)
-{
-  /*
-   * Find an unused slot in the per-cpu-mheaps array,
-   * and grab it for this thread. We need to be able to
-   * push/pop the thread heap without affecting other thread(s).
-   */
-  int i;
-  if (__os_thread_index != 0)
-    return;
-  for (i = 0; i < ARRAY_LEN (clib_mem_main.per_cpu_mheaps); i++)
-    if (clib_atomic_bool_cmp_and_swap (&clib_mem_main.per_cpu_mheaps[i],
-				       0, clib_mem_main.per_cpu_mheaps[0]))
-      {
-	os_set_thread_index (i);
-	break;
-      }
-  ASSERT (__os_thread_index > 0);
 }
 
 /* Memory allocator which calls os_out_of_memory() when it fails */
@@ -259,7 +165,7 @@ uword clib_mem_size (void *p);
 void clib_mem_free_s (void *p);
 
 /* Memory allocator which panics when it fails.
-   Use macro so that clib_panic macro can expand __FUNCTION__ and __LINE__. */
+   Use macro so that clib_panic macro can expand __func__ and __LINE__. */
 #define clib_mem_alloc_aligned_no_fail(size,align)				\
 ({										\
   uword _clib_mem_alloc_size = (size);						\
@@ -275,16 +181,22 @@ void clib_mem_free_s (void *p);
 /* Alias to stack allocator for naming consistency. */
 #define clib_mem_alloc_stack(bytes) __builtin_alloca(bytes)
 
+void clib_mem_thread_init ();
+
 always_inline clib_mem_heap_t *
 clib_mem_get_heap (void)
 {
-  return clib_mem_get_per_cpu_heap ();
+  if (PREDICT_FALSE (clib_mem_thread_main.active_heap == 0))
+    clib_mem_thread_init ();
+  return clib_mem_thread_main.active_heap;
 }
 
 always_inline clib_mem_heap_t *
 clib_mem_set_heap (clib_mem_heap_t * heap)
 {
-  return clib_mem_set_per_cpu_heap (heap);
+  clib_mem_heap_t *old_heap = clib_mem_thread_main.active_heap;
+  clib_mem_thread_main.active_heap = heap;
+  return old_heap;
 }
 
 void clib_mem_destroy_heap (clib_mem_heap_t * heap);
@@ -293,15 +205,41 @@ clib_mem_heap_t *clib_mem_create_heap (void *base, uword size, int is_locked,
 
 void clib_mem_main_init ();
 void *clib_mem_init (void *base, uword size);
-void *clib_mem_init_with_page_size (uword memory_size,
-				    clib_mem_page_sz_t log2_page_sz);
-void *clib_mem_init_thread_safe (void *memory, uword memory_size);
+
+typedef struct
+{
+  void *base_addr;
+  uword memory_size;
+  clib_mem_page_sz_t log2_page_sz;
+
+  /* flags */
+  u8 alloc_free_intercept : 1;
+} clib_mem_init_ex_args_t;
+void *clib_mem_init_ex (clib_mem_init_ex_args_t *args);
 
 void clib_mem_exit (void);
+
+typedef struct
+{
+  /* Address of callers: outer first, inner last. */
+  void *callers[12];
+
+  /* Count of allocations with this traceback. */
+  u32 n_allocations;
+
+  /* Count of bytes allocated with this traceback. */
+  u32 n_bytes;
+
+  /* Offset of this item */
+  uword offset;
+} clib_mem_trace_t;
 
 void clib_mem_trace (int enable);
 
 int clib_mem_is_traced (void);
+
+clib_mem_trace_t *clib_mem_trace_dup (clib_mem_heap_t *heap);
+void clib_mem_heap_set_trace (clib_mem_heap_t *h, int enabled);
 
 typedef struct
 {
@@ -337,6 +275,7 @@ uword clib_mem_get_heap_free_space (clib_mem_heap_t * heap);
 
 u8 *format_clib_mem_usage (u8 * s, va_list * args);
 u8 *format_clib_mem_heap (u8 * s, va_list * va);
+u8 *format_clib_mem_heap_name (u8 *s, va_list *va);
 u8 *format_clib_mem_page_stats (u8 * s, va_list * va);
 
 /* Allocate virtual address space. */
@@ -366,7 +305,8 @@ clib_mem_vm_free (void *addr, uword size)
 }
 
 void *clib_mem_vm_map_internal (void *base, clib_mem_page_sz_t log2_page_sz,
-				uword size, int fd, uword offset, char *name);
+				uword size, int fd, u8 log2_align,
+				uword offset, char *name);
 
 void *clib_mem_vm_map (void *start, uword size,
 		       clib_mem_page_sz_t log2_page_size, char *fmt, ...);
@@ -411,8 +351,7 @@ clib_mem_get_default_hugepage_size (void)
 int clib_mem_vm_create_fd (clib_mem_page_sz_t log2_page_size, char *fmt, ...);
 uword clib_mem_get_fd_page_size (int fd);
 clib_mem_page_sz_t clib_mem_get_fd_log2_page_size (int fd);
-uword clib_mem_vm_reserve (uword start, uword size,
-			   clib_mem_page_sz_t log2_page_sz);
+uword clib_mem_vm_reserve (uword start, uword size, u8 log2_align);
 u64 *clib_mem_vm_get_paddr (void *mem, clib_mem_page_sz_t log2_page_size,
 			    int n_pages);
 void clib_mem_destroy (void);
@@ -420,29 +359,26 @@ int clib_mem_set_numa_affinity (u8 numa_node, int force);
 int clib_mem_set_default_numa_affinity ();
 void clib_mem_vm_randomize_va (uword * requested_va,
 			       clib_mem_page_sz_t log2_page_size);
-void mheap_trace (clib_mem_heap_t * v, int enable);
+
+/* mem_trace.c */
+typedef struct clib_mem_trace_main_t clib_mem_trace_main_t;
+void clib_mem_trace_heap (clib_mem_heap_t *v, int enable);
 uword clib_mem_trace_enable_disable (uword enable);
 void clib_mem_trace (int enable);
-
-always_inline uword
-clib_mem_round_to_page_size (uword size, clib_mem_page_sz_t log2_page_size)
-{
-  ASSERT (log2_page_size != CLIB_MEM_PAGE_SZ_UNKNOWN);
-
-  if (log2_page_size == CLIB_MEM_PAGE_SZ_DEFAULT)
-    log2_page_size = clib_mem_get_log2_page_size ();
-  else if (log2_page_size == CLIB_MEM_PAGE_SZ_DEFAULT_HUGE)
-    log2_page_size = clib_mem_get_log2_default_hugepage_size ();
-
-  return round_pow2 (size, 1ULL << log2_page_size);
-}
+clib_mem_heap_t *clib_mem_trace_get_current_heap ();
+void clib_mem_trace_get (const clib_mem_heap_t *heap, uword offset,
+			 uword size);
+void clib_mem_trace_put (const clib_mem_heap_t *heap, uword offset,
+			 uword size);
+clib_mem_trace_main_t *clib_mem_trace_get_main ();
+u8 *format_clib_mem_trace (u8 *s, va_list *args);
 
 typedef struct
 {
   clib_mem_page_sz_t log2_page_sz;
   uword total;
-  uword mapped;
-  uword not_mapped;
+  uword populated;
+  uword not_populated;
   uword per_numa[CLIB_MAX_NUMAS];
   uword unknown;
 } clib_mem_page_stats_t;
@@ -477,7 +413,8 @@ clib_mem_log2_page_size_validate (clib_mem_page_sz_t log2_page_size)
 static_always_inline uword
 clib_mem_page_bytes (clib_mem_page_sz_t log2_page_size)
 {
-  return 1ULL << clib_mem_log2_page_size_validate (log2_page_size);
+  log2_page_size = clib_mem_log2_page_size_validate (log2_page_size);
+  return log2_page_size ? 1ULL << log2_page_size : 0;
 }
 
 static_always_inline clib_error_t *
@@ -499,11 +436,3 @@ u8 *format_clib_mem_bulk (u8 *s, va_list *args);
 #include <vppinfra/error.h>	/* clib_panic */
 
 #endif /* _included_clib_mem_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef __included_nat64_h__
 #define __included_nat64_h__
 
@@ -30,16 +21,9 @@
 #include <vnet/ip/reass/ip4_sv_reass.h>
 
 #include <nat/lib/lib.h>
-#include <nat/lib/inlines.h>
 #include <nat/lib/nat_inlines.h>
 
 #include <nat/nat64/nat64_db.h>
-
-typedef struct
-{
-  u16 identifier;
-  u16 sequence;
-} icmp_echo_header_t;
 
 typedef struct
 {
@@ -93,14 +77,12 @@ typedef struct
 {
   ip4_address_t addr;
   u32 fib_index;
-/* *INDENT-OFF* */
 #define _(N, i, n, s) \
   u16 busy_##n##_ports; \
   u16 * busy_##n##_ports_per_thread; \
   u32 busy_##n##_port_refcounts[65535];
   foreach_nat_protocol
 #undef _
-/* *INDENT-ON* */
 } nat64_address_t;
 
 typedef struct
@@ -521,11 +503,3 @@ unformat_function_t unformat_nat_protocol;
 clib_error_t *nat64_api_hookup (vlib_main_t * vm);
 
 #endif /* __included_nat64_h__ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

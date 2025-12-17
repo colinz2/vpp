@@ -1,17 +1,7 @@
- /*
-  * Copyright (c) 2017 Cisco and/or its affiliates.
-  * Licensed under the Apache License, Version 2.0 (the "License");
-  * you may not use this file except in compliance with the License.
-  * You may obtain a copy of the License at:
-  *
-  *     http://www.apache.org/licenses/LICENSE-2.0
-  *
-  * Unless required by applicable law or agreed to in writing, software
-  * distributed under the License is distributed on an "AS IS" BASIS,
-  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  * See the License for the specific language governing permissions and
-  * limitations under the License.
-  */
+/* SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2017 Cisco and/or its affiliates.
+ */
+
 #include <vppinfra/error.h>
 #include <vppinfra/hash.h>
 #include <vnet/vnet.h>
@@ -53,13 +43,11 @@ typedef enum
 } nsh_md2_ioam_encap_transit_next_t;
 
 
-/* *INDENT-OFF* */
 VNET_FEATURE_INIT (nsh_md2_ioam_encap_transit, static) =
 {
   .arc_name = "ip4-output",
   .node_name = "nsh-md2-ioam-encap-transit",
 };
-/* *INDENT-ON* */
 
 
 static uword
@@ -162,7 +150,6 @@ nsh_md2_ioam_encap_transit (vlib_main_t * vm,
 }
 
 extern u8 *format_nsh_node_map_trace (u8 * s, va_list * args);
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (nsh_md2_ioam_encap_transit_node) = {
   .function = nsh_md2_ioam_encap_transit,
   .name = "nsh-md2-ioam-encap-transit",
@@ -181,13 +168,3 @@ VLIB_REGISTER_NODE (nsh_md2_ioam_encap_transit_node) = {
   },
 
 };
-/* *INDENT-ON* */
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

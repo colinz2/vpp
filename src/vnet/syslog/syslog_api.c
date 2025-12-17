@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/vnet.h>
@@ -128,7 +118,6 @@ vl_api_syslog_get_sender_t_handler (vl_api_syslog_get_sender_t * mp)
   syslog_main_t *sm = &syslog_main;
   u32 vrf_id;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_SYSLOG_GET_SENDER_REPLY,
   ({
     clib_memcpy (&rmp->collector_address, &(sm->collector),
@@ -143,7 +132,6 @@ vl_api_syslog_get_sender_t_handler (vl_api_syslog_get_sender_t * mp)
     rmp->vrf_id = vrf_id;
     rmp->max_msg_size = htonl (sm->max_msg_size);
   }))
-  /* *INDENT-ON* */
 }
 
 static void
@@ -171,12 +159,10 @@ vl_api_syslog_get_filter_t_handler (vl_api_syslog_get_filter_t * mp)
   vl_api_syslog_get_filter_reply_t *rmp;
   syslog_main_t *sm = &syslog_main;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_SYSLOG_GET_FILTER_REPLY,
   ({
      rv = syslog_severity_encode (sm->severity_filter, &rmp->severity);
   }))
-  /* *INDENT-ON* */
 }
 
 #include <vnet/syslog/syslog.api.c>
@@ -193,11 +179,3 @@ syslog_api_hookup (vlib_main_t * vm)
 }
 
 VLIB_API_INIT_FUNCTION (syslog_api_hookup);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

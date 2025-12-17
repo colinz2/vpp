@@ -14,11 +14,33 @@
 enable_language(ASM)
 
 ##############################################################################
+# find libdl
+##############################################################################
+list(APPEND VPPINFRA_LIBS ${CMAKE_DL_LIBS})
+
+##############################################################################
+# find libunwind
+##############################################################################
+vpp_find_path(LIBUNWIND_INCLUDE_DIR unwind.h)
+vpp_find_library(LIBUNWIND_LIB NAMES unwind libunwind)
+
+if (LIBUNWIND_INCLUDE_DIR AND LIBUNWIND_LIB)
+  message(STATUS "libunwind found at ${LIBUNWIND_LIB}")
+  list(APPEND VPPINFRA_LIBS ${LIBUNWIND_LIB})
+  add_definitions(-DHAVE_LIBUNWIND=1)
+else()
+  message(WARNING "libunwind not found - stack traces disabled")
+  add_definitions(-DHAVE_LIBUNWIND=0)
+endif()
+
+##############################################################################
 # Generate vppinfra/config.h
 ##############################################################################
 set(LOG2_CACHE_LINE_BYTES ${VPP_LOG2_CACHE_LINE_SIZE})
+set(N_PREFETCHES ${VPP_N_PREFETCHES})
 
 option(VPP_VECTOR_GROW_BY_ONE "Vectors grow by one, instead of 3/2" OFF)
+option(VPP_ALLOC_FREE_INTERCEPT "intercept libc alloc/free calls" ON)
 if(VPP_VECTOR_GROW_BY_ONE)
   set(VECTOR_GROW_BY_ONE 1)
 else(VPP_VECTOR_GROW_BY_ONE)
@@ -39,18 +61,17 @@ install(
 add_definitions(-fvisibility=hidden)
 
 # Ensure symbols from cJSON are exported
-set_source_files_properties( cJSON.c jsonformat.c PROPERTIES
+set_source_files_properties( cJSON.c PROPERTIES
   COMPILE_DEFINITIONS " CJSON_API_VISIBILITY " )
-
 
 ##############################################################################
 # vppinfra sources
 ##############################################################################
 set(VPPINFRA_SRCS
-  backtrace.c
   bitmap.c
   bihash_all_vector.c
   cpu.c
+  devicetree.c
   dlmalloc.c
   elf.c
   elog.c
@@ -61,19 +82,16 @@ set(VPPINFRA_SRCS
   hash.c
   heap.c
   interrupt.c
-  jsonformat.c
   longjmp.S
   macros.c
   maplog.c
   mem.c
   mem_bulk.c
   mem_dlmalloc.c
+  mem_trace.c
   mhash.c
   mpcap.c
   pcap.c
-  perfmon/bundle_default.c
-  perfmon/bundle_core_power.c
-  perfmon/perfmon.c
   pmalloc.c
   pool.c
   ptclosure.c
@@ -83,6 +101,7 @@ set(VPPINFRA_SRCS
   rbtree.c
   serialize.c
   socket.c
+  stack.c
   std-formats.c
   string.c
   time.c
@@ -104,6 +123,10 @@ set(VPPINFRA_SRCS
   cJSON.c
 )
 
+if (VPP_ALLOC_FREE_INTERCEPT)
+  list(APPEND VPPINFRA_SRCS mem_intercept.c)
+endif()
+
 set(VPPINFRA_HEADERS
   bihash_12_4.h
   bihash_16_8.h
@@ -111,11 +134,13 @@ set(VPPINFRA_HEADERS
   bihash_32_8.h
   bihash_40_8.h
   bihash_48_8.h
+  bihash_56_8.h
   bihash_8_8.h
   bihash_8_16.h
   bihash_24_16.h
   bihash_template.c
   bihash_template.h
+  bihash_template_inlines.h
   bihash_vec8_8.h
   bitmap.h
   bitops.h
@@ -132,8 +157,10 @@ set(VPPINFRA_HEADERS
   crypto/ghash.h
   crypto/aes.h
   crypto/aes_cbc.h
+  crypto/aes_ctr.h
   crypto/aes_gcm.h
   crypto/poly1305.h
+  devicetree.h
   dlist.h
   dlmalloc.h
   elf_clib.h
@@ -144,11 +171,11 @@ set(VPPINFRA_HEADERS
   fifo.h
   file.h
   format.h
+  format_ansi.h
   format_table.h
   hash.h
   heap.h
   interrupt.h
-  jsonformat.h
   lb_hash_hash.h
   llist.h
   lock.h
@@ -173,10 +200,11 @@ set(VPPINFRA_HEADERS
   random.h
   random_isaac.h
   rbtree.h
+  ring.h
   serialize.h
-  smp.h
   socket.h
   sparse_vec.h
+  stack.h
   string.h
   time.h
   time_range.h
@@ -219,16 +247,21 @@ if("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
     linux/mem.c
     linux/sysfs.c
     linux/netns.c
+# TODO: Temporarily don't build perfmon on non-Linux
+    perfmon/bundle_default.c
+    perfmon/bundle_core_power.c
+    perfmon/perfmon.c
+   )
+elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "FreeBSD")
+  list(APPEND VPPINFRA_SRCS
+    elf_clib.c
+    freebsd/mem.c
    )
 endif()
 
-option(VPP_USE_EXTERNAL_LIBEXECINFO "Use external libexecinfo (useful for non-glibc targets)." OFF)
-if(VPP_USE_EXTERNAL_LIBEXECINFO)
-  set(EXECINFO_LIB execinfo)
-endif()
 add_vpp_library(vppinfra
   SOURCES ${VPPINFRA_SRCS}
-  LINK_LIBRARIES m ${EXECINFO_LIB}
+  LINK_LIBRARIES m ${VPPINFRA_LIBS}
   INSTALL_HEADERS ${VPPINFRA_HEADERS}
   COMPONENT libvppinfra
   LTO
@@ -249,9 +282,11 @@ if(VPP_BUILD_VPPINFRA_TESTS)
     fpool
     hash
     heap
+    interrupt
     longjmp
     macros
     maplog
+    mhash
     pmalloc
     pool_alloc
     pool_iterate
@@ -284,12 +319,14 @@ endif(VPP_BUILD_VPPINFRA_TESTS)
 
 set(test_files
   test/aes_cbc.c
+  test/aes_ctr.c
   test/aes_gcm.c
   test/poly1305.c
   test/array_mask.c
   test/compress.c
   test/count_equal.c
   test/crc32c.c
+  test/dynamic_shuffle.c
   test/index_to_ptr.c
   test/ip_csum.c
   test/mask_compare.c

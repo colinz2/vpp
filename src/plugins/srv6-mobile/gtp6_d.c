@@ -1,19 +1,8 @@
-/*
- * srv6_end_m_gtp6_d.c
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2019 Arrcus Inc and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* srv6_end_m_gtp6_d.c */
 
 #include <vnet/vnet.h>
 #include <vnet/adj/adj.h>
@@ -94,11 +83,29 @@ clb_format_srv6_end_m_gtp6_d (u8 * s, va_list * args)
   return s;
 }
 
+void
+alloc_param_srv6_end_m_gtp6_d (void **plugin_mem_p, const void *sr_prefix,
+			       const u32 sr_prefixlen, const u8 nhtype,
+			       const bool drop_in, const u32 fib_table)
+{
+  srv6_end_gtp6_d_param_t *ls_mem;
+  ls_mem = clib_mem_alloc (sizeof *ls_mem);
+  clib_memset (ls_mem, 0, sizeof *ls_mem);
+  *plugin_mem_p = ls_mem;
+
+  ls_mem->sr_prefixlen = sr_prefixlen;
+  memcpy (&ls_mem->sr_prefix, sr_prefix, sizeof (ip6_address_t));
+  ls_mem->nhtype = nhtype;
+  ls_mem->drop_in = drop_in;
+  ls_mem->fib_table = fib_table;
+  ls_mem->fib4_index = ip4_fib_index_from_table_id (fib_table);
+  ls_mem->fib6_index = ip6_fib_index_from_table_id (fib_table);
+}
+
 static uword
 clb_unformat_srv6_end_m_gtp6_d (unformat_input_t * input, va_list * args)
 {
   void **plugin_mem_p = va_arg (*args, void **);
-  srv6_end_gtp6_d_param_t *ls_mem;
   ip6_address_t sr_prefix;
   u32 sr_prefixlen;
   u8 nhtype = SRV6_NHTYPE_NONE;
@@ -150,20 +157,8 @@ clb_unformat_srv6_end_m_gtp6_d (unformat_input_t * input, va_list * args)
       return 0;
     }
 
-  ls_mem = clib_mem_alloc (sizeof *ls_mem);
-  clib_memset (ls_mem, 0, sizeof *ls_mem);
-  *plugin_mem_p = ls_mem;
-
-  ls_mem->sr_prefix = sr_prefix;
-  ls_mem->sr_prefixlen = sr_prefixlen;
-
-  ls_mem->nhtype = nhtype;
-
-  ls_mem->drop_in = drop_in;
-
-  ls_mem->fib_table = fib_table;
-  ls_mem->fib4_index = ip4_fib_index_from_table_id (fib_table);
-  ls_mem->fib6_index = ip6_fib_index_from_table_id (fib_table);
+  alloc_param_srv6_end_m_gtp6_d (plugin_mem_p, &sr_prefix, sr_prefixlen,
+				 nhtype, drop_in, fib_table);
 
   return 1;
 }
@@ -254,7 +249,6 @@ srv6_end_m_gtp6_d_init (vlib_main_t * vm)
   return 0;
 }
 
-/* *INDENT-OFF* */
 VNET_FEATURE_INIT (srv6_end_m_gtp6_d, static) =
 {
   .arc_name = "ip6-unicast",
@@ -263,12 +257,3 @@ VNET_FEATURE_INIT (srv6_end_m_gtp6_d, static) =
 };
 
 VLIB_INIT_FUNCTION (srv6_end_m_gtp6_d_init);
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

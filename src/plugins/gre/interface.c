@@ -1,19 +1,8 @@
-/*
- * gre_interface.c: gre interfaces
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2012 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* gre_interface.c: gre interfaces */
 
 #include <vnet/vnet.h>
 #include <gre/gre.h>
@@ -43,6 +32,20 @@ format_gre_tunnel_type (u8 *s, va_list *args)
   return (s);
 }
 
+/**
+ * @brief Format a GRE key for display
+ */
+u8 *
+format_gre_key (u8 *s, va_list *args)
+{
+  gre_key_t key = va_arg (*args, gre_key_t);
+
+  if (!gre_key_is_valid (key))
+    return format (s, "INVALID");
+  else
+    return format (s, "%u", key);
+}
+
 static u8 *
 format_gre_tunnel (u8 *s, va_list *args)
 {
@@ -56,6 +59,9 @@ format_gre_tunnel (u8 *s, va_list *args)
 
   s = format (s, "payload %U ", format_gre_tunnel_type, t->type);
   s = format (s, "%U ", format_tunnel_mode, t->mode);
+
+  if (gre_key_is_valid (t->gre_key))
+    s = format (s, "key %U ", format_gre_key, t->gre_key);
 
   if (t->type == GRE_TUNNEL_TYPE_ERSPAN)
     s = format (s, "session %d ", t->session_id);
@@ -76,13 +82,13 @@ gre_tunnel_db_find (const vnet_gre_tunnel_add_del_args_t *a,
   if (!a->is_ipv6)
     {
       gre_mk_key4 (a->src.ip4, a->dst.ip4, outer_fib_index, a->type, a->mode,
-		   a->session_id, &key->gtk_v4);
+		   a->session_id, a->gre_key, &key->gtk_v4);
       p = hash_get_mem (gm->tunnel_by_key4, &key->gtk_v4);
     }
   else
     {
       gre_mk_key6 (&a->src.ip6, &a->dst.ip6, outer_fib_index, a->type, a->mode,
-		   a->session_id, &key->gtk_v6);
+		   a->session_id, a->gre_key, &key->gtk_v6);
       p = hash_get_mem (gm->tunnel_by_key6, &key->gtk_v6);
     }
 
@@ -247,11 +253,11 @@ gre_teib_mk_key (const gre_tunnel_t *t, const teib_entry_t *ne,
   if (FIB_PROTOCOL_IP4 == nh->fp_proto)
     gre_mk_key4 (t->tunnel_src.ip4, nh->fp_addr.ip4,
 		 teib_entry_get_fib_index (ne), t->type, TUNNEL_MODE_P2P, 0,
-		 &key->gtk_v4);
+		 t->gre_key, &key->gtk_v4);
   else
     gre_mk_key6 (&t->tunnel_src.ip6, &nh->fp_addr.ip6,
 		 teib_entry_get_fib_index (ne), t->type, TUNNEL_MODE_P2P, 0,
-		 &key->gtk_v6);
+		 t->gre_key, &key->gtk_v6);
 }
 
 /**
@@ -373,6 +379,8 @@ vnet_gre_tunnel_add (vnet_gre_tunnel_add_del_args_t *a, u32 outer_fib_index,
 
   pool_get_aligned (gm->tunnels, t, CLIB_CACHE_LINE_BYTES);
   clib_memset (t, 0, sizeof (*t));
+  // added for GRE Key - only mark as present if key is non-zero
+  t->gre_key = a->gre_key;
 
   /* Reconcile the real dev_instance and a possible requested instance */
   u32 t_idx = t - gm->tunnels; /* tunnel index (or instance) */
@@ -646,7 +654,7 @@ create_gre_tunnel_command_fn (vlib_main_t *vm, unformat_input_t *input,
   u8 is_add = 1;
   u32 sw_if_index;
   clib_error_t *error = NULL;
-
+  u32 key = 0; // added GRE key
   /* Get a line of input. */
   if (!unformat_user (input, unformat_line_input, line_input))
     return 0;
@@ -671,6 +679,8 @@ create_gre_tunnel_command_fn (vlib_main_t *vm, unformat_input_t *input,
 	t_type = GRE_TUNNEL_TYPE_ERSPAN;
       else if (unformat (line_input, "flags %U",
 			 unformat_tunnel_encap_decap_flags, &flags))
+	;
+      else if (unformat (line_input, "key %u", &key))
 	;
       else
 	{
@@ -713,6 +723,7 @@ create_gre_tunnel_command_fn (vlib_main_t *vm, unformat_input_t *input,
   a->is_ipv6 = !ip46_address_is_ip4 (&src);
   a->instance = instance;
   a->flags = flags;
+  a->gre_key = key;
   clib_memcpy (&a->src, &src, sizeof (a->src));
   clib_memcpy (&a->dst, &dst, sizeof (a->dst));
 
@@ -752,15 +763,14 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (create_gre_tunnel_command, static) = {
   .path = "create gre tunnel",
   .short_help = "create gre tunnel src <addr> dst <addr> [instance <n>] "
 		"[outer-fib-id <fib>] [teb | erspan <session-id>] [del] "
-		"[multipoint]",
+		"[multipoint]"
+		"[key <value>]",
   .function = create_gre_tunnel_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 show_gre_tunnel_command_fn (vlib_main_t *vm, unformat_input_t *input,
@@ -783,12 +793,10 @@ show_gre_tunnel_command_fn (vlib_main_t *vm, unformat_input_t *input,
 
   if (~0 == ti)
     {
-      /* *INDENT-OFF* */
       pool_foreach (t, gm->tunnels)
 	{
 	  vlib_cli_output (vm, "%U", format_gre_tunnel, t);
 	}
-      /* *INDENT-ON* */
     }
   else
     {
@@ -800,12 +808,10 @@ show_gre_tunnel_command_fn (vlib_main_t *vm, unformat_input_t *input,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_gre_tunnel_command, static) = {
   .path = "show gre tunnel",
   .function = show_gre_tunnel_command_fn,
 };
-/* *INDENT-ON* */
 
 const static teib_vft_t gre_teib_vft = {
   .nv_added = gre_teib_entry_added,
@@ -822,11 +828,3 @@ gre_interface_init (vlib_main_t *vm)
 }
 
 VLIB_INIT_FUNCTION (gre_interface_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

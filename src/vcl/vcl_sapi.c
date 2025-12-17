@@ -1,16 +1,5 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vcl/vcl_private.h>
@@ -26,8 +15,6 @@ vcl_api_connect_app_socket (vcl_worker_t * wrk)
   cs->flags =
     CLIB_SOCKET_F_IS_CLIENT | CLIB_SOCKET_F_SEQPACKET | CLIB_SOCKET_F_BLOCKING;
 
-  wrk->vcl_needs_real_epoll = 1;
-
   if ((err = clib_socket_init (cs)))
     {
       /* don't report the error to avoid flood of error messages during
@@ -38,8 +25,6 @@ vcl_api_connect_app_socket (vcl_worker_t * wrk)
     }
 
 done:
-
-  wrk->vcl_needs_real_epoll = 0;
 
   return rv;
 }
@@ -130,7 +115,8 @@ vcl_api_send_attach (clib_socket_t * cs)
     (vcm->cfg.app_scope_global ? APP_OPTIONS_FLAGS_USE_GLOBAL_SCOPE : 0) |
     (app_is_proxy ? APP_OPTIONS_FLAGS_IS_PROXY : 0) |
     (vcm->cfg.use_mq_eventfd ? APP_OPTIONS_FLAGS_EVT_MQ_USE_EVENTFD : 0) |
-    (vcm->cfg.huge_page ? APP_OPTIONS_FLAGS_USE_HUGE_PAGE : 0);
+    (vcm->cfg.huge_page ? APP_OPTIONS_FLAGS_USE_HUGE_PAGE : 0) |
+    (vcm->cfg.app_original_dst ? APP_OPTIONS_FLAGS_GET_ORIGINAL_DST : 0);
   mp->options[APP_OPTIONS_PROXY_TRANSPORT] =
     (u64) ((vcm->cfg.app_proxy_transport_tcp ? 1 << TRANSPORT_PROTO_TCP : 0) |
 	   (vcm->cfg.app_proxy_transport_udp ? 1 << TRANSPORT_PROTO_UDP : 0));
@@ -469,11 +455,3 @@ vcl_sapi_del_cert_key_pair (u32 ckpair_index)
 
   return 0;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

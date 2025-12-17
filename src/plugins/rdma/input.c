@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <vlib/vlib.h>
@@ -228,7 +215,6 @@ rdma_device_input_refill (vlib_main_t * vm, rdma_device_t * rd,
 	     about what RDMA core does (CYCLIC_RQ or LINKED_LIST_RQ). In cyclic
 	     mode, the SRQ header is ignored anyways... */
 
-/* *INDENT-OFF* */
 	  if (is_striding && !(current_data_seg & (wqe_sz - 1)))
 	    *(mlx5dv_wqe_srq_next_t *) wqe = (mlx5dv_wqe_srq_next_t)
 	    {
@@ -237,7 +223,6 @@ rdma_device_input_refill (vlib_main_t * vm, rdma_device_t * rd,
               .signature = 0,
               .rsvd1 = {0}
 	    };
-/* *INDENT-ON* */
 
 	  /* TODO: when log_skip_wqe > 2, hw_prefetcher doesn't work, lots of LLC store
 	     misses occur for wqes, to be fixed... */
@@ -977,7 +962,7 @@ rdma_device_input_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
   /* update buffer template for input feature arcs if any */
   next_index = rd->per_interface_next_index;
   if (PREDICT_FALSE (vnet_device_input_have_features (rd->sw_if_index)))
-    vnet_feature_start_device_input_x1 (rd->sw_if_index, &next_index, &bt);
+    vnet_feature_start_device_input (rd->sw_if_index, &next_index, &bt);
 
   vlib_get_new_next_frame (vm, node, next_index, to_next, n_left_to_next);
 
@@ -1073,7 +1058,6 @@ VLIB_NODE_FN (rdma_input_node) (vlib_main_t * vm,
   return n_rx;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (rdma_input_node) = {
   .name = "rdma-input",
   .flags = VLIB_NODE_FLAG_TRACE_SUPPORTED,
@@ -1084,14 +1068,3 @@ VLIB_REGISTER_NODE (rdma_input_node) = {
   .n_errors = RDMA_INPUT_N_ERROR,
   .error_strings = rdma_input_error_strings,
 };
-
-/* *INDENT-ON* */
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -88,14 +88,6 @@ picotls_lctx_get (u32 lctx_index)
   return pool_elt_at_index (picotls_main.lctx_pool, lctx_index);
 }
 
-static u8
-picotls_handshake_is_over (tls_ctx_t * ctx)
-{
-  picotls_ctx_t *ptls_ctx = (picotls_ctx_t *) ctx;
-  assert (ptls_ctx->tls);
-  return ptls_handshake_is_complete (ptls_ctx->tls);
-}
-
 static int
 picotls_try_handshake_write (picotls_ctx_t * ptls_ctx,
 			     session_t * tls_session, ptls_buffer_t * buf)
@@ -179,8 +171,7 @@ picotls_stop_listen (tls_ctx_t * lctx)
 static void
 picotls_handle_handshake_failure (tls_ctx_t * ctx)
 {
-  session_free (session_get (ctx->c_s_index, ctx->c_thread_index));
-  ctx->no_app_session = 1;
+  ctx->flags |= TLS_CONN_F_NO_APP_SESSION;
   ctx->c_s_index = SESSION_INVALID_INDEX;
   tls_disconnect_transport (ctx);
 }
@@ -195,12 +186,28 @@ picotls_confirm_app_close (tls_ctx_t * ctx)
 static int
 picotls_transport_close (tls_ctx_t * ctx)
 {
-  if (!picotls_handshake_is_over (ctx))
+  if (!(ctx->flags & TLS_CONN_F_HS_DONE))
     {
       picotls_handle_handshake_failure (ctx);
       return 0;
     }
   session_transport_closing_notify (&ctx->connection);
+  return 0;
+}
+
+static int
+picotls_transport_reset (tls_ctx_t *ctx)
+{
+  if (!(ctx->flags & TLS_CONN_F_HS_DONE))
+    {
+      picotls_handle_handshake_failure (ctx);
+      return 0;
+    }
+
+  session_transport_reset_notify (&ctx->connection);
+  session_transport_closed_notify (&ctx->connection);
+  tls_disconnect_transport (ctx);
+
   return 0;
 }
 
@@ -213,7 +220,7 @@ picotls_app_close (tls_ctx_t * ctx)
   if (!svm_fifo_max_dequeue_cons (app_session->tx_fifo))
     picotls_confirm_app_close (ctx);
   else
-    ctx->app_closed = 1;
+    ctx->flags |= TLS_CONN_F_APP_CLOSED;
 
   return 0;
 }
@@ -399,7 +406,8 @@ do_checks:
       if (svm_fifo_needs_deq_ntf (tcp_rx_fifo, read))
 	{
 	  svm_fifo_clear_deq_ntf (tcp_rx_fifo);
-	  session_send_io_evt_to_thread (tcp_rx_fifo, SESSION_IO_EVT_RX);
+	  session_program_transport_io_evt (tcp_rx_fifo->vpp_sh,
+					    SESSION_IO_EVT_RX);
 	}
     }
 
@@ -420,7 +428,7 @@ picotls_ctx_read (tls_ctx_t *ctx, session_t *tcp_session)
   if (PREDICT_FALSE (!ptls_handshake_is_complete (ptls_ctx->tls)))
     {
       picotls_do_handshake (ptls_ctx, tcp_session);
-      if (picotls_handshake_is_over (ctx))
+      if (ctx->flags & TLS_CONN_F_HS_DONE)
 	{
 	  if (ptls_is_server (ptls_ctx->tls))
 	    {
@@ -437,6 +445,7 @@ picotls_ctx_read (tls_ctx_t *ctx, session_t *tcp_session)
 	    }
 	}
 
+      ctx->flags |= TLS_CONN_F_HS_DONE;
       if (!svm_fifo_max_dequeue (tcp_session->rx_fifo))
 	return 0;
     }
@@ -445,7 +454,7 @@ picotls_ctx_read (tls_ctx_t *ctx, session_t *tcp_session)
   app_session = session_get_from_handle (ctx->app_session_handle);
   wrote = ptls_tcp_to_app_write (ptls_ctx, app_session->rx_fifo, tcp_rx_fifo);
 
-  if (wrote && app_session->session_state >= SESSION_STATE_READY)
+  if (wrote)
     tls_notify_app_enqueue (ctx, app_session);
 
   if (ptls_ctx->read_buffer_offset || svm_fifo_max_dequeue (tcp_rx_fifo))
@@ -593,7 +602,7 @@ ptls_app_to_tcp_write (picotls_ctx_t *ptls_ctx, session_t *app_session,
     {
       svm_fifo_enqueue_nocopy (tcp_tx_fifo, wrote);
       if (svm_fifo_set_event (tcp_tx_fifo))
-	session_send_io_evt_to_thread (tcp_tx_fifo, SESSION_IO_EVT_TX);
+	session_program_tx_io_evt (tcp_tx_fifo->vpp_sh, SESSION_IO_EVT_TX);
     }
 
   return wrote;
@@ -625,7 +634,7 @@ picotls_ctx_write (tls_ctx_t *ctx, session_t *app_session,
 
 check_tls_fifo:
 
-  if (ctx->app_closed)
+  if (ctx->flags & TLS_CONN_F_APP_CLOSED)
     picotls_app_close (ctx);
 
   /* Deschedule and wait for deq notification if fifo is almost full */
@@ -734,7 +743,6 @@ const static tls_engine_vft_t picotls_engine = {
   .ctx_free = picotls_ctx_free,
   .ctx_get = picotls_ctx_get,
   .ctx_get_w_thread = picotls_ctx_get_w_thread,
-  .ctx_handshake_is_over = picotls_handshake_is_over,
   .ctx_start_listen = picotls_start_listen,
   .ctx_stop_listen = picotls_stop_listen,
   .ctx_init_server = picotls_ctx_init_server,
@@ -742,6 +750,7 @@ const static tls_engine_vft_t picotls_engine = {
   .ctx_read = picotls_ctx_read,
   .ctx_write = picotls_ctx_write,
   .ctx_transport_close = picotls_transport_close,
+  .ctx_transport_reset = picotls_transport_reset,
   .ctx_app_close = picotls_app_close,
   .ctx_reinit_cachain = picotls_reinit_ca_chain,
 };
@@ -769,23 +778,11 @@ tls_picotls_init (vlib_main_t * vm)
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_INIT_FUNCTION (tls_picotls_init) = {
   .runs_after = VLIB_INITS ("tls_init"),
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_PLUGIN_REGISTER () = {
   .version = VPP_BUILD_VER,
   .description = "Transport Layer Security (TLS) Engine, Picotls Based",
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

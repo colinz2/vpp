@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 import unittest
 
-from framework import VppTestCase, VppTestRunner
+from framework import VppTestCase
+from asfframework import VppTestRunner
 from vpp_ip_route import VppIpRoute, VppRoutePath, FibPathType
 from vpp_l2 import L2_PORT_TYPE
 from vpp_sub_interface import L2_VTR_OP, VppDot1QSubint
@@ -10,12 +11,14 @@ from vpp_acl import AclRule, VppAcl, VppAclInterface
 from scapy.packet import Raw
 from scapy.layers.l2 import Ether, Dot1Q
 from scapy.layers.inet import IP, UDP
-from socket import AF_INET, inet_pton
+from socket import AF_INET
 from ipaddress import IPv4Network
+from config import config
 
 NUM_PKTS = 67
 
 
+@unittest.skipIf("acl" in config.excluded_plugins, "Exclude tests requiring ACL plugin")
 class TestDVR(VppTestCase):
     """Distributed Virtual Router"""
 

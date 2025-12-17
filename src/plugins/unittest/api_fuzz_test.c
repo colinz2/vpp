@@ -1,21 +1,11 @@
-/*
- *------------------------------------------------------------------
- * api_fuzz_test.c - Binary API fuzz hook
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
+
+/*
+ * api_fuzz_test.c - Binary API fuzz hook
+ */
+
 #include <vppinfra/format.h>
 #include <vppinfra/byte_order.h>
 #include <vppinfra/error.h>
@@ -126,14 +116,12 @@ test_api_fuzz_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (test_api_fuzz, static) = {
    .path = "test api fuzz",
    .short_help = "test api fuzz [disable][seed nnn]\n"
    "           [fuzz-first nn][fuzz-cli-first nn][fuzz-cli-last nn]",
    .function = test_api_fuzz_command_fn,
   };
-/* *INDENT-ON* */
 
 static u8 main_loop_enter_enable_api_fuzz;
 
@@ -177,11 +165,3 @@ api_fuzz_api_init (vlib_main_t * vm)
 }
 
 VLIB_API_INIT_FUNCTION (api_fuzz_api_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

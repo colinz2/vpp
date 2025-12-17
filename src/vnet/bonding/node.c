@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #define _GNU_SOURCE
@@ -197,7 +184,7 @@ VLIB_NODE_FN (bond_input_node) (vlib_main_t * vm,
 				vlib_node_runtime_t * node,
 				vlib_frame_t * frame)
 {
-  u16 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   u32 *from, n_left;
   vlib_buffer_t *bufs[VLIB_FRAME_SIZE], **b;
   u32 sw_if_indices[VLIB_FRAME_SIZE], *sw_if_index;
@@ -397,7 +384,6 @@ bond_input_init (vlib_main_t * vm)
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (bond_input_node) = {
   .name = "bond-input",
   .vector_size = sizeof (u32),
@@ -415,13 +401,17 @@ VLIB_REGISTER_NODE (bond_input_node) = {
 
 VLIB_INIT_FUNCTION (bond_input_init);
 
-VNET_FEATURE_INIT (bond_input, static) =
-{
+VNET_FEATURE_INIT (bond_input_device, static) = {
   .arc_name = "device-input",
   .node_name = "bond-input",
   .runs_before = VNET_FEATURES ("ethernet-input"),
 };
-/* *INDENT-ON* */
+
+VNET_FEATURE_INIT (bond_input_rx, static) = {
+  .arc_name = "port-rx-eth",
+  .node_name = "bond-input",
+  .runs_before = VNET_FEATURES ("ethernet-input"),
+};
 
 static clib_error_t *
 bond_sw_interface_up_down (vnet_main_t * vnm, u32 sw_if_index, u32 flags)
@@ -479,11 +469,3 @@ bond_hw_interface_up_down (vnet_main_t * vnm, u32 hw_if_index, u32 flags)
 }
 
 VNET_HW_INTERFACE_LINK_UP_DOWN_FUNCTION (bond_hw_interface_up_down);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

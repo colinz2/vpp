@@ -1,22 +1,12 @@
+/* SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2013 Cisco and/or its affiliates.
+ */
+
+/* DHCP packet format */
+
 #ifndef included_vnet_dhcp6_packet_h
 #define included_vnet_dhcp6_packet_h
 
-/*
- * DHCP packet format
- *
- * Copyright (c) 2013 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 #include <vnet/ip/ip6_packet.h>
 
 // #define DHCP_VRF_NAME_MAX_LEN L3VM_MAX_NAME_STR_LEN
@@ -119,7 +109,6 @@ typedef struct dhcpv6_hdr_
   u8 data[0];
 } dhcpv6_header_t;
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct dhcpv6_relay_ctx_ {
     dhcpv6_header_t *pkt;
     u32  pkt_len;
@@ -130,10 +119,8 @@ typedef CLIB_PACKED (struct dhcpv6_relay_ctx_ {
     char ctx_name[32+1];
     u8 dhcp_msg_type;
 }) dhcpv6_relay_ctx_t;
-/* *INDENT-ON* */
 
 //Structure for DHCPv6 RELAY-FORWARD and DHCPv6 RELAY-REPLY pkts
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct dhcpv6_relay_hdr_ {
     u8           msg_type;
     u8           hop_count;
@@ -141,7 +128,6 @@ typedef CLIB_PACKED (struct dhcpv6_relay_hdr_ {
     ip6_address_t    peer_addr;
     u8           data[0];
 }) dhcpv6_relay_hdr_t;
-/* *INDENT-ON* */
 
 typedef enum dhcp_stats_action_type_
 {
@@ -171,51 +157,39 @@ typedef enum dhcpv6_stats_drop_reason_
 
 #define dhcpv6_optlen(opt) clib_net_to_host_u16((opt)->length)
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   u16 option;
   u16 length;
   u8 data[0];
 }) dhcpv6_option_t;
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   dhcpv6_option_t opt;
   u16 status_code;
 }) dhcpv6_status_code_t;
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   dhcpv6_option_t opt;
   u32 int_idx;
 }) dhcpv6_int_id_t;
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   dhcpv6_option_t opt;
   u8 vss_type;
   u8 data[0];
 }) dhcpv6_vss_t;
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   dhcpv6_option_t opt;
   u32 ent_num;
   u32 rmt_id;
 }) dhcpv6_rmt_id_t;
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   dhcpv6_option_t opt;
   u16 link_type;
   u8 data[6];  // data[0]:data[5]: MAC address
 }) dhcpv6_client_mac_t;
-/* *INDENT-ON* */
 
 typedef CLIB_PACKED (struct
 		     {
@@ -259,13 +233,4 @@ typedef CLIB_PACKED (struct
 		     u8 message[0];
 		     }) dhcpv6_status_t;
 
-
 #endif /* included_vnet_dhcp6_packet_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -25,14 +25,17 @@
 #include <vapi/vapi.hpp>
 #include <vapi/vpe.api.vapi.hpp>
 #include <vapi/interface.api.vapi.hpp>
+#include <vapi/ip.api.vapi.hpp>
 #include <fake.api.vapi.hpp>
 
 DEFINE_VAPI_MSG_IDS_VPE_API_JSON;
 DEFINE_VAPI_MSG_IDS_INTERFACE_API_JSON;
+DEFINE_VAPI_MSG_IDS_IP_API_JSON;
 DEFINE_VAPI_MSG_IDS_FAKE_API_JSON;
 
 static char *app_name = nullptr;
 static char *api_prefix = nullptr;
+static bool use_uds = false;
 static const int max_outstanding_requests = 32;
 static const int response_queue_size = 32;
 
@@ -58,8 +61,9 @@ Connection con;
 
 void setup (void)
 {
-  vapi_error_e rv = con.connect (
-      app_name, api_prefix, max_outstanding_requests, response_queue_size);
+  vapi_error_e rv =
+    con.connect (app_name, api_prefix, max_outstanding_requests,
+		 response_queue_size, true, use_uds);
   ck_assert_int_eq (VAPI_OK, rv);
 }
 
@@ -146,7 +150,7 @@ START_TEST (test_loopbacks_1)
 
   { // new context
     bool seen[num_ifs] = {0};
-    Sw_interface_dump d (con);
+    Sw_interface_dump d (con, 0);
     auto rv = d.execute ();
     ck_assert_int_eq (VAPI_OK, rv);
     WAIT_FOR_RESPONSE (d, rv);
@@ -185,7 +189,7 @@ START_TEST (test_loopbacks_1)
     }
 
   { // new context
-    Sw_interface_dump d (con);
+    Sw_interface_dump d (con, 0);
     auto rv = d.execute ();
     ck_assert_int_eq (VAPI_OK, rv);
     WAIT_FOR_RESPONSE (d, rv);
@@ -300,7 +304,7 @@ START_TEST (test_loopbacks_2)
     }
 
   Sw_interface_dump_cb<num_ifs> swdcb (ccbs);
-  Sw_interface_dump d (con, std::ref (swdcb));
+  Sw_interface_dump d (con, 0, std::ref (swdcb));
   auto rv = d.execute ();
   ck_assert_int_eq (VAPI_OK, rv);
   WAIT_FOR_RESPONSE (d, rv);
@@ -326,7 +330,7 @@ START_TEST (test_loopbacks_2)
     }
 
   { // new context
-    Sw_interface_dump d (con);
+    Sw_interface_dump d (con, 0);
     auto rv = d.execute ();
     ck_assert_int_eq (VAPI_OK, rv);
     WAIT_FOR_RESPONSE (d, rv);
@@ -386,6 +390,60 @@ START_TEST (test_unsupported)
 
 END_TEST;
 
+START_TEST (test_pmtu)
+{
+  printf ("--- Set ip_path_mtu to test stream rpc ---\n");
+  const auto num_path_mtus = 5;
+  { // new context
+    for (int i = 0; i < num_path_mtus; ++i)
+      {
+	Ip_path_mtu_update d (con);
+	auto &req = d.get_request ().get_payload ();
+	req.pmtu.path_mtu = 1420;
+	req.pmtu.nh.af = vapi_enum_address_family::ADDRESS_IP4;
+	req.pmtu.nh.un.ip4[0] = 10;
+	req.pmtu.nh.un.ip4[1] = 0;
+	req.pmtu.nh.un.ip4[2] = 0;
+	req.pmtu.nh.un.ip4[3] = i;
+	auto rv = d.execute ();
+	WAIT_FOR_RESPONSE (d, rv);
+	ck_assert_int_eq (VAPI_OK, rv);
+      }
+  }
+
+  { // new context
+    bool seen[num_path_mtus] = { 0 };
+    Ip_path_mtu_get d (con);
+    d.get_request ().get_payload ().cursor = 0;
+    auto rv = d.execute ();
+    ck_assert_int_eq (VAPI_OK, rv);
+    WAIT_FOR_RESPONSE (d, rv);
+    ck_assert_int_eq (VAPI_OK, rv);
+    auto &rs = d.get_result_set ();
+    for (auto &r : rs)
+      {
+	auto &p = r.get_payload ();
+	printf ("ip_path_mtu_get: mtu %hu ip %d.%d.%d.%d\n", p.pmtu.path_mtu,
+		p.pmtu.nh.un.ip4[0], p.pmtu.nh.un.ip4[1], p.pmtu.nh.un.ip4[2],
+		p.pmtu.nh.un.ip4[3]);
+	for (int i = 0; i < num_path_mtus; ++i)
+	  {
+	    if (i == p.pmtu.nh.un.ip4[3])
+	      {
+		ck_assert_int_eq (0, seen[i]);
+		seen[i] = true;
+	      }
+	  }
+      }
+    for (int i = 0; i < num_path_mtus; ++i)
+      {
+	ck_assert_int_eq (1, seen[i]);
+      }
+  }
+}
+
+END_TEST;
+
 Suite *test_suite (void)
 {
   Suite *s = suite_create ("VAPI test");
@@ -398,6 +456,7 @@ Suite *test_suite (void)
   tcase_add_test (tc_cpp_api, test_loopbacks_1);
   tcase_add_test (tc_cpp_api, test_loopbacks_2);
   tcase_add_test (tc_cpp_api, test_unsupported);
+  tcase_add_test (tc_cpp_api, test_pmtu);
   suite_add_tcase (s, tc_cpp_api);
 
   return s;
@@ -405,14 +464,25 @@ Suite *test_suite (void)
 
 int main (int argc, char *argv[])
 {
-  if (3 != argc)
+  if (4 != argc)
     {
       printf ("Invalid argc==`%d'\n", argc);
       return EXIT_FAILURE;
     }
   app_name = argv[1];
   api_prefix = argv[2];
-  printf ("App name: `%s', API prefix: `%s'\n", app_name, api_prefix);
+  if (!strcmp (argv[3], "shm"))
+    use_uds = 0;
+  else if (!strcmp (argv[3], "uds"))
+    use_uds = 1;
+  else
+    {
+      printf ("Unrecognised required argument '%s', expected 'uds' or 'shm'.",
+	      argv[3]);
+      return EXIT_FAILURE;
+    }
+  printf ("App name: `%s', API prefix: `%s', use unix sockets %d\n", app_name,
+	  api_prefix, use_uds);
 
   int number_failed;
   Suite *s;
@@ -426,11 +496,3 @@ int main (int argc, char *argv[])
   srunner_free (sr);
   return (number_failed == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

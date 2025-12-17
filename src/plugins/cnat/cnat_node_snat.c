@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vlibmemory/api.h>
@@ -129,15 +119,15 @@ cnat_snat_node_fn (vlib_main_t *vm, vlib_node_runtime_t *node,
 	CNAT_SESSION_FLAG_NO_CLIENT | CNAT_SESSION_FLAG_ALLOC_PORT;
       trace_flags |= CNAT_TRACE_SESSION_CREATED;
 
-      cnat_session_create (session, ctx, CNAT_LOCATION_FIB,
-			   CNAT_SESSION_FLAG_HAS_SNAT);
+      cnat_session_create (session, ctx);
+      cnat_rsession_create (session, ctx, CNAT_LOCATION_FIB,
+			    CNAT_SESSION_FLAG_HAS_SNAT);
     }
 
-
   if (AF_IP4 == ctx->af)
-    cnat_translation_ip4 (session, ip4, udp0);
+    cnat_translation_ip4 (session, ip4, udp0, vnet_buffer (b)->oflags);
   else
-    cnat_translation_ip6 (session, ip6, udp0);
+    cnat_translation_ip6 (session, ip6, udp0, vnet_buffer (b)->oflags);
 
 trace:
   if (PREDICT_FALSE (b->flags & VLIB_BUFFER_IS_TRACED))
@@ -205,11 +195,3 @@ VNET_FEATURE_INIT (cnat_snat_ip6_node, static) = {
   .arc_name = "ip6-unicast",
   .node_name = "cnat-snat-ip6",
 };
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

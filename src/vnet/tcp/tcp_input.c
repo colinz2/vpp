@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vppinfra/sparse_vec.h>
@@ -27,54 +17,6 @@ static vlib_error_desc_t tcp_input_error_counters[] = {
 #undef tcp_error
 };
 
-/* All TCP nodes have the same outgoing arcs */
-#define foreach_tcp_state_next                  \
-  _ (DROP4, "ip4-drop")                         \
-  _ (DROP6, "ip6-drop")                         \
-  _ (TCP4_OUTPUT, "tcp4-output")                \
-  _ (TCP6_OUTPUT, "tcp6-output")
-
-typedef enum _tcp_established_next
-{
-#define _(s,n) TCP_ESTABLISHED_NEXT_##s,
-  foreach_tcp_state_next
-#undef _
-    TCP_ESTABLISHED_N_NEXT,
-} tcp_established_next_t;
-
-typedef enum _tcp_rcv_process_next
-{
-#define _(s,n) TCP_RCV_PROCESS_NEXT_##s,
-  foreach_tcp_state_next
-#undef _
-    TCP_RCV_PROCESS_N_NEXT,
-} tcp_rcv_process_next_t;
-
-typedef enum _tcp_syn_sent_next
-{
-#define _(s,n) TCP_SYN_SENT_NEXT_##s,
-  foreach_tcp_state_next
-#undef _
-    TCP_SYN_SENT_N_NEXT,
-} tcp_syn_sent_next_t;
-
-typedef enum _tcp_listen_next
-{
-#define _(s,n) TCP_LISTEN_NEXT_##s,
-  foreach_tcp_state_next
-#undef _
-    TCP_LISTEN_N_NEXT,
-} tcp_listen_next_t;
-
-/* Generic, state independent indices */
-typedef enum _tcp_state_next
-{
-#define _(s,n) TCP_NEXT_##s,
-  foreach_tcp_state_next
-#undef _
-    TCP_STATE_N_NEXT,
-} tcp_state_next_t;
-
 typedef enum _tcp_input_next
 {
   TCP_INPUT_NEXT_DROP,
@@ -86,12 +28,6 @@ typedef enum _tcp_input_next
   TCP_INPUT_NEXT_PUNT,
   TCP_INPUT_N_NEXT
 } tcp_input_next_t;
-
-#define tcp_next_output(is_ip4) (is_ip4 ? TCP_NEXT_TCP4_OUTPUT          \
-                                        : TCP_NEXT_TCP6_OUTPUT)
-
-#define tcp_next_drop(is_ip4) (is_ip4 ? TCP_NEXT_DROP4                  \
-                                      : TCP_NEXT_DROP6)
 
 /**
  * Validate segment sequence number. As per RFC793:
@@ -171,9 +107,9 @@ tcp_handle_rst (tcp_connection_t * tc)
   switch (tc->rst_state)
     {
     case TCP_STATE_SYN_RCVD:
-      /* Cleanup everything. App wasn't notified yet */
-      session_transport_delete_notify (&tc->connection);
-      tcp_connection_cleanup (tc);
+      /* Cleanup everything. App wasn't notified yet, but session layer must be
+       * notified that the session needs to be cleaned up. */
+      tcp_connection_cleanup_and_notify (tc);
       break;
     case TCP_STATE_SYN_SENT:
       session_stream_connect_notify (&tc->connection, SESSION_E_REFUSED);
@@ -271,20 +207,6 @@ static int
 tcp_segment_validate (tcp_worker_ctx_t * wrk, tcp_connection_t * tc0,
 		      vlib_buffer_t * b0, tcp_header_t * th0, u32 * error0)
 {
-  /* We could get a burst of RSTs interleaved with acks */
-  if (PREDICT_FALSE (tc0->state == TCP_STATE_CLOSED))
-    {
-      tcp_send_reset (tc0);
-      *error0 = TCP_ERROR_CONNECTION_CLOSED;
-      goto error;
-    }
-
-  if (PREDICT_FALSE (!tcp_ack (th0) && !tcp_rst (th0) && !tcp_syn (th0)))
-    {
-      *error0 = TCP_ERROR_SEGMENT_INVALID;
-      goto error;
-    }
-
   if (PREDICT_FALSE (tcp_options_parse (th0, &tc0->rcv_opts, 0)))
     {
       *error0 = TCP_ERROR_OPTIONS;
@@ -416,17 +338,10 @@ tcp_rcv_ack_no_cc (tcp_connection_t * tc, vlib_buffer_t * b, u32 * error)
   if (!(seq_leq (tc->snd_una, vnet_buffer (b)->tcp.ack_number)
 	&& seq_leq (vnet_buffer (b)->tcp.ack_number, tc->snd_nxt)))
     {
-      if (seq_leq (vnet_buffer (b)->tcp.ack_number, tc->snd_nxt)
-	  && seq_gt (vnet_buffer (b)->tcp.ack_number, tc->snd_una))
-	{
-	  tc->snd_nxt = vnet_buffer (b)->tcp.ack_number;
-	  goto acceptable;
-	}
       *error = TCP_ERROR_ACK_INVALID;
       return -1;
     }
 
-acceptable:
   tc->bytes_acked = vnet_buffer (b)->tcp.ack_number - tc->snd_una;
   tc->snd_una = vnet_buffer (b)->tcp.ack_number;
   *error = TCP_ERROR_ACK_OK;
@@ -573,7 +488,7 @@ tcp_estimate_initial_rtt (tcp_connection_t * tc)
 static void
 tcp_handle_postponed_dequeues (tcp_worker_ctx_t * wrk)
 {
-  u32 thread_index = wrk->vm->thread_index;
+  clib_thread_index_t thread_index = wrk->vm->thread_index;
   u32 *pending_deq_acked;
   tcp_connection_t *tc;
   int i;
@@ -993,15 +908,6 @@ tcp_rcv_ack (tcp_worker_ctx_t * wrk, tcp_connection_t * tc, vlib_buffer_t * b,
   /* If the ACK acks something not yet sent (SEG.ACK > SND.NXT) */
   if (PREDICT_FALSE (seq_gt (vnet_buffer (b)->tcp.ack_number, tc->snd_nxt)))
     {
-      /* We've probably entered recovery and the peer still has some
-       * of the data we've sent. Update snd_nxt and accept the ack */
-      if (seq_leq (vnet_buffer (b)->tcp.ack_number, tc->snd_nxt)
-	  && seq_gt (vnet_buffer (b)->tcp.ack_number, tc->snd_una))
-	{
-	  tc->snd_nxt = vnet_buffer (b)->tcp.ack_number;
-	  goto process_ack;
-	}
-
       tc->errors.above_ack_wnd += 1;
       *error = TCP_ERROR_ACK_FUTURE;
       TCP_EVT (TCP_EVT_ACK_RCV_ERR, tc, 0, vnet_buffer (b)->tcp.ack_number);
@@ -1023,8 +929,6 @@ tcp_rcv_ack (tcp_worker_ctx_t * wrk, tcp_connection_t * tc, vlib_buffer_t * b,
       /* Don't drop yet */
       return 0;
     }
-
-process_ack:
 
   /*
    * Looks okay, process feedback
@@ -1097,7 +1001,8 @@ tcp_program_disconnect (tcp_worker_ctx_t * wrk, tcp_connection_t * tc)
 static void
 tcp_handle_disconnects (tcp_worker_ctx_t * wrk)
 {
-  u32 thread_index, *pending_disconnects, *pending_resets;
+  clib_thread_index_t thread_index;
+  u32 *pending_disconnects, *pending_resets;
   tcp_connection_t *tc;
   int i;
 
@@ -1258,24 +1163,37 @@ tcp_session_enqueue_ooo (tcp_connection_t * tc, vlib_buffer_t * b,
 static int
 tcp_buffer_discard_bytes (vlib_buffer_t * b, u32 n_bytes_to_drop)
 {
-  u32 discard, first = b->current_length;
-  vlib_main_t *vm = vlib_get_main ();
-
   /* Handle multi-buffer segments */
   if (n_bytes_to_drop > b->current_length)
     {
-      if (!(b->flags & VLIB_BUFFER_NEXT_PRESENT))
+      u32 n_to_drop, first = b->current_length;
+      vlib_main_t *vm = vlib_get_main ();
+
+      if (!(b->flags & VLIB_BUFFER_NEXT_PRESENT) ||
+	  (first + b->total_length_not_including_first_buffer <
+	   n_bytes_to_drop))
 	return -1;
+      b->total_length_not_including_first_buffer -= n_bytes_to_drop - first;
+      n_to_drop = n_bytes_to_drop;
       do
 	{
-	  discard = clib_min (n_bytes_to_drop, b->current_length);
-	  vlib_buffer_advance (b, discard);
+	  /* Not calling vlib_buffer_advance to avoid min chain seg size
+	   * asserts that are not relevant for chained buffers that are about
+	   * to be freed */
+	  if (n_to_drop <= b->current_length)
+	    {
+	      b->current_length -= n_to_drop;
+	      b->current_data += n_to_drop;
+	      break;
+	    }
+	  n_to_drop -= b->current_length;
+	  b->current_data += b->current_length;
+	  b->current_length = 0;
 	  b = vlib_get_buffer (vm, b->next_buffer);
-	  n_bytes_to_drop -= discard;
+	  if (!b)
+	    return -1;
 	}
-      while (n_bytes_to_drop);
-      if (n_bytes_to_drop > first)
-	b->total_length_not_including_first_buffer -= n_bytes_to_drop - first;
+      while (n_to_drop);
     }
   else
     vlib_buffer_advance (b, n_bytes_to_drop);
@@ -1444,15 +1362,50 @@ tcp_established_trace_frame (vlib_main_t * vm, vlib_node_runtime_t * node,
     }
 }
 
+always_inline int
+tcp_segment_is_exception (tcp_connection_t *tc, tcp_header_t *th)
+{
+  /* tcp-input allows through segments without ack, e.g., fin without ack,
+   * which have to be handled as exception in nodes like established. So
+   * flags must be checked */
+  return !tc || tc->state == TCP_STATE_CLOSED ||
+	 !(th->flags & (TCP_FLAG_ACK | TCP_FLAG_RST | TCP_FLAG_SYN));
+}
+
+always_inline void
+tcp_segment_handle_exception (tcp_connection_t *tc, tcp_header_t *th,
+			      u32 *error)
+{
+  if (!tc)
+    {
+      *error = TCP_ERROR_INVALID_CONNECTION;
+      return;
+    }
+
+  /* We could get a burst of RSTs interleaved with acks */
+  if (tc->state == TCP_STATE_CLOSED)
+    {
+      tcp_send_reset (tc);
+      *error = TCP_ERROR_CONNECTION_CLOSED;
+      return;
+    }
+
+  if (!(th->flags & (TCP_FLAG_ACK | TCP_FLAG_RST | TCP_FLAG_SYN)))
+    {
+      *error = TCP_ERROR_SEGMENT_INVALID;
+      return;
+    }
+}
+
 always_inline uword
 tcp46_established_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
 			  vlib_frame_t * frame, int is_ip4)
 {
-  u32 thread_index = vm->thread_index, errors = 0;
+  clib_thread_index_t thread_index = vm->thread_index;
+  u32 n_left_from, *from;
   tcp_worker_ctx_t *wrk = tcp_get_worker (thread_index);
   vlib_buffer_t *bufs[VLIB_FRAME_SIZE], **b;
   u16 err_counters[TCP_N_ERROR] = { 0 };
-  u32 n_left_from, *from;
 
   if (node->flags & VLIB_NODE_FLAG_TRACE)
     tcp_established_trace_frame (vm, node, frame, is_ip4);
@@ -1477,14 +1430,13 @@ tcp46_established_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
 
       tc = tcp_connection_get (vnet_buffer (b[0])->tcp.connection_index,
 			       thread_index);
+      th = tcp_buffer_hdr (b[0]);
 
-      if (PREDICT_FALSE (tc == 0))
+      if (PREDICT_FALSE (tcp_segment_is_exception (tc, th)))
 	{
-	  error = TCP_ERROR_INVALID_CONNECTION;
+	  tcp_segment_handle_exception (tc, th, &error);
 	  goto done;
 	}
-
-      th = tcp_buffer_hdr (b[0]);
 
       /* TODO header prediction fast path */
 
@@ -1516,9 +1468,7 @@ tcp46_established_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
       b += 1;
     }
 
-  errors = session_main_flush_enqueue_events (TRANSPORT_PROTO_TCP,
-					      thread_index);
-  err_counters[TCP_ERROR_MSG_QUEUE_FULL] = errors;
+  session_main_flush_enqueue_events (TRANSPORT_PROTO_TCP, thread_index);
   tcp_store_err_counters (established, err_counters);
   tcp_handle_postponed_dequeues (wrk);
   tcp_handle_disconnects (wrk);
@@ -1541,43 +1491,23 @@ VLIB_NODE_FN (tcp6_established_node) (vlib_main_t * vm,
   return tcp46_established_inline (vm, node, from_frame, 0 /* is_ip4 */ );
 }
 
-/* *INDENT-OFF* */
-VLIB_REGISTER_NODE (tcp4_established_node) =
-{
+VLIB_REGISTER_NODE (tcp4_established_node) = {
   .name = "tcp4-established",
   /* Takes a vector of packets. */
   .vector_size = sizeof (u32),
   .n_errors = TCP_N_ERROR,
   .error_counters = tcp_input_error_counters,
-  .n_next_nodes = TCP_ESTABLISHED_N_NEXT,
-  .next_nodes =
-  {
-#define _(s,n) [TCP_ESTABLISHED_NEXT_##s] = n,
-    foreach_tcp_state_next
-#undef _
-  },
   .format_trace = format_tcp_rx_trace_short,
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
-VLIB_REGISTER_NODE (tcp6_established_node) =
-{
+VLIB_REGISTER_NODE (tcp6_established_node) = {
   .name = "tcp6-established",
   /* Takes a vector of packets. */
   .vector_size = sizeof (u32),
   .n_errors = TCP_N_ERROR,
   .error_counters = tcp_input_error_counters,
-  .n_next_nodes = TCP_ESTABLISHED_N_NEXT,
-  .next_nodes =
-  {
-#define _(s,n) [TCP_ESTABLISHED_NEXT_##s] = n,
-    foreach_tcp_state_next
-#undef _
-  },
   .format_trace = format_tcp_rx_trace_short,
 };
-/* *INDENT-ON* */
 
 
 static u8
@@ -1816,7 +1746,7 @@ always_inline uword
 tcp46_syn_sent_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
 		       vlib_frame_t *frame, int is_ip4)
 {
-  u32 n_left_from, *from, thread_index = vm->thread_index, errors = 0;
+  u32 n_left_from, *from, thread_index = vm->thread_index;
   tcp_worker_ctx_t *wrk = tcp_get_worker (thread_index);
   vlib_buffer_t *bufs[VLIB_FRAME_SIZE], **b;
 
@@ -1957,8 +1887,8 @@ tcp46_syn_sent_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
       else
 	new_tc->rcv_wscale = 0;
 
-      new_tc->snd_wnd = clib_net_to_host_u16 (tcp->window)
-			<< new_tc->snd_wscale;
+      /* RFC7323 sec 2.2: Window field in a syn segment must not be scaled */
+      new_tc->snd_wnd = clib_net_to_host_u16 (tcp->window);
       new_tc->snd_wl1 = seq;
       new_tc->snd_wl2 = ack;
 
@@ -1982,7 +1912,9 @@ tcp46_syn_sent_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
 					     SESSION_E_NONE))
 	    {
 	      tcp_send_reset_w_pkt (new_tc, b[0], thread_index, is_ip4);
-	      tcp_connection_cleanup (new_tc);
+	      tcp_program_cleanup (wrk, new_tc);
+	      new_tc->state = TCP_STATE_CLOSED;
+	      new_tc->c_s_index = ~0;
 	      error = TCP_ERROR_CREATE_SESSION_FAIL;
 	      goto cleanup_ho;
 	    }
@@ -2003,8 +1935,10 @@ tcp46_syn_sent_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
 	  if (session_stream_connect_notify (&new_tc->connection,
 					     SESSION_E_NONE))
 	    {
-	      tcp_connection_cleanup (new_tc);
 	      tcp_send_reset_w_pkt (tc, b[0], thread_index, is_ip4);
+	      tcp_program_cleanup (wrk, new_tc);
+	      new_tc->state = TCP_STATE_CLOSED;
+	      new_tc->c_s_index = ~0;
 	      TCP_EVT (TCP_EVT_RST_SENT, tc);
 	      error = TCP_ERROR_CREATE_SESSION_FAIL;
 	      goto cleanup_ho;
@@ -2051,9 +1985,7 @@ tcp46_syn_sent_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
       tcp_inc_counter (syn_sent, error, 1);
     }
 
-  errors =
-    session_main_flush_enqueue_events (TRANSPORT_PROTO_TCP, thread_index);
-  tcp_inc_counter (syn_sent, TCP_ERROR_MSG_QUEUE_FULL, errors);
+  session_main_flush_enqueue_events (TRANSPORT_PROTO_TCP, thread_index);
   vlib_buffer_free (vm, from, frame->n_vectors);
   tcp_handle_disconnects (wrk);
 
@@ -2074,7 +2006,6 @@ VLIB_NODE_FN (tcp6_syn_sent_node) (vlib_main_t * vm,
   return tcp46_syn_sent_inline (vm, node, from_frame, 0 /* is_ip4 */ );
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (tcp4_syn_sent_node) =
 {
   .name = "tcp4-syn-sent",
@@ -2082,18 +2013,9 @@ VLIB_REGISTER_NODE (tcp4_syn_sent_node) =
   .vector_size = sizeof (u32),
   .n_errors = TCP_N_ERROR,
   .error_counters = tcp_input_error_counters,
-  .n_next_nodes = TCP_SYN_SENT_N_NEXT,
-  .next_nodes =
-  {
-#define _(s,n) [TCP_SYN_SENT_NEXT_##s] = n,
-    foreach_tcp_state_next
-#undef _
-  },
   .format_trace = format_tcp_rx_trace_short,
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (tcp6_syn_sent_node) =
 {
   .name = "tcp6-syn-sent",
@@ -2101,22 +2023,14 @@ VLIB_REGISTER_NODE (tcp6_syn_sent_node) =
   .vector_size = sizeof (u32),
   .n_errors = TCP_N_ERROR,
   .error_counters = tcp_input_error_counters,
-  .n_next_nodes = TCP_SYN_SENT_N_NEXT,
-  .next_nodes =
-  {
-#define _(s,n) [TCP_SYN_SENT_NEXT_##s] = n,
-    foreach_tcp_state_next
-#undef _
-  },
   .format_trace = format_tcp_rx_trace_short,
 };
-/* *INDENT-ON* */
 
 static void
 tcp46_rcv_process_trace_frame (vlib_main_t *vm, vlib_node_runtime_t *node,
 			       u32 *from, u32 n_bufs)
 {
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   tcp_connection_t *tc = 0;
   tcp_rx_trace_t *t;
   vlib_buffer_t *b;
@@ -2142,7 +2056,8 @@ always_inline uword
 tcp46_rcv_process_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
 			  vlib_frame_t *frame, int is_ip4)
 {
-  u32 thread_index = vm->thread_index, errors, n_left_from, *from, max_deq;
+  clib_thread_index_t thread_index = vm->thread_index;
+  u32 n_left_from, *from, max_deq;
   tcp_worker_ctx_t *wrk = tcp_get_worker (thread_index);
   vlib_buffer_t *bufs[VLIB_FRAME_SIZE], **b;
 
@@ -2210,15 +2125,6 @@ tcp46_rcv_process_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
       switch (tc->state)
 	{
 	case TCP_STATE_SYN_RCVD:
-
-	  /* Make sure the segment is exactly right */
-	  if (tc->rcv_nxt != vnet_buffer (b[0])->tcp.seq_number || is_fin)
-	    {
-	      tcp_send_reset_w_pkt (tc, b[0], thread_index, is_ip4);
-	      error = TCP_ERROR_SEGMENT_INVALID;
-	      goto drop;
-	    }
-
 	  /*
 	   * If the segment acknowledgment is not acceptable, form a
 	   * reset segment,
@@ -2231,6 +2137,10 @@ tcp46_rcv_process_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
 	      error = TCP_ERROR_SEGMENT_INVALID;
 	      goto drop;
 	    }
+
+	  /* Avoid notifying app if connection is about to be closed */
+	  if (PREDICT_FALSE (is_fin))
+	    break;
 
 	  /* Update rtt and rto */
 	  tcp_estimate_initial_rtt (tc);
@@ -2256,11 +2166,10 @@ tcp46_rcv_process_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
 	    {
 	      error = TCP_ERROR_MSG_QUEUE_FULL;
 	      tcp_send_reset (tc);
-	      session_transport_delete_notify (&tc->connection);
-	      tcp_connection_cleanup (tc);
+	      tcp_connection_cleanup_and_notify (tc);
 	      goto drop;
 	    }
-	  error = TCP_ERROR_ACK_OK;
+	  error = TCP_ERROR_CONN_ACCEPTED;
 	  break;
 	case TCP_STATE_ESTABLISHED:
 	  /* We can get packets in established state here because they
@@ -2339,8 +2248,8 @@ tcp46_rcv_process_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
 	  if (max_deq > tc->burst_acked)
 	    break;
 
-	  tcp_send_fin (tc);
 	  tcp_connection_timers_reset (tc);
+	  tcp_send_fin (tc);
 	  tcp_connection_set_state (tc, TCP_STATE_LAST_ACK);
 	  tcp_timer_set (&wrk->timer_wheel, tc, TCP_TIMER_WAITCLOSE,
 			 tcp_cfg.lastack_time);
@@ -2452,15 +2361,15 @@ tcp46_rcv_process_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
 			    tcp_cfg.closewait_time);
 	  break;
 	case TCP_STATE_SYN_RCVD:
-	  /* Send FIN-ACK, enter LAST-ACK and because the app was not
-	   * notified yet, set a cleanup timer instead of relying on
-	   * disconnect notify and the implicit close call. */
+	  /* Send FIN-ACK and enter TIME-WAIT, as opposed to LAST-ACK,
+	   * because the app was not notified yet and we want to avoid
+	   * session state transitions to ensure cleanup does not
+	   * propagate to app. */
 	  tcp_connection_timers_reset (tc);
 	  tc->rcv_nxt += 1;
 	  tcp_send_fin (tc);
-	  tcp_connection_set_state (tc, TCP_STATE_LAST_ACK);
-	  tcp_timer_set (&wrk->timer_wheel, tc, TCP_TIMER_WAITCLOSE,
-			 tcp_cfg.lastack_time);
+	  tcp_connection_set_state (tc, TCP_STATE_TIME_WAIT);
+	  tcp_program_cleanup (wrk, tc);
 	  break;
 	case TCP_STATE_CLOSE_WAIT:
 	case TCP_STATE_CLOSING:
@@ -2515,9 +2424,7 @@ tcp46_rcv_process_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
       tcp_inc_counter (rcv_process, error, 1);
     }
 
-  errors = session_main_flush_enqueue_events (TRANSPORT_PROTO_TCP,
-					      thread_index);
-  tcp_inc_counter (rcv_process, TCP_ERROR_MSG_QUEUE_FULL, errors);
+  session_main_flush_enqueue_events (TRANSPORT_PROTO_TCP, thread_index);
   tcp_handle_postponed_dequeues (wrk);
   tcp_handle_disconnects (wrk);
   vlib_buffer_free (vm, from, frame->n_vectors);
@@ -2539,43 +2446,23 @@ VLIB_NODE_FN (tcp6_rcv_process_node) (vlib_main_t * vm,
   return tcp46_rcv_process_inline (vm, node, from_frame, 0 /* is_ip4 */ );
 }
 
-/* *INDENT-OFF* */
-VLIB_REGISTER_NODE (tcp4_rcv_process_node) =
-{
+VLIB_REGISTER_NODE (tcp4_rcv_process_node) = {
   .name = "tcp4-rcv-process",
   /* Takes a vector of packets. */
   .vector_size = sizeof (u32),
   .n_errors = TCP_N_ERROR,
   .error_counters = tcp_input_error_counters,
-  .n_next_nodes = TCP_RCV_PROCESS_N_NEXT,
-  .next_nodes =
-  {
-#define _(s,n) [TCP_RCV_PROCESS_NEXT_##s] = n,
-    foreach_tcp_state_next
-#undef _
-  },
   .format_trace = format_tcp_rx_trace_short,
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
-VLIB_REGISTER_NODE (tcp6_rcv_process_node) =
-{
+VLIB_REGISTER_NODE (tcp6_rcv_process_node) = {
   .name = "tcp6-rcv-process",
   /* Takes a vector of packets. */
   .vector_size = sizeof (u32),
   .n_errors = TCP_N_ERROR,
   .error_counters = tcp_input_error_counters,
-  .n_next_nodes = TCP_RCV_PROCESS_N_NEXT,
-  .next_nodes =
-  {
-#define _(s,n) [TCP_RCV_PROCESS_NEXT_##s] = n,
-    foreach_tcp_state_next
-#undef _
-  },
   .format_trace = format_tcp_rx_trace_short,
 };
-/* *INDENT-ON* */
 
 static void
 tcp46_listen_trace_frame (vlib_main_t *vm, vlib_node_runtime_t *node,
@@ -2662,7 +2549,7 @@ tcp46_listen_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
 {
   u32 n_left_from, *from, n_syns = 0;
   vlib_buffer_t *bufs[VLIB_FRAME_SIZE], **b;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   u32 tw_iss = 0;
 
   from = vlib_frame_vector_args (frame);
@@ -2686,25 +2573,39 @@ tcp46_listen_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
       /* Probably we are in time-wait or closed state */
       else
 	{
+	  u32 fib_index;
 	  tcp_connection_t *tc;
 	  tc = tcp_connection_get (vnet_buffer (b[0])->tcp.connection_index,
 				   thread_index);
-	  if (tc->state != TCP_STATE_TIME_WAIT)
+	  if (!tc)
 	    {
+	      tcp_inc_counter (listen, TCP_ERROR_INVALID_CONNECTION, 1);
+	      goto done;
+	    }
+
+	  fib_index = tc->c_fib_index;
+	  switch (tc->state)
+	    {
+	    case TCP_STATE_TIME_WAIT:
+	      if (PREDICT_FALSE (!syn_during_timewait (tc, b[0], &tw_iss)))
+		{
+		  /* This SYN can't be accepted */
+		  tcp_inc_counter (listen, TCP_ERROR_CREATE_EXISTS, 1);
+		  goto done;
+		}
+	      /* clean up the old session */
+	      tcp_connection_cleanup_and_notify (tc);
+	      break;
+	    case TCP_STATE_CLOSED:
+	      session_lookup_del_connection (&tc->connection);
+	      tc->c_flags |= TRANSPORT_CONNECTION_F_NO_LOOKUP;
+	      break;
+	    default:
 	      tcp_inc_counter (listen, TCP_ERROR_CREATE_EXISTS, 1);
 	      goto done;
 	    }
 
-	  if (PREDICT_FALSE (!syn_during_timewait (tc, b[0], &tw_iss)))
-	    {
-	      /* This SYN can't be accepted */
-	      tcp_inc_counter (listen, TCP_ERROR_CREATE_EXISTS, 1);
-	      goto done;
-	    }
-
-	  lc = tcp_lookup_listener (b[0], tc->c_fib_index, is_ip4);
-	  /* clean up the old session */
-	  tcp_connection_del (tc);
+	  lc = tcp_lookup_listener (b[0], fib_index, is_ip4);
 	  /* listener was cleaned up */
 	  if (!lc)
 	    {
@@ -2716,7 +2617,7 @@ tcp46_listen_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
       /* Make sure connection wasn't just created */
       child =
 	tcp_lookup_connection (lc->c_fib_index, b[0], thread_index, is_ip4);
-      if (PREDICT_FALSE (child->state != TCP_STATE_LISTEN))
+      if (PREDICT_FALSE (child && child->state != TCP_STATE_LISTEN))
 	{
 	  tcp_inc_counter (listen, TCP_ERROR_CREATE_EXISTS, 1);
 	  goto done;
@@ -2798,60 +2699,78 @@ VLIB_NODE_FN (tcp6_listen_node) (vlib_main_t * vm, vlib_node_runtime_t * node,
   return tcp46_listen_inline (vm, node, from_frame, 0 /* is_ip4 */ );
 }
 
-/* *INDENT-OFF* */
-VLIB_REGISTER_NODE (tcp4_listen_node) =
-{
+VLIB_REGISTER_NODE (tcp4_listen_node) = {
   .name = "tcp4-listen",
   /* Takes a vector of packets. */
   .vector_size = sizeof (u32),
   .n_errors = TCP_N_ERROR,
   .error_counters = tcp_input_error_counters,
-  .n_next_nodes = TCP_LISTEN_N_NEXT,
-  .next_nodes =
-  {
-#define _(s,n) [TCP_LISTEN_NEXT_##s] = n,
-    foreach_tcp_state_next
-#undef _
-  },
   .format_trace = format_tcp_rx_trace_short,
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
-VLIB_REGISTER_NODE (tcp6_listen_node) =
-{
+VLIB_REGISTER_NODE (tcp6_listen_node) = {
   .name = "tcp6-listen",
   /* Takes a vector of packets. */
   .vector_size = sizeof (u32),
   .n_errors = TCP_N_ERROR,
   .error_counters = tcp_input_error_counters,
-  .n_next_nodes = TCP_LISTEN_N_NEXT,
-  .next_nodes =
-  {
-#define _(s,n) [TCP_LISTEN_NEXT_##s] = n,
-    foreach_tcp_state_next
-#undef _
-  },
   .format_trace = format_tcp_rx_trace_short,
 };
-/* *INDENT-ON* */
 
-#define foreach_tcp4_input_next                 \
-  _ (DROP, "ip4-drop")                          \
-  _ (LISTEN, "tcp4-listen")                     \
-  _ (RCV_PROCESS, "tcp4-rcv-process")           \
-  _ (SYN_SENT, "tcp4-syn-sent")                 \
-  _ (ESTABLISHED, "tcp4-established")		\
-  _ (RESET, "tcp4-reset")			\
+always_inline uword
+tcp46_drop_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
+		   vlib_frame_t *frame, int is_ip4)
+{
+  u32 *from = vlib_frame_vector_args (frame);
+
+  /* Error counters must be incremented by previous nodes */
+  vlib_buffer_free (vm, from, frame->n_vectors);
+
+  return frame->n_vectors;
+}
+
+VLIB_NODE_FN (tcp4_drop_node)
+(vlib_main_t *vm, vlib_node_runtime_t *node, vlib_frame_t *from_frame)
+{
+  return tcp46_drop_inline (vm, node, from_frame, 1 /* is_ip4 */);
+}
+
+VLIB_NODE_FN (tcp6_drop_node)
+(vlib_main_t *vm, vlib_node_runtime_t *node, vlib_frame_t *from_frame)
+{
+  return tcp46_drop_inline (vm, node, from_frame, 0 /* is_ip4 */);
+}
+
+VLIB_REGISTER_NODE (tcp4_drop_node) = {
+  .name = "tcp4-drop",
+  .vector_size = sizeof (u32),
+  .n_errors = TCP_N_ERROR,
+  .error_counters = tcp_input_error_counters,
+};
+
+VLIB_REGISTER_NODE (tcp6_drop_node) = {
+  .name = "tcp6-drop",
+  .vector_size = sizeof (u32),
+  .n_errors = TCP_N_ERROR,
+  .error_counters = tcp_input_error_counters,
+};
+
+#define foreach_tcp4_input_next                                               \
+  _ (DROP, "tcp4-drop")                                                       \
+  _ (LISTEN, "tcp4-listen")                                                   \
+  _ (RCV_PROCESS, "tcp4-rcv-process")                                         \
+  _ (SYN_SENT, "tcp4-syn-sent")                                               \
+  _ (ESTABLISHED, "tcp4-established")                                         \
+  _ (RESET, "tcp4-reset")                                                     \
   _ (PUNT, "ip4-punt")
 
-#define foreach_tcp6_input_next                 \
-  _ (DROP, "ip6-drop")                          \
-  _ (LISTEN, "tcp6-listen")                     \
-  _ (RCV_PROCESS, "tcp6-rcv-process")           \
-  _ (SYN_SENT, "tcp6-syn-sent")                 \
-  _ (ESTABLISHED, "tcp6-established")		\
-  _ (RESET, "tcp6-reset")			\
+#define foreach_tcp6_input_next                                               \
+  _ (DROP, "tcp6-drop")                                                       \
+  _ (LISTEN, "tcp6-listen")                                                   \
+  _ (RCV_PROCESS, "tcp6-rcv-process")                                         \
+  _ (SYN_SENT, "tcp6-syn-sent")                                               \
+  _ (ESTABLISHED, "tcp6-established")                                         \
+  _ (RESET, "tcp6-reset")                                                     \
   _ (PUNT, "ip6-punt")
 
 #define filter_flags (TCP_FLAG_SYN|TCP_FLAG_ACK|TCP_FLAG_RST|TCP_FLAG_FIN)
@@ -2939,8 +2858,6 @@ tcp46_input_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
 	CLIB_PREFETCH (b[3]->data, 2 * CLIB_CACHE_LINE_BYTES, LOAD);
       }
 
-      next[0] = next[1] = TCP_INPUT_NEXT_DROP;
-
       tc0 = tcp_input_lookup_buffer (b[0], thread_index, &error0, is_ip4,
 				     is_nolookup);
       tc1 = tcp_input_lookup_buffer (b[1], thread_index, &error1, is_ip4,
@@ -3001,7 +2918,6 @@ tcp46_input_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
 	  CLIB_PREFETCH (b[1]->data, 2 * CLIB_CACHE_LINE_BYTES, LOAD);
 	}
 
-      next[0] = TCP_INPUT_NEXT_DROP;
       tc0 = tcp_input_lookup_buffer (b[0], thread_index, &error0, is_ip4,
 				     is_nolookup);
       if (PREDICT_TRUE (tc0 != 0))
@@ -3045,7 +2961,6 @@ VLIB_NODE_FN (tcp6_input_nolookup_node) (vlib_main_t * vm,
 			     1 /* is_nolookup */ );
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (tcp4_input_nolookup_node) =
 {
   .name = "tcp4-input-nolookup",
@@ -3063,9 +2978,7 @@ VLIB_REGISTER_NODE (tcp4_input_nolookup_node) =
   .format_buffer = format_tcp_header,
   .format_trace = format_tcp_rx_trace,
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (tcp6_input_nolookup_node) =
 {
   .name = "tcp6-input-nolookup",
@@ -3083,7 +2996,6 @@ VLIB_REGISTER_NODE (tcp6_input_nolookup_node) =
   .format_buffer = format_tcp_header,
   .format_trace = format_tcp_rx_trace,
 };
-/* *INDENT-ON* */
 
 VLIB_NODE_FN (tcp4_input_node) (vlib_main_t * vm, vlib_node_runtime_t * node,
 				vlib_frame_t * from_frame)
@@ -3099,7 +3011,6 @@ VLIB_NODE_FN (tcp6_input_node) (vlib_main_t * vm, vlib_node_runtime_t * node,
 			     0 /* is_nolookup */ );
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (tcp4_input_node) =
 {
   .name = "tcp4-input",
@@ -3117,9 +3028,7 @@ VLIB_REGISTER_NODE (tcp4_input_node) =
   .format_buffer = format_tcp_header,
   .format_trace = format_tcp_rx_trace,
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (tcp6_input_node) =
 {
   .name = "tcp6-input",
@@ -3137,7 +3046,6 @@ VLIB_REGISTER_NODE (tcp6_input_node) =
   .format_buffer = format_tcp_header,
   .format_trace = format_tcp_rx_trace,
 };
-/* *INDENT-ON* */
 
 #ifndef CLIB_MARCH_VARIANT
 void
@@ -3323,6 +3231,8 @@ do {                                                       	\
   _(FIN_WAIT_2, TCP_FLAG_RST | TCP_FLAG_ACK, TCP_INPUT_NEXT_RCV_PROCESS,
     TCP_ERROR_NONE);
   _(FIN_WAIT_2, TCP_FLAG_SYN, TCP_INPUT_NEXT_RCV_PROCESS, TCP_ERROR_NONE);
+  _ (FIN_WAIT_2, TCP_FLAG_SYN | TCP_FLAG_ACK, TCP_INPUT_NEXT_RCV_PROCESS,
+     TCP_ERROR_NONE);
   _(CLOSE_WAIT, TCP_FLAG_ACK, TCP_INPUT_NEXT_RCV_PROCESS, TCP_ERROR_NONE);
   _(CLOSE_WAIT, TCP_FLAG_FIN | TCP_FLAG_ACK, TCP_INPUT_NEXT_RCV_PROCESS,
     TCP_ERROR_NONE);
@@ -3396,11 +3306,3 @@ tcp_input_init (vlib_main_t * vm)
 VLIB_INIT_FUNCTION (tcp_input_init);
 
 #endif /* CLIB_MARCH_VARIANT */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

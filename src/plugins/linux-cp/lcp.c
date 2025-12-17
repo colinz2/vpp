@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <sched.h>
@@ -145,10 +135,40 @@ lcp_get_del_dynamic_on_link_down (void)
   return lcpm->del_dynamic_on_link_down;
 }
 
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+void
+lcp_set_netlink_processing_active (u8 is_processing)
+{
+  lcp_main_t *lcpm = &lcp_main;
+
+  lcpm->netlink_processing_active = (is_processing != 0);
+}
+
+u8
+lcp_get_netlink_processing_active (void)
+{
+  lcp_main_t *lcpm = &lcp_main;
+
+  return lcpm->netlink_processing_active;
+}
+
+void
+lcp_set_default_num_queues (u16 num_queues, u8 is_tx)
+{
+  lcp_main_t *lcpm = &lcp_main;
+
+  if (is_tx)
+    lcpm->num_tx_queues = num_queues;
+  else
+    lcpm->num_rx_queues = num_queues;
+}
+
+u16
+lcp_get_default_num_queues (u8 is_tx)
+{
+  lcp_main_t *lcpm = &lcp_main;
+
+  if (is_tx)
+    return lcpm->num_tx_queues;
+
+  return lcpm->num_rx_queues ?: vlib_num_workers ();
+}

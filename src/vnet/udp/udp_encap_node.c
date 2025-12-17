@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/udp/udp_encap.h>
@@ -78,7 +68,7 @@ udp_encap_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
   vlib_combined_counter_main_t *cm = &udp_encap_counters;
   u32 *from = vlib_frame_vector_args (frame);
   u32 n_left_from, n_left_to_next, *to_next, next_index;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
 
   n_left_from = frame->n_vectors;
   next_index = node->cached_next_index;
@@ -308,7 +298,6 @@ VLIB_NODE_FN (udp6_encap_node)
   return udp_encap_inline (vm, node, frame, AF_IP6, N_AF);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (udp4o4_encap_node) = {
   .name = "udp4o4-encap",
   .vector_size = sizeof (u32),
@@ -319,7 +308,7 @@ VLIB_REGISTER_NODE (udp4o4_encap_node) = {
 VLIB_REGISTER_NODE (udp6o4_encap_node) = {
   .name = "udp6o4-encap",
   .vector_size = sizeof (u32),
-  .format_trace = format_udp6_encap_trace,
+  .format_trace = format_udp4_encap_trace,
   .n_next_nodes = 0,
   .sibling_of = "udp4o4-encap",
 };
@@ -342,7 +331,7 @@ VLIB_REGISTER_NODE (udp6o6_encap_node) = {
 VLIB_REGISTER_NODE (udp4o6_encap_node) = {
   .name = "udp4o6-encap",
   .vector_size = sizeof (u32),
-  .format_trace = format_udp4_encap_trace,
+  .format_trace = format_udp6_encap_trace,
   .n_next_nodes = 0,
   .sibling_of = "udp6o6-encap",
 };
@@ -354,13 +343,3 @@ VLIB_REGISTER_NODE (udp6_encap_node) = {
   .n_next_nodes = 0,
   .sibling_of = "udp6o6-encap",
 };
-/* *INDENT-ON* */
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

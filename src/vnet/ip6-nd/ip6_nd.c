@@ -1,19 +1,8 @@
-/*
- * ip/ip6_neighbor.c: IP6 neighbor handling
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2010 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* ip/ip6_neighbor.c: IP6 neighbor handling */
 
 #include <vnet/ip6-nd/ip6_nd.h>
 #include <vnet/ip6-nd/ip6_nd_inline.h>
@@ -149,7 +138,6 @@ icmp6_neighbor_solicitation_or_advertisement (vlib_main_t * vm,
 	  if (PREDICT_TRUE (error0 == ICMP6_ERROR_NONE && o0 != 0 &&
 			    !ip6_sadd_unspecified))
 	    {
-              /* *INDENT-OFF* */
 	      ip_neighbor_learn_t learn = {
 		.sw_if_index = sw_if_index0,
 		.ip = {
@@ -159,7 +147,6 @@ icmp6_neighbor_solicitation_or_advertisement (vlib_main_t * vm,
                              h0->target_address),
                 }
 	      };
-              /* *INDENT-ON* */
 	      memcpy (&learn.mac, o0->ethernet_address, sizeof (learn.mac));
 	      ip_neighbor_learn_dp (&learn);
 	    }
@@ -343,7 +330,6 @@ icmp6_neighbor_advertisement (vlib_main_t * vm,
 						       0);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_icmp_neighbor_solicitation_node,static) =
 {
   .function = icmp6_neighbor_solicitation,
@@ -374,7 +360,6 @@ VLIB_REGISTER_NODE (ip6_icmp_neighbor_advertisement_node,static) =
     [0] = "ip6-punt",
   },
 };
-/* *INDENT-ON* */
 
 static u8 *
 format_ip6_nd (u8 * s, va_list * args)
@@ -427,17 +412,6 @@ ip6_nd_init (vlib_main_t * vm)
   return 0;
 }
 
-/* *INDENT-OFF* */
-VLIB_INIT_FUNCTION (ip6_nd_init) =
-{
-  .runs_after = VLIB_INITS("icmp6_init"),
+VLIB_INIT_FUNCTION (ip6_nd_init) = {
+  .runs_after = VLIB_INITS ("icmp6_init"),
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

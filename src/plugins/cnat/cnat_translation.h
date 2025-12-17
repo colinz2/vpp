@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef __CNAT_TRANSLATION_H__
@@ -60,12 +50,14 @@ typedef struct cnat_ep_trk_t_
 typedef enum cnat_translation_flag_t_
 {
   /* Do allocate a source port */
-  CNAT_TRANSLATION_FLAG_ALLOCATE_PORT = (1 << 0),
+  CNAT_TR_FLAG_ALLOCATE_PORT = (1 << 0),
   /* Has this translation been satcked ?
    * this allow not being called twice when
    * with more then FIB_PATH_LIST_POPULAR backends  */
-  CNAT_TRANSLATION_STACKED = (1 << 1),
-} cnat_translation_flag_t;
+  CNAT_TR_FLAG_STACKED = (1 << 1),
+  /* Do not create a return session */
+  CNAT_TR_FLAG_NO_RETURN_SESSION = (1 << 2),
+} __clib_packed cnat_translation_flag_t;
 
 typedef enum
 {
@@ -76,11 +68,11 @@ typedef enum
   CNAT_ADDR_N_RESOLUTIONS,
 } cnat_addr_resol_type_t;
 
-typedef enum __attribute__ ((__packed__))
+typedef enum
 {
   CNAT_LB_DEFAULT,
   CNAT_LB_MAGLEV,
-} cnat_lb_type_t;
+} __clib_packed cnat_lb_type_t;
 
 /**
  * Entry used to account for a translation's backend
@@ -160,12 +152,17 @@ typedef struct cnat_translation_t_
   /**
    * Translation flags
    */
-  u8 flags;
+  cnat_translation_flag_t flags;
 
   /**
    * Type of load balancing
    */
   cnat_lb_type_t lb_type;
+
+  /**
+   * Type of flow hash config
+   */
+  flow_hash_config_t fhc;
 
   union
   {
@@ -189,7 +186,8 @@ extern u8 *format_cnat_translation (u8 * s, va_list * args);
 extern u32 cnat_translation_update (cnat_endpoint_t *vip,
 				    ip_protocol_t ip_proto,
 				    cnat_endpoint_tuple_t *backends, u8 flags,
-				    cnat_lb_type_t lb_type);
+				    cnat_lb_type_t lb_type,
+				    flow_hash_config_t fhc);
 
 /**
  * Delete a translation
@@ -263,13 +261,4 @@ cnat_find_translation (index_t cti, u16 port, ip_protocol_t proto)
 
   return (NULL);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
-
 #endif

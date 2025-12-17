@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-""" Vpp QUIC tests """
+"""Vpp QUIC tests"""
 
 import unittest
 import os
-import subprocess
 import signal
 from config import config
-from framework import tag_fixme_vpp_workers
-from framework import VppTestCase, VppTestRunner, Worker
+from asfframework import VppAsfTestCase, VppTestRunner, Worker, tag_fixme_vpp_workers
 from vpp_ip_route import VppIpTable, VppIpRoute, VppRoutePath
 
 
@@ -52,7 +50,8 @@ class QUICAppWorker(Worker):
         return False
 
 
-class QUICTestCase(VppTestCase):
+@unittest.skipIf("quic" in config.excluded_plugins, "Exclude QUIC plugin tests")
+class QUICTestCase(VppAsfTestCase):
     """QUIC Test Case"""
 
     timeout = 20
@@ -66,6 +65,7 @@ class QUICTestCase(VppTestCase):
     @classmethod
     def setUpClass(cls):
         cls.extra_vpp_plugin_config.append("plugin quic_plugin.so { enable }")
+        cls.extra_vpp_plugin_config.append("plugin quic_quicly_plugin.so { enable }")
         super(QUICTestCase, cls).setUpClass()
 
     def setUp(self):
@@ -116,8 +116,25 @@ class QUICTestCase(VppTestCase):
         self.ip_t01.add_vpp_config()
         self.ip_t10.add_vpp_config()
         self.logger.debug(self.vapi.cli("show ip fib"))
+        # TODO: refactor test suites to use all crypto cipher suites
+        # self.vapi.cli("quic set crypto api vpp")
+        # self.vapi.cli("quic set crypto api engine-lib")
+        self.logger.debug(self.vapi.cli("show quic"))
 
     def tearDown(self):
+        self.logger.debug(self.vapi.cli("show quic"))
+        self.vapi.app_namespace_add_del_v4(
+            is_add=0,
+            namespace_id=self.server_appns,
+            secret=self.server_appns_secret,
+            sw_if_index=self.loop0.sw_if_index,
+        )
+        self.vapi.app_namespace_add_del_v4(
+            is_add=0,
+            namespace_id=self.client_appns,
+            secret=self.client_appns_secret,
+            sw_if_index=self.loop1.sw_if_index,
+        )
         # Delete inter-table routes
         self.ip_t01.remove_vpp_config()
         self.ip_t10.remove_vpp_config()
@@ -133,14 +150,15 @@ class QUICEchoIntTestCase(QUICTestCase):
     """QUIC Echo Internal Test Case"""
 
     test_bytes = " test-bytes"
-    extra_vpp_punt_config = ["session", "{", "enable", "poll-main", "}"]
+    extra_vpp_config = ["session", "{", "enable", "poll-main", "}"]
+    vpp_worker_count = 2
 
     def setUp(self):
         super(QUICEchoIntTestCase, self).setUp()
         self.client_args = (
-            f"uri {self.uri} fifo-size 64{self.test_bytes} appns {self.client_appns} "
+            f"uri {self.uri} fifo-size 64k{self.test_bytes} appns {self.client_appns} "
         )
-        self.server_args = f"uri {self.uri} fifo-size 64 appns {self.server_appns} "
+        self.server_args = f"uri {self.uri} fifo-size 64k appns {self.server_appns} "
 
     def tearDown(self):
         super(QUICEchoIntTestCase, self).tearDown()
@@ -160,38 +178,35 @@ class QUICEchoIntTestCase(QUICTestCase):
             self.assertNotIn("failed", error)
 
 
-@tag_fixme_vpp_workers
 class QUICEchoIntTransferTestCase(QUICEchoIntTestCase):
     """QUIC Echo Internal Transfer Test Case"""
 
     def test_quic_int_transfer(self):
         """QUIC internal transfer"""
         self.server()
-        self.client("no-output", "mbytes", "2")
+        self.client("bytes", "2m")
 
 
-@tag_fixme_vpp_workers
 class QUICEchoIntSerialTestCase(QUICEchoIntTestCase):
     """QUIC Echo Internal Serial Transfer Test Case"""
 
     def test_quic_serial_int_transfer(self):
         """QUIC serial internal transfer"""
         self.server()
-        self.client("no-output", "mbytes", "2")
-        self.client("no-output", "mbytes", "2")
-        self.client("no-output", "mbytes", "2")
-        self.client("no-output", "mbytes", "2")
-        self.client("no-output", "mbytes", "2")
+        self.client("bytes", "2m")
+        self.client("bytes", "2m")
+        self.client("bytes", "2m")
+        self.client("bytes", "2m")
+        self.client("bytes", "2m")
 
 
-@tag_fixme_vpp_workers
 class QUICEchoIntMStreamTestCase(QUICEchoIntTestCase):
     """QUIC Echo Internal MultiStream Test Case"""
 
     def test_quic_int_multistream_transfer(self):
         """QUIC internal multi-stream transfer"""
         self.server()
-        self.client("nclients", "10", "mbytes", "1", "no-output")
+        self.client("nclients", "10", "bytes", "1m")
 
 
 class QUICEchoExtTestCase(QUICTestCase):
@@ -204,7 +219,7 @@ class QUICEchoExtTestCase(QUICTestCase):
     vpp_worker_count = 1
     server_fifo_size = "1M"
     client_fifo_size = "4M"
-    extra_vpp_punt_config = [
+    extra_vpp_config = [
         "session",
         "{",
         "enable",
@@ -299,6 +314,7 @@ class QUICEchoExtTestCase(QUICTestCase):
 
     def validate_ext_test_results(self):
         server_result = self.worker_server.result
+        self.logger.debug(self.vapi.cli(f"show session verbose 2"))
         client_result = self.worker_client.result
         self.logger.info(f"Server worker result is `{server_result}'")
         self.logger.info(f"Client worker result is `{client_result}'")

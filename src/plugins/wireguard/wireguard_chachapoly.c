@@ -1,16 +1,5 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2022 Rubicon Communications, LLC.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <wireguard/wireguard.h>
@@ -72,11 +61,11 @@ wg_xchacha20poly1305_encrypt (vlib_main_t *vm, u8 *src, u32 src_len, u8 *dst,
   u64 h_nonce;
 
   clib_memcpy (&h_nonce, nonce + 16, sizeof (h_nonce));
-  h_nonce = le64toh (h_nonce);
+  h_nonce = clib_little_to_host_u64 (h_nonce);
   hchacha20 (derived_key, nonce, key);
 
   for (i = 0; i < (sizeof (derived_key) / sizeof (derived_key[0])); i++)
-    (derived_key[i]) = htole32 ((derived_key[i]));
+    (derived_key[i]) = clib_host_to_little_u32 ((derived_key[i]));
 
   uint32_t key_idx;
 
@@ -102,11 +91,11 @@ wg_xchacha20poly1305_decrypt (vlib_main_t *vm, u8 *src, u32 src_len, u8 *dst,
   u64 h_nonce;
 
   clib_memcpy (&h_nonce, nonce + 16, sizeof (h_nonce));
-  h_nonce = le64toh (h_nonce);
+  h_nonce = clib_little_to_host_u64 (h_nonce);
   hchacha20 (derived_key, nonce, key);
 
   for (i = 0; i < (sizeof (derived_key) / sizeof (derived_key[0])); i++)
-    (derived_key[i]) = htole32 ((derived_key[i]));
+    (derived_key[i]) = clib_host_to_little_u32 ((derived_key[i]));
 
   uint32_t key_idx;
 
@@ -123,11 +112,3 @@ wg_xchacha20poly1305_decrypt (vlib_main_t *vm, u8 *src, u32 src_len, u8 *dst,
 
   return ret;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,21 +1,12 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016-2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/udp/udp.h>
 #include <vnet/session/session.h>
 #include <vnet/dpo/load_balance.h>
+#include <vnet/ip/icmp46_packet.h>
 #include <vnet/ip/ip4_inlines.h>
 #include <vnet/ip/ip6_inlines.h>
 #include <vppinfra/sparse_vec.h>
@@ -43,6 +34,14 @@ udp_connection_register_port (u16 lcl_port, u8 is_ip4)
 		      __ATOMIC_RELAXED);
 }
 
+void
+udp_connection_share_port (u16 lcl_port, u8 is_ip4)
+{
+  udp_main_t *um = &udp_main;
+  __atomic_add_fetch (&um->transport_ports_refcnt[is_ip4][lcl_port], 1,
+		      __ATOMIC_RELAXED);
+}
+
 static void
 udp_connection_unregister_port (u16 lcl_port, u8 is_ip4)
 {
@@ -63,7 +62,7 @@ udp_connection_unregister_port (u16 lcl_port, u8 is_ip4)
 }
 
 udp_connection_t *
-udp_connection_alloc (u32 thread_index)
+udp_connection_alloc (clib_thread_index_t thread_index)
 {
   udp_worker_t *wrk = udp_worker_get (thread_index);
   udp_connection_t *uc;
@@ -91,24 +90,22 @@ udp_connection_free (udp_connection_t * uc)
 static void
 udp_connection_cleanup (udp_connection_t * uc)
 {
-  /* Unregister port from udp_local only if refcount went to zero */
-  if (!transport_release_local_endpoint (TRANSPORT_PROTO_UDP, &uc->c_lcl_ip,
-					 uc->c_lcl_port))
-    udp_connection_unregister_port (uc->c_lcl_port, uc->c_is_ip4);
+  transport_release_local_endpoint (TRANSPORT_PROTO_UDP, uc->c_fib_index,
+				    &uc->c_lcl_ip, uc->c_lcl_port);
+  udp_connection_unregister_port (uc->c_lcl_port, uc->c_is_ip4);
   udp_connection_free (uc);
 }
 
 void
 udp_connection_delete (udp_connection_t * uc)
 {
-  session_transport_delete_notify (&uc->connection);
-  udp_connection_cleanup (uc);
+  session_transport_delete_request (&uc->connection, udp_connection_cleanup);
 }
 
 static void
 udp_handle_cleanups (void *args)
 {
-  u32 thread_index = (u32) pointer_to_uword (args);
+  clib_thread_index_t thread_index = (u32) pointer_to_uword (args);
   udp_connection_t *uc;
   udp_worker_t *wrk;
   u32 *uc_index;
@@ -187,6 +184,7 @@ udp_session_bind (u32 session_index, transport_endpoint_cfg_t *lcl)
   listener->c_proto = TRANSPORT_PROTO_UDP;
   listener->c_s_index = session_index;
   listener->c_fib_index = lcl->fib_index;
+  listener->c_dscp = lcl->dscp;
   listener->mss =
     lcl->mss ? lcl->mss : udp_default_mtu (um, listener->c_is_ip4);
   listener->flags |= UDP_CONN_F_OWNS_PORT | UDP_CONN_F_LISTEN;
@@ -198,6 +196,7 @@ udp_session_bind (u32 session_index, transport_endpoint_cfg_t *lcl)
   clib_spinlock_init (&listener->rx_lock);
   if (!um->csum_offload)
     listener->cfg_flags |= UDP_CFG_F_NO_CSUM_OFFLOAD;
+  listener->start_ts = transport_time_now (listener->c_thread_index);
 
   udp_connection_register_port (listener->c_lcl_port, lcl->is_ip4);
   return listener->c_c_index;
@@ -225,51 +224,99 @@ udp_session_get_listener (u32 listener_index)
   return &us->connection;
 }
 
-always_inline u32
-udp_push_one_header (vlib_main_t *vm, udp_connection_t *uc, vlib_buffer_t *b)
+always_inline u16
+udp_compute_checksum (vlib_main_t *vm, vlib_buffer_t *b, u8 csum_offload,
+		      u8 is_ip4)
 {
-  vlib_buffer_push_udp (b, uc->c_lcl_port, uc->c_rmt_port,
-			udp_csum_offload (uc));
-  b->flags |= VNET_BUFFER_F_LOCALLY_ORIGINATED;
+  u16 csum = 0;
 
-  /* Handle ip header now as session layer overwrite connection details for
-   * non-connected udp. */
-  if (uc->c_is_ip4)
-    vlib_buffer_push_ip4_custom (vm, b, &uc->c_lcl_ip4, &uc->c_rmt_ip4,
-				 IP_PROTOCOL_UDP, udp_csum_offload (uc),
-				 0 /* is_df */, uc->c_dscp);
+  if (csum_offload)
+    vnet_buffer_offload_flags_set (b, VNET_BUFFER_OFFLOAD_F_UDP_CKSUM);
   else
-    vlib_buffer_push_ip6 (vm, b, &uc->c_lcl_ip6, &uc->c_rmt_ip6,
-			  IP_PROTOCOL_UDP);
+    {
+      if (is_ip4)
+	csum =
+	  ip4_tcp_udp_compute_checksum (vm, b, vlib_buffer_get_current (b));
+      else
+	{
+	  int bogus = 0;
+	  csum = ip6_tcp_udp_icmp_compute_checksum (
+	    vm, b, vlib_buffer_get_current (b), &bogus);
+	}
+    }
 
+  return csum;
+}
+
+always_inline u32
+udp_push_one_header (vlib_main_t *vm, udp_connection_t *uc, vlib_buffer_t *b,
+		     u8 is_cless)
+{
+  udp_header_t *uh;
+
+  b->flags |= VNET_BUFFER_F_LOCALLY_ORIGINATED;
   /* reuse tcp medatada for now */
   vnet_buffer (b)->tcp.connection_index = uc->c_c_index;
 
-  /* Not connected udp session. Mark buffer for custom handling in
-   * udp_output */
-  if (PREDICT_FALSE (!(uc->flags & UDP_CONN_F_CONNECTED)))
-    vnet_buffer (b)->tcp.flags |= UDP_CONN_F_LISTEN;
+  uc->bytes_out += vlib_buffer_length_in_chain (vm, b);
+  uc->dgrams_out += 1;
+
+  if (!is_cless)
+    {
+      uh = vlib_buffer_push_udp (b, uc->c_lcl_port, uc->c_rmt_port);
+
+      if (uc->c_is_ip4)
+	vlib_buffer_push_ip4_custom (vm, b, &uc->c_lcl_ip4, &uc->c_rmt_ip4,
+				     IP_PROTOCOL_UDP, udp_csum_offload (uc),
+				     0 /* is_df */, uc->c_dscp);
+      else
+	vlib_buffer_push_ip6 (vm, b, &uc->c_lcl_ip6, &uc->c_rmt_ip6,
+			      IP_PROTOCOL_UDP);
+
+      vnet_buffer (b)->tcp.flags = 0;
+    }
   else
-    vnet_buffer (b)->tcp.flags = 0;
+    {
+      u8 *data = vlib_buffer_get_current (b);
+      session_dgram_hdr_t hdr;
+
+      hdr = *(session_dgram_hdr_t *) (data - sizeof (hdr));
+
+      /* Local port assumed to be bound, not overwriting it */
+      uh = vlib_buffer_push_udp (b, uc->c_lcl_port, hdr.rmt_port);
+
+      if (uc->c_is_ip4)
+	vlib_buffer_push_ip4_custom (vm, b, &hdr.lcl_ip.ip4, &hdr.rmt_ip.ip4,
+				     IP_PROTOCOL_UDP, udp_csum_offload (uc),
+				     0 /* is_df */, uc->c_dscp);
+      else
+	vlib_buffer_push_ip6 (vm, b, &hdr.lcl_ip.ip6, &hdr.rmt_ip.ip6,
+			      IP_PROTOCOL_UDP);
+
+      /* Not connected udp session. Mark buffer for custom handling in
+       * udp_output */
+      vnet_buffer (b)->tcp.flags |= UDP_CONN_F_LISTEN;
+    }
+
+  uh->checksum =
+    udp_compute_checksum (vm, b, udp_csum_offload (uc), uc->c_is_ip4);
 
   return 0;
 }
 
-static u32
-udp_push_header (transport_connection_t *tc, vlib_buffer_t **bs, u32 n_bufs)
+always_inline void
+udp_push_header_batch (udp_connection_t *uc, vlib_buffer_t **bs, u32 n_bufs,
+		       u8 is_cless)
 {
   vlib_main_t *vm = vlib_get_main ();
-  udp_connection_t *uc;
-
-  uc = udp_connection_from_transport (tc);
 
   while (n_bufs >= 4)
     {
       vlib_prefetch_buffer_header (bs[2], STORE);
       vlib_prefetch_buffer_header (bs[3], STORE);
 
-      udp_push_one_header (vm, uc, bs[0]);
-      udp_push_one_header (vm, uc, bs[1]);
+      udp_push_one_header (vm, uc, bs[0], is_cless);
+      udp_push_one_header (vm, uc, bs[1], is_cless);
 
       n_bufs -= 2;
       bs += 2;
@@ -279,15 +326,27 @@ udp_push_header (transport_connection_t *tc, vlib_buffer_t **bs, u32 n_bufs)
       if (n_bufs > 1)
 	vlib_prefetch_buffer_header (bs[1], STORE);
 
-      udp_push_one_header (vm, uc, bs[0]);
+      udp_push_one_header (vm, uc, bs[0], is_cless);
 
       n_bufs -= 1;
       bs += 1;
     }
+}
+
+static u32
+udp_push_header (transport_connection_t *tc, vlib_buffer_t **bs, u32 n_bufs)
+{
+  udp_connection_t *uc;
+
+  uc = udp_connection_from_transport (tc);
+  if (uc->flags & UDP_CONN_F_CONNECTED)
+    udp_push_header_batch (uc, bs, n_bufs, 0 /* is_cless */);
+  else
+    udp_push_header_batch (uc, bs, n_bufs, 1 /* is_cless */);
 
   if (PREDICT_FALSE (uc->flags & UDP_CONN_F_CLOSING))
     {
-      if (!transport_max_tx_dequeue (&uc->connection))
+      if (!transport_tx_fifo_has_dgram (&uc->connection))
 	udp_connection_program_cleanup (uc);
     }
 
@@ -295,7 +354,7 @@ udp_push_header (transport_connection_t *tc, vlib_buffer_t **bs, u32 n_bufs)
 }
 
 static transport_connection_t *
-udp_session_get (u32 connection_index, u32 thread_index)
+udp_session_get (u32 connection_index, clib_thread_index_t thread_index)
 {
   udp_connection_t *uc;
   uc = udp_connection_get (connection_index, thread_index);
@@ -305,7 +364,7 @@ udp_session_get (u32 connection_index, u32 thread_index)
 }
 
 static void
-udp_session_close (u32 connection_index, u32 thread_index)
+udp_session_close (u32 connection_index, clib_thread_index_t thread_index)
 {
   udp_connection_t *uc;
 
@@ -313,14 +372,14 @@ udp_session_close (u32 connection_index, u32 thread_index)
   if (!uc || (uc->flags & UDP_CONN_F_MIGRATED))
     return;
 
-  if (!transport_max_tx_dequeue (&uc->connection))
+  if (!transport_tx_fifo_has_dgram (&uc->connection))
     udp_connection_program_cleanup (uc);
   else
     uc->flags |= UDP_CONN_F_CLOSING;
 }
 
 static void
-udp_session_cleanup (u32 connection_index, u32 thread_index)
+udp_session_cleanup (u32 connection_index, clib_thread_index_t thread_index)
 {
   udp_connection_t *uc;
   uc = udp_connection_get (connection_index, thread_index);
@@ -355,7 +414,7 @@ udp_open_connection (transport_endpoint_cfg_t * rmt)
   udp_main_t *um = &udp_main;
   ip46_address_t lcl_addr;
   udp_connection_t *uc;
-  u32 thread_index;
+  clib_thread_index_t thread_index;
   u16 lcl_port;
   int rv;
 
@@ -364,24 +423,26 @@ udp_open_connection (transport_endpoint_cfg_t * rmt)
   if (rv)
     return rv;
 
-  if (udp_is_valid_dst_port (lcl_port, rmt->is_ip4))
+  if (udp_connection_port_used_extern (clib_net_to_host_u16 (lcl_port),
+				       rmt->is_ip4))
     {
       /* If specific source port was requested abort */
       if (rmt->peer.port)
 	{
-	  transport_release_local_endpoint (TRANSPORT_PROTO_UDP, &lcl_addr,
-					    lcl_port);
+	  transport_release_local_endpoint (
+	    TRANSPORT_PROTO_UDP, rmt->fib_index, &lcl_addr, lcl_port);
 	  return SESSION_E_PORTINUSE;
 	}
 
       /* Try to find a port that's not used */
-      while (udp_is_valid_dst_port (lcl_port, rmt->is_ip4))
+      while (udp_connection_port_used_extern (clib_net_to_host_u16 (lcl_port),
+					      rmt->is_ip4))
 	{
-	  transport_release_local_endpoint (TRANSPORT_PROTO_UDP, &lcl_addr,
-					    lcl_port);
+	  transport_release_local_endpoint (
+	    TRANSPORT_PROTO_UDP, rmt->fib_index, &lcl_addr, lcl_port);
 	  lcl_port =
 	    transport_alloc_local_port (TRANSPORT_PROTO_UDP, &lcl_addr, rmt);
-	  if (lcl_port < 1)
+	  if ((int) lcl_port < 1)
 	    return SESSION_E_PORTINUSE;
 	}
     }
@@ -393,7 +454,7 @@ udp_open_connection (transport_endpoint_cfg_t * rmt)
   ip_copy (&uc->c_rmt_ip, &rmt->ip, rmt->is_ip4);
   ip_copy (&uc->c_lcl_ip, &lcl_addr, rmt->is_ip4);
   uc->c_rmt_port = rmt->port;
-  uc->c_lcl_port = clib_host_to_net_u16 (lcl_port);
+  uc->c_lcl_port = lcl_port;
   uc->c_is_ip4 = rmt->is_ip4;
   uc->c_proto = TRANSPORT_PROTO_UDP;
   uc->c_fib_index = rmt->fib_index;
@@ -401,20 +462,12 @@ udp_open_connection (transport_endpoint_cfg_t * rmt)
   uc->mss = rmt->mss ? rmt->mss : udp_default_mtu (um, uc->c_is_ip4);
   if (rmt->peer.sw_if_index != ENDPOINT_INVALID_INDEX)
     uc->sw_if_index = rmt->peer.sw_if_index;
-  uc->flags |= UDP_CONN_F_OWNS_PORT;
-  if (rmt->transport_flags & TRANSPORT_CFG_F_CONNECTED)
-    {
-      uc->flags |= UDP_CONN_F_CONNECTED;
-    }
-  else
-    {
-      clib_spinlock_init (&uc->rx_lock);
-      uc->c_flags |= TRANSPORT_CONNECTION_F_CLESS;
-    }
+  uc->flags |= UDP_CONN_F_OWNS_PORT | UDP_CONN_F_CONNECTED;
   if (!um->csum_offload)
     uc->cfg_flags |= UDP_CFG_F_NO_CSUM_OFFLOAD;
   uc->next_node_index = rmt->next_node_index;
   uc->next_node_opaque = rmt->next_node_opaque;
+  uc->start_ts = transport_time_now (thread_index);
 
   udp_connection_register_port (uc->c_lcl_port, rmt->is_ip4);
 
@@ -425,7 +478,7 @@ static transport_connection_t *
 udp_session_get_half_open (u32 conn_index)
 {
   udp_connection_t *uc;
-  u32 thread_index;
+  clib_thread_index_t thread_index;
 
   /* We don't poll main thread if we have workers */
   thread_index = transport_cl_thread ();
@@ -439,7 +492,7 @@ static u8 *
 format_udp_session (u8 * s, va_list * args)
 {
   u32 uci = va_arg (*args, u32);
-  u32 thread_index = va_arg (*args, u32);
+  clib_thread_index_t thread_index = va_arg (*args, u32);
   u32 verbose = va_arg (*args, u32);
   udp_connection_t *uc;
 
@@ -464,6 +517,63 @@ format_udp_listener_session (u8 * s, va_list * args)
   u32 verbose = va_arg (*args, u32);
   udp_connection_t *uc = udp_listener_get (tci);
   return format (s, "%U", format_udp_connection, uc, verbose);
+}
+
+static void
+udp_connection_icmp_cleanup_rpc (void *args)
+{
+  session_handle_t sh = pointer_to_uword (args);
+  udp_connection_t *uc;
+  session_t *s;
+
+  s = session_get_from_handle (sh);
+  if (!s || s->session_state > SESSION_STATE_TRANSPORT_CLOSING)
+    return;
+
+  uc = udp_connection_get (s->connection_index, s->thread_index);
+  if (!uc)
+    return;
+
+  session_transport_closing_notify (&uc->connection);
+  session_transport_closed_notify (&uc->connection);
+  udp_connection_program_cleanup (uc);
+}
+
+void
+udp_connection_handle_icmp (transport_connection_t *tc, u8 icmp_type,
+			    u8 icmp_code)
+{
+  udp_connection_t *uc;
+  session_t *s;
+
+  uc = udp_connection_from_transport (tc);
+  if (tc->is_ip4)
+    {
+      switch (icmp_type)
+	{
+	case ICMP4_destination_unreachable:
+	  s = session_get (uc->c_s_index, uc->c_thread_index);
+
+	  /* Ignore connectionless UDP and sessions that have already been
+	   * closed */
+	  if (s->session_state == SESSION_STATE_LISTENING ||
+	      s->session_state >= SESSION_STATE_TRANSPORT_CLOSING)
+	    break;
+
+	  /* ICMPs will probably not hash identically to original connection */
+	  session_send_rpc_evt_to_thread (s->thread_index,
+					  udp_connection_icmp_cleanup_rpc,
+					  (void *) session_handle (s));
+
+	  break;
+	default:
+	  break;
+	}
+    }
+  else
+    {
+      /* not handled yet */
+    }
 }
 
 static void
@@ -524,6 +634,9 @@ udp_enable_disable (vlib_main_t *vm, u8 is_en)
 {
   udp_main_t *um = &udp_main;
 
+  if (!is_en || um->is_init)
+    return 0;
+
   /* Not ideal. The sparse vector used to map ports to next nodes assumes
    * only a few ports are ever used. When udp transport is enabled this does
    * not hold and, to make matters worse, ports are consumed in a random
@@ -544,6 +657,7 @@ udp_enable_disable (vlib_main_t *vm, u8 is_en)
 
   vec_validate (um->transport_ports_refcnt[0], 65535);
   vec_validate (um->transport_ports_refcnt[1], 65535);
+  um->is_init = 1;
 
   return 0;
 }
@@ -614,18 +728,7 @@ udp_init (vlib_main_t * vm)
   return 0;
 }
 
-/* *INDENT-OFF* */
-VLIB_INIT_FUNCTION (udp_init) =
-{
-  .runs_after = VLIB_INITS("ip_main_init", "ip4_lookup_init",
-                           "ip6_lookup_init"),
+VLIB_INIT_FUNCTION (udp_init) = {
+  .runs_after = VLIB_INITS ("ip_main_init", "ip4_lookup_init",
+			    "ip6_lookup_init"),
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

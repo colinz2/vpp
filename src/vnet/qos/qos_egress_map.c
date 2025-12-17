@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <vnet/qos/qos_egress_map.h>
@@ -47,13 +34,11 @@ qos_egress_map_get_id (index_t qemi)
   qos_egress_map_id_t qid;
   index_t qmi;
 
-  /* *INDENT-OFF* */
   hash_foreach(qid, qmi, qem_db,
   ({
     if (qmi == qemi)
       return (qid);
   }));
-  /* *INDENT-OFF* */
 
   return (~0);
 }
@@ -129,12 +114,10 @@ qos_egress_map_walk (qos_egress_map_walk_cb_t fn, void *c)
   qos_egress_map_id_t qid;
   index_t qmi;
 
-  /* *INDENT-OFF* */
   hash_foreach(qid, qmi, qem_db,
   ({
     fn(qid, pool_elt_at_index(qem_pool, qmi), c);
   }));
-  /* *INDENT-OFF* */
 }
 
 static clib_error_t *
@@ -181,14 +164,12 @@ qos_egress_map_update_cli (vlib_main_t * vm,
  * @cliexpar
  * @cliexcmd{qos egress map id 0 [ip][4]=4}
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (qos_egress_map_update_command, static) = {
   .path = "qos egress map",
   .short_help = "qos egress map id %d [delete] {[SOURCE][INPUT]=OUTPUT}",
   .function = qos_egress_map_update_cli,
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
 
   u8 *format_qos_egress_map (u8 * s, va_list * args)
   {
@@ -239,7 +220,6 @@ VLIB_CLI_COMMAND (qos_egress_map_update_command, static) = {
       {
 	index_t qemi;
 
-      /* *INDENT-OFF* */
       hash_foreach(map_id, qemi, qem_db,
       ({
           vlib_cli_output (vm, " Map-ID:%d\n%U",
@@ -247,7 +227,6 @@ VLIB_CLI_COMMAND (qos_egress_map_update_command, static) = {
                            format_qos_egress_map,
                            pool_elt_at_index(qem_pool, qemi), 2);
       }));
-      /* *INDENT-ON* */
       }
     else
       {
@@ -274,19 +253,9 @@ VLIB_CLI_COMMAND (qos_egress_map_update_command, static) = {
  * @cliexpar
  * @cliexcmd{show qos egress map}
  ?*/
-/* *INDENT-OFF* */
-VLIB_CLI_COMMAND (qos_egress_map_show_command, static) = {
-  .path = "show qos egress map",
-  .short_help = "show qos egress map id %d",
-  .function = qos_egress_map_show,
-  .is_mp_safe = 1,
-};
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+  VLIB_CLI_COMMAND (qos_egress_map_show_command, static) = {
+    .path = "show qos egress map",
+    .short_help = "show qos egress map id %d",
+    .function = qos_egress_map_show,
+    .is_mp_safe = 1,
+  };

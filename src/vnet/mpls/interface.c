@@ -1,19 +1,8 @@
-/*
- * interface.c: mpls interfaces
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2012 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* interface.c: mpls interfaces */
 
 #include <vnet/vnet.h>
 #include <vnet/mpls/mpls.h>
@@ -22,6 +11,14 @@
 #include <vnet/adj/adj_midchain.h>
 #include <vnet/dpo/classify_dpo.h>
 
+typedef struct
+{
+  mpls_interface_state_change_function_t *function;
+  uword function_opaque;
+} mpls_interface_state_change_callback_t;
+
+/** Functions to call when interface becomes MPLS enabled/disabled. */
+static mpls_interface_state_change_callback_t *state_change_callbacks;
 
 u8
 mpls_sw_interface_is_enabled (u32 sw_if_index)
@@ -32,6 +29,17 @@ mpls_sw_interface_is_enabled (u32 sw_if_index)
         return (0);
 
     return (mm->mpls_enabled_by_sw_if_index[sw_if_index]);
+}
+
+void
+mpls_interface_state_change_add_callback (
+  mpls_interface_state_change_function_t *function, uword opaque)
+{
+  mpls_interface_state_change_callback_t cb = {
+    .function = function,
+    .function_opaque = opaque,
+  };
+  vec_add1 (state_change_callbacks, cb);
 }
 
 int
@@ -80,6 +88,12 @@ mpls_sw_interface_enable_disable (mpls_main_t *mm, u32 sw_if_index,
     hi->l3_if_count++;
   else if (hi->l3_if_count)
     hi->l3_if_count--;
+
+  {
+    mpls_interface_state_change_callback_t *cb;
+    vec_foreach (cb, state_change_callbacks)
+      cb->function (mm, cb->function_opaque, sw_if_index, is_enable);
+  }
 
   return (0);
 }

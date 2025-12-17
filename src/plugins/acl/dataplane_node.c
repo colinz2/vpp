@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016-2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <stddef.h>
 #include <netinet/in.h>
 
@@ -44,7 +35,6 @@ typedef struct
   u8 action;
 } acl_fa_trace_t;
 
-/* *INDENT-OFF* */
 #define foreach_acl_fa_error \
 _(ACL_DROP, "ACL deny packets")  \
 _(ACL_PERMIT, "ACL permit packets")  \
@@ -63,7 +53,6 @@ typedef enum
     ACL_FA_N_ERROR,
 } acl_fa_error_t;
 
-/* *INDENT-ON* */
 
 always_inline u16
 get_current_policy_epoch (acl_main_t * am, int is_input, u32 sw_if_index0)
@@ -728,7 +717,6 @@ format_acl_plugin_trace (u8 * s, va_list * args)
   return s;
 }
 
-/* *INDENT-OFF* */
 
 static char *acl_fa_error_strings[] = {
 #define _(sym,string) string,
@@ -972,13 +960,3 @@ VNET_FEATURE_INIT (acl_out_ip4_fa_feature, static) = {
   .node_name = "acl-plugin-out-ip4-fa",
   .runs_before = VNET_FEATURES ("ip4-dvr-reinject", "interface-output"),
 };
-
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * ip_api.c - vnet ip api
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * ip_api.c - vnet ip api
  */
 
 #include <stddef.h>
@@ -95,13 +84,11 @@ vl_api_ip6nd_proxy_dump_t_handler (vl_api_ip6nd_proxy_dump_t * mp)
   if (!reg)
     return;
 
-  /* *INDENT-OFF* */
   pool_foreach_index (fib_index, im6->fibs)
     {
       fib_table_walk (fib_index, FIB_PROTOCOL_IP6,
 		      api_ip6nd_proxy_fib_table_walk, &ctx);
     }
-  /* *INDENT-ON* */
 
   vec_sort_with_function (ctx.indices, fib_entry_cmp_for_sort);
 
@@ -419,7 +406,6 @@ static void
 static void
 ip6_ra_handle_report (const ip6_ra_report_t * rap)
 {
-  /* *INDENT-OFF* */
   vpe_client_registration_t *rp;
 
   pool_foreach (rp, vpe_api_main.ip6_ra_events_registrations)
@@ -473,7 +459,6 @@ ip6_ra_handle_report (const ip6_ra_report_t * rap)
         vl_api_send_msg (vl_reg, (u8 *) event);
       }
   }
-  /* *INDENT-ON* */
 }
 
 static void
@@ -557,11 +542,3 @@ ip6_nd_api_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (ip6_nd_api_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

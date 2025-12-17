@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2011-2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef __included_lldp_protocol_h__
 #define __included_lldp_protocol_h__
 /**
@@ -56,12 +47,10 @@ struct lldp_tlv_head
   u8 byte2;			/* contains the lower bits of length */
 };
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   struct lldp_tlv_head head;
   u8 v[0];
 }) lldp_tlv_t;
-/* *INDENT-ON* */
 
 lldp_tlv_code_t lldp_tlv_get_code (const lldp_tlv_t * tlv);
 void lldp_tlv_set_code (lldp_tlv_t * tlv, lldp_tlv_code_t code);
@@ -89,13 +78,11 @@ typedef enum
 #undef F
 } lldp_chassis_id_subtype_t;
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   struct lldp_tlv_head head;
   u8 subtype;
   u8 id[0];
 }) lldp_chassis_id_tlv_t;
-/* *INDENT-ON* */
 
 #define foreach_port_id_subtype(F)            \
   F (0, reserved, "Reserved")                 \
@@ -118,7 +105,6 @@ typedef enum
 #undef F
 } lldp_port_id_subtype_t;
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   struct lldp_tlv_head head;
   u8 subtype;
@@ -129,14 +115,5 @@ typedef CLIB_PACKED (struct {
   struct lldp_tlv_head head;
   u16 ttl;
 }) lldp_ttl_tlv_t;
-/* *INDENT-ON* */
 
 #endif /* __included_lldp_protocol_h__ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

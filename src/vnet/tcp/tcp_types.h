@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef SRC_VNET_TCP_TCP_TYPES_H_
@@ -389,7 +379,6 @@ typedef struct _tcp_connection
 #define rst_state snd_wl1
 } tcp_connection_t;
 
-/* *INDENT-OFF* */
 struct _tcp_cc_algorithm
 {
   const char *name;
@@ -406,7 +395,6 @@ struct _tcp_cc_algorithm
   void (*event) (tcp_connection_t *tc, tcp_cc_event_t evt);
   u64 (*get_pacing_rate) (tcp_connection_t *tc);
 };
-/* *INDENT-ON* */
 
 #define tcp_fastrecovery_on(tc) (tc)->flags |= TCP_CONN_FAST_RECOVERY
 #define tcp_fastrecovery_off(tc) (tc)->flags &= ~TCP_CONN_FAST_RECOVERY
@@ -475,11 +463,3 @@ tcp_get_connection_from_transport (transport_connection_t * tconn)
 typedef tw_timer_wheel_tcp_twsl_t tcp_timer_wheel_t;
 
 #endif /* SRC_VNET_TCP_TCP_TYPES_H_ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

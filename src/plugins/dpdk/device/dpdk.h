@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef __included_dpdk_h__
 #define __included_dpdk_h__
 
@@ -24,7 +15,9 @@
 
 #include <rte_eal.h>
 #include <rte_bus_pci.h>
+#ifdef __linux__
 #include <rte_bus_vmbus.h>
+#endif /* __linux__ */
 #include <rte_ethdev.h>
 #include <rte_version.h>
 #include <rte_net.h>
@@ -33,9 +26,10 @@
 #include <rte_pci.h>
 #include <ctype.h>
 
-#include <bus_driver.h>
 #include <bus_pci_driver.h>
+#ifdef __linux__
 #include <bus_vmbus_driver.h>
+#endif /* __linux__ */
 #endif
 
 #include <vnet/devices/devices.h>
@@ -67,7 +61,8 @@ typedef uint16_t dpdk_portid_t;
   _ (11, RX_FLOW_OFFLOAD, "rx-flow-offload")                                  \
   _ (12, RX_IP4_CKSUM, "rx-ip4-cksum")                                        \
   _ (13, INT_SUPPORTED, "int-supported")                                      \
-  _ (14, INT_UNMASKABLE, "int-unmaskable")
+  _ (14, INT_UNMASKABLE, "int-unmaskable")                                    \
+  _ (15, TX_PREPARE, "tx-prepare")
 
 typedef enum
 {
@@ -119,14 +114,15 @@ typedef struct
   u16 n_rx_desc;
   u16 n_tx_desc;
   u32 supported_flow_actions;
-  i32 enable_lsc_int : 1;
-  i32 enable_rxq_int : 1;
-  i32 disable_rx_scatter : 1;
-  i32 program_vlans : 1;
-  i32 mq_mode_none : 1;
-  i32 interface_number_from_port_id : 1;
-  i32 use_intel_phdr_cksum : 1;
-  i32 int_unmaskable : 1;
+  u32 enable_lsc_int : 1;
+  u32 enable_rxq_int : 1;
+  u32 disable_rx_scatter : 1;
+  u32 program_vlans : 1;
+  u32 mq_mode_none : 1;
+  u32 interface_number_from_port_id : 1;
+  u32 use_intel_phdr_cksum : 1;
+  u32 int_unmaskable : 1;
+  u32 need_tx_prepare : 1;
 } dpdk_driver_t;
 
 dpdk_driver_t *dpdk_driver_find (const char *name, const char **desc);
@@ -206,6 +202,8 @@ typedef struct
   struct rte_eth_stats last_stats;
   struct rte_eth_xstat *xstats;
   f64 time_last_stats_update;
+  vlib_simple_counter_main_t xstats_counters;
+  u32 *xstats_symlinks;
 
   /* mac address */
   u8 *default_mac_address;
@@ -222,11 +220,13 @@ typedef struct
   dpdk_port_conf_t conf;
 } dpdk_device_t;
 
+#define DPDK_MIN_POLL_INTERVAL (0.001) /* 1msec */
+
 #define DPDK_STATS_POLL_INTERVAL      (10.0)
-#define DPDK_MIN_STATS_POLL_INTERVAL  (0.001)	/* 1msec */
+#define DPDK_MIN_STATS_POLL_INTERVAL  DPDK_MIN_POLL_INTERVAL
 
 #define DPDK_LINK_POLL_INTERVAL       (3.0)
-#define DPDK_MIN_LINK_POLL_INTERVAL   (0.001)	/* 1msec */
+#define DPDK_MIN_LINK_POLL_INTERVAL   DPDK_MIN_POLL_INTERVAL
 
 #define foreach_dpdk_device_config_item                                       \
   _ (num_rx_queues)                                                           \
@@ -234,6 +234,7 @@ typedef struct
   _ (num_rx_desc)                                                             \
   _ (num_tx_desc)                                                             \
   _ (max_lro_pkt_size)                                                        \
+  _ (disable_rxq_int)                                                         \
   _ (rss_fn)
 
 typedef enum
@@ -427,6 +428,7 @@ void dpdk_update_link_state (dpdk_device_t * xd, f64 now);
   _ (19, RTE_ETH_RSS_NVGRE, "nvgre")                                          \
   _ (20, RTE_ETH_RSS_GTPU, "gtpu")                                            \
   _ (21, RTE_ETH_RSS_ESP, "esp")                                              \
+  _ (22, RTE_ETH_RSS_L2TPV3, "l2tpv3")                                        \
   _ (60, RTE_ETH_RSS_L4_DST_ONLY, "l4-dst-only")                              \
   _ (61, RTE_ETH_RSS_L4_SRC_ONLY, "l4-src-only")                              \
   _ (62, RTE_ETH_RSS_L3_DST_ONLY, "l3-dst-only")                              \
@@ -449,6 +451,9 @@ vnet_flow_dev_ops_function_t dpdk_flow_ops_fn;
 
 clib_error_t *unformat_rss_fn (unformat_input_t * input, uword * rss_fn);
 
+clib_error_t *dpdk_read_eeprom (vnet_main_t *vnm, vnet_hw_interface_t *hi,
+				vnet_interface_eeprom_t **eeprom);
+
 struct rte_pci_device *dpdk_get_pci_device (const struct rte_eth_dev_info
 					    *info);
 struct rte_vmbus_device *
@@ -461,11 +466,3 @@ void dpdk_buffer_poison_trajectory_all (void);
 #endif
 
 #endif /* __included_dpdk_h__ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

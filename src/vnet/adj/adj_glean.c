@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/adj/adj.h>
@@ -45,7 +35,7 @@ adj_glean_db_lookup (fib_protocol_t proto,
 {
     uword *p;
 
-    if (vec_len(adj_gleans[proto]) <= sw_if_index)
+    if ((proto >= FIB_PROTOCOL_IP_MAX) || vec_len(adj_gleans[proto]) <= sw_if_index)
         return (ADJ_INDEX_INVALID);
 
     p = hash_get_mem (adj_gleans[proto][sw_if_index], nh_addr);
@@ -66,6 +56,7 @@ adj_glean_db_insert (fib_protocol_t proto,
 
     vlib_worker_thread_barrier_sync(vm);
 
+    ASSERT(proto < FIB_PROTOCOL_IP_MAX);
     vec_validate(adj_gleans[proto], sw_if_index);
 
     if (NULL == adj_gleans[proto][sw_if_index])
@@ -186,6 +177,38 @@ adj_glean_update_rewrite_walk (adj_index_t ai,
     return (ADJ_WALK_RC_CONTINUE);
 }
 
+static void
+adj_glean_walk_proto (fib_protocol_t proto,
+                      u32 sw_if_index,
+                      adj_walk_cb_t cb,
+                      void *data)
+{
+    adj_index_t ai, *aip, *ais = NULL;
+    ip46_address_t *conn;
+
+    ASSERT(proto < FIB_PROTOCOL_IP_MAX);
+    if (vec_len(adj_gleans[proto]) <= sw_if_index ||
+        NULL == adj_gleans[proto][sw_if_index])
+        return;
+
+    /*
+     * Walk first to collect the indices
+     * then walk the collection. This is safe
+     * to modifications of the hash table
+     */
+    hash_foreach_mem(conn, ai, adj_gleans[proto][sw_if_index],
+    ({
+        vec_add1(ais, ai);
+    }));
+
+    vec_foreach(aip, ais)
+    {
+        if (ADJ_WALK_RC_STOP == cb(*aip, data))
+            break;
+    }
+    vec_free(ais);
+}
+
 void
 adj_glean_walk (u32 sw_if_index,
                 adj_walk_cb_t cb,
@@ -195,29 +218,7 @@ adj_glean_walk (u32 sw_if_index,
 
     FOR_EACH_FIB_IP_PROTOCOL(proto)
     {
-        adj_index_t ai, *aip, *ais = NULL;
-        ip46_address_t *conn;
-
-        if (vec_len(adj_gleans[proto]) <= sw_if_index ||
-            NULL == adj_gleans[proto][sw_if_index])
-            continue;
-
-        /*
-         * Walk first to collect the indices
-         * then walk the collection. This is safe
-         * to modifications of the hash table
-         */
-        hash_foreach_mem(conn, ai, adj_gleans[proto][sw_if_index],
-        ({
-            vec_add1(ais, ai);
-        }));
-
-        vec_foreach(aip, ais)
-        {
-            if (ADJ_WALK_RC_STOP == cb(*aip, data))
-                break;
-        }
-        vec_free(ais);
+      adj_glean_walk_proto (proto, sw_if_index, cb, data);
     }
 }
 
@@ -235,6 +236,7 @@ adj_glean_get (fib_protocol_t proto,
         ip46_address_t *conn;
         adj_index_t ai;
 
+        ASSERT(proto < FIB_PROTOCOL_IP_MAX);
         if (vec_len(adj_gleans[proto]) <= sw_if_index ||
             NULL == adj_gleans[proto][sw_if_index])
             return (ADJ_INDEX_INVALID);
@@ -256,6 +258,7 @@ adj_glean_get_src (fib_protocol_t proto,
     const ip_adjacency_t *adj;
     adj_index_t ai;
 
+    ASSERT(proto < FIB_PROTOCOL_IP_MAX);
     if (vec_len(adj_gleans[proto]) <= sw_if_index ||
         NULL == adj_gleans[proto][sw_if_index])
         return (NULL);
@@ -445,7 +448,7 @@ adj_glean_table_bind (fib_protocol_t fproto,
         },
     };
 
-    adj_glean_walk (sw_if_index, adj_glean_start_backwalk, &bw_ctx);
+    adj_glean_walk_proto (fproto, sw_if_index, adj_glean_start_backwalk, &bw_ctx);
 }
 
 

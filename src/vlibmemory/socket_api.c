@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * socket_api.c
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2009 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * socket_api.c
  */
 
 #include <sys/types.h>
@@ -87,7 +76,6 @@ vl_sock_api_dump_clients (vlib_main_t * vm, api_main_t * am)
 
   vlib_cli_output (vm, "Socket clients");
   vlib_cli_output (vm, "%20s %8s", "Name", "Fildesc");
-    /* *INDENT-OFF* */
     pool_foreach (reg, sm->registration_pool)
      {
         if (reg->registration_type == REGISTRATION_TYPE_SOCKET_SERVER) {
@@ -95,7 +83,6 @@ vl_sock_api_dump_clients (vlib_main_t * vm, api_main_t * am)
             vlib_cli_output (vm, "%20s %8d", reg->name, f->file_descriptor);
         }
     }
-/* *INDENT-ON* */
 }
 
 vl_api_registration_t *
@@ -229,7 +216,7 @@ socket_cleanup_pending_remove_registration_cb (u32 *preg_index)
   clib_file_main_t *fm = &file_main;
   u32 pending_remove_file_index = vl_api_registration_file_index (rp);
 
-  clib_file_t *zf = fm->file_pool + pending_remove_file_index;
+  clib_file_t *zf = clib_file_get (fm, pending_remove_file_index);
 
   clib_file_del (fm, zf);
   vl_socket_free_registration_index (rp - socket_main.registration_pool);
@@ -288,6 +275,10 @@ vl_socket_read_ready (clib_file_t * uf)
     }
 
   rp = vl_socket_get_registration (reg_index);
+  if (!rp)
+    {
+      return 0;
+    }
 
   /* Ignore unprocessed_input for now, n describes input_buffer for now. */
   n = read (uf->file_descriptor, socket_main.input_buffer,
@@ -523,7 +514,6 @@ vl_api_sockclnt_create_t_handler (vl_api_sockclnt_create_t * mp)
   rp->response = htonl (rv);
   rp->count = htons (nmsg);
 
-  /* *INDENT-OFF* */
   hash_foreach_pair (hp, am->msg_index_by_name_and_crc,
   ({
     rp->message_table[i].index = htons(hp->value[0]);
@@ -533,7 +523,6 @@ vl_api_sockclnt_create_t_handler (vl_api_sockclnt_create_t * mp)
                      64-1 /* chars to copy, without zero byte. */);
     i++;
   }));
-  /* *INDENT-ON* */
   vl_api_send_msg (regp, (u8 *) rp);
 }
 
@@ -851,13 +840,11 @@ socket_exit (vlib_main_t * vm)
   if (sm->registration_pool)
     {
       u32 index;
-        /* *INDENT-OFF* */
         pool_foreach (rp, sm->registration_pool)  {
           vl_api_registration_del_file (rp);
           index = rp->vl_api_registration_pool_index;
           vl_socket_free_registration_index (index);
         }
-/* *INDENT-ON* */
     }
 
   return 0;
@@ -898,11 +885,3 @@ void
 vlibsocket_reference ()
 {
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

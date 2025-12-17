@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * api.h
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2009-2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * api.h
  */
 
 #ifndef included_api_h
@@ -25,16 +14,15 @@
 #include <svm/svm.h>
 #include <svm/queue.h>
 #include <vlib/vlib.h>
+#include <vlib/file.h>
 #include <vlib/unix/unix.h>
 #include <vlibapi/api_common.h>
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED ( struct {
    u32 nitems;
    u32 msgtbl_size;
    u8 wrapped;
 }) vl_api_trace_file_header_t;
-/* *INDENT-ON* */
 
 int vl_msg_api_trace_save (api_main_t *am, vl_api_trace_which_t which,
 			   FILE *fp, u8 is_json);
@@ -152,10 +140,3 @@ format_function_t format_vl_api_msg_text;
 format_function_t format_vl_api_msg_json;
 
 #endif /* included_api_h */
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

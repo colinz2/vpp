@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * api_helper_macros.h - message handler helper macros
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * api_helper_macros.h - message handler helper macros
  */
 
 #ifndef __api_helper_macros_h__
@@ -29,9 +18,9 @@
 
 #define _NATIVE_TO_NETWORK(t, rmp)                                            \
   api_main_t *am = vlibapi_get_main ();                                       \
-  void (*endian_fp) (void *);                                                 \
+  void (*endian_fp) (void *, bool);                                           \
   endian_fp = am->msg_data[t + (REPLY_MSG_ID_BASE)].endian_handler;           \
-  (*endian_fp) (rmp);
+  (*endian_fp) (rmp, 1 /* to network */);
 
 #define REPLY_MACRO(msg)                                                      \
   do                                                                          \
@@ -739,11 +728,3 @@ typedef struct
 extern vpe_api_main_t vpe_api_main;
 
 #endif /* __api_helper_macros_h__ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

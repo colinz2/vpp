@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vnet/vnet.h>
 #include <vppinfra/vec.h>
 #include <vppinfra/format.h>
@@ -117,8 +108,8 @@
   _ (TX_MACSEC, "TX MACSEC")                                                  \
   _ (TX_OUTER_IPV4, "TX outer IPV4")                                          \
   _ (TX_OUTER_IPV6, "TX outer IPV6")                                          \
-  _ (TX_OUTER_IP_CKSUM, "Outer IP cksum of Tx pkt. computed by NIC")          \
-  _ (TX_OUTER_UDP_CKSUM, "TX outer UDP cksum")                                \
+  _ (TX_OUTER_IP_CKSUM, "Outer IP cksum of TX pkt. computed by NIC")          \
+  _ (TX_OUTER_UDP_CKSUM, "Outer UDP cksum of TX pkt. computed by NIC")        \
   _ (TX_QINQ, "TX QINQ")                                                      \
   _ (TX_SCTP_CKSUM, "SCTP cksum of TX pkt. computed by NIC")                  \
   _ (TX_SEC_OFFLOAD, "TX SEC OFFLOAD")                                        \
@@ -133,7 +124,7 @@
   _ (TX_TUNNEL_UDP, "TX tunnel UDP")                                          \
   _ (TX_TUNNEL_VXLAN, "TX packet is a VXLAN packet")                          \
   _ (TX_TUNNEL_VXLAN_GPE, "TX tunnel VXLAN GPE")                              \
-  _ (TX_UDP_CKSUM, "TX UDP cksum")                                            \
+  _ (TX_UDP_CKSUM, "UDP cksum of TX pkt. computed by NIC")                    \
   _ (TX_UDP_SEG, "TX UDP SEG")                                                \
   _ (TX_VLAN, "TX packet is a 802.1q VLAN packet")
 
@@ -423,10 +414,12 @@ format_dpdk_device (u8 * s, va_list * args)
   struct rte_eth_rss_conf rss_conf;
   int vlan_off;
   int retval;
+  int __clib_unused rv;
 
   dpdk_update_counters (xd, now);
   dpdk_update_link_state (xd, now);
-  rte_eth_dev_info_get (xd->port_id, &di);
+  rv = rte_eth_dev_info_get (xd->port_id, &di);
+  ASSERT (rv == 0);
 
   s = format (s, "%U\n%Ucarrier %U",
 	      format_dpdk_device_type, dev_instance,
@@ -565,7 +558,6 @@ format_dpdk_device (u8 * s, va_list * args)
 
   if (ret >= 0 && ret <= len)
     {
-      /* *INDENT-OFF* */
       vec_foreach_index(i, xd->xstats)
         {
           xstat = vec_elt_at_index(xd->xstats, i);
@@ -577,7 +569,6 @@ format_dpdk_device (u8 * s, va_list * args)
                           xstat->value);
             }
         }
-      /* *INDENT-ON* */
 
       vec_free (xstat_names);
     }
@@ -608,10 +599,9 @@ format_dpdk_tx_trace (u8 * s, va_list * va)
   dpdk_main_t *dm = &dpdk_main;
   dpdk_device_t *xd = vec_elt_at_index (dm->devices, t->device_index);
   u32 indent = format_get_indent (s);
-  vnet_sw_interface_t *sw = vnet_get_sw_interface (vnm, xd->sw_if_index);
 
-  s = format (s, "%U tx queue %d",
-	      format_vnet_sw_interface_name, vnm, sw, t->queue_index);
+  s = format (s, "%U tx queue %d", format_vnet_sw_if_index_name, vnm,
+	      xd->sw_if_index, t->queue_index);
 
   s = format (s, "\n%Ubuffer 0x%x: %U", format_white_space, indent,
 	      t->buffer_index, format_vnet_buffer_no_chain, &t->buffer);
@@ -638,10 +628,9 @@ format_dpdk_rx_trace (u8 * s, va_list * va)
   dpdk_device_t *xd = vec_elt_at_index (dm->devices, t->device_index);
   format_function_t *f;
   u32 indent = format_get_indent (s);
-  vnet_sw_interface_t *sw = vnet_get_sw_interface (vnm, xd->sw_if_index);
 
-  s = format (s, "%U rx queue %d",
-	      format_vnet_sw_interface_name, vnm, sw, t->queue_index);
+  s = format (s, "%U rx queue %d", format_vnet_sw_if_index_name, vnm,
+	      xd->sw_if_index, t->queue_index);
 
   s = format (s, "\n%Ubuffer 0x%x: %U", format_white_space, indent,
 	      t->buffer_index, format_vnet_buffer_no_chain, &t->buffer);
@@ -706,7 +695,7 @@ format_dpdk_pkt_offload_flags (u8 * s, va_list * va)
   s = format (s, "Packet Offload Flags");
 
 #define _(F, S)                                                               \
-  if (*ol_flags & RTE_MBUF_F_##F)                                             \
+  if ((*ol_flags & RTE_MBUF_F_##F) == RTE_MBUF_F_##F)                         \
     {                                                                         \
       s = format (s, "\n%U%s (0x%04x) %s", format_white_space, indent,        \
 		  "PKT_" #F, RTE_MBUF_F_##F, S);                              \
@@ -828,12 +817,3 @@ unformat_rss_fn (unformat_input_t * input, uword * rss_fn)
     }
   return 0;
 }
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

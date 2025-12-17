@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <plugins/abf/abf_itf_attach.h>
@@ -399,7 +389,6 @@ abf_itf_attach_cmd (vlib_main_t * vm,
   return (NULL);
 }
 
-/* *INDENT-OFF* */
 /**
  * Attach an ABF policy to an interface.
  */
@@ -409,7 +398,6 @@ VLIB_CLI_COMMAND (abf_itf_attach_cmd_node, static) = {
   .short_help = "abf attach <ip4|ip6> [del] policy <value> <interface>",
   // this is not MP safe
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 abf_show_attach_cmd (vlib_main_t * vm,
@@ -438,7 +426,6 @@ abf_show_attach_cmd (vlib_main_t * vm,
       vlib_cli_output (vm, "specify an interface");
     }
 
-  /* *INDENT-OFF* */
   FOR_EACH_FIB_IP_PROTOCOL(fproto)
   {
     if (sw_if_index < vec_len(abf_per_itf[fproto]))
@@ -453,31 +440,26 @@ abf_show_attach_cmd (vlib_main_t * vm,
           }
       }
   }
-  /* *INDENT-ON* */
   return (NULL);
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (abf_show_attach_cmd_node, static) = {
   .path = "show abf attach",
   .function = abf_show_attach_cmd,
   .short_help = "show abf attach <interface>",
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
 
 void
 abf_itf_attach_walk (abf_itf_attach_walk_cb_t cb, void *ctx)
 {
   u32 aii;
 
-  /* *INDENT-OFF* */
   pool_foreach_index (aii, abf_itf_attach_pool)
    {
     if (!cb(aii, ctx))
       break;
   }
-  /* *INDENT-ON* */
 }
 
 typedef enum abf_next_t_
@@ -657,7 +639,6 @@ static char *abf_error_strings[] = {
 #undef abf_error
 };
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (abf_ip4_node) =
 {
   .function = abf_input_ip4,
@@ -690,20 +671,21 @@ VLIB_REGISTER_NODE (abf_ip6_node) =
   }
 };
 
-VNET_FEATURE_INIT (abf_ip4_feat, static) =
-{
+VNET_FEATURE_INIT (abf_ip4_feat, static) = {
   .arc_name = "ip4-unicast",
   .node_name = "abf-input-ip4",
-  .runs_after = VNET_FEATURES ("acl-plugin-in-ip4-fa"),
+  .runs_after = VNET_FEATURES ("acl-plugin-in-ip4-fa",
+			       "ip4-full-reassembly-feature",
+			       "ip4-sv-reassembly-feature"),
 };
 
-VNET_FEATURE_INIT (abf_ip6_feat, static) =
-{
+VNET_FEATURE_INIT (abf_ip6_feat, static) = {
   .arc_name = "ip6-unicast",
   .node_name = "abf-input-ip6",
-  .runs_after = VNET_FEATURES ("acl-plugin-in-ip6-fa"),
+  .runs_after = VNET_FEATURES ("acl-plugin-in-ip6-fa",
+			       "ip6-full-reassembly-feature",
+			       "ip6-sv-reassembly-feature"),
 };
-/* *INDENT-ON* */
 
 static fib_node_t *
 abf_itf_attach_get_node (fib_node_index_t index)
@@ -772,17 +754,6 @@ abf_itf_bond_init (vlib_main_t * vm)
   return (NULL);
 }
 
-/* *INDENT-OFF* */
-VLIB_INIT_FUNCTION (abf_itf_bond_init) =
-{
-  .runs_after = VLIB_INITS("acl_init"),
+VLIB_INIT_FUNCTION (abf_itf_bond_init) = {
+  .runs_after = VLIB_INITS ("acl_init"),
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

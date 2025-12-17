@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <stddef.h>
@@ -86,7 +76,8 @@ send_proxy_arp_details (const ip4_address_t * lo_addr,
   clib_memset (mp, 0, sizeof (*mp));
   mp->_vl_msg_id = ntohs (VL_API_PROXY_ARP_DETAILS + REPLY_MSG_ID_BASE);
   mp->context = ctx->context;
-  mp->proxy.table_id = htonl (fib_index);
+  mp->proxy.table_id = clib_host_to_net_u32 (
+    fib_table_get_table_id (fib_index, FIB_PROTOCOL_IP4));
 
   ip4_address_encode (lo_addr, mp->proxy.low);
   ip4_address_encode (hi_addr, mp->proxy.hi);
@@ -180,11 +171,3 @@ arp_api_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (arp_api_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

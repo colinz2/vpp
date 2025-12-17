@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /**
  * @file
  * @brief NAT66 global declarations
@@ -81,20 +72,20 @@ typedef struct
   vlib_simple_counter_main_t out2in_packets;;
 } nat66_main_t;
 
-#define nat66_elog(_level, _str)                         \
-do                                                       \
-  {                                                      \
-    nat66_main_t *nm = &nat66_main;                      \
-    if (PREDICT_FALSE (nm->log_level >= _level))         \
-      {                                                  \
-        ELOG_TYPE_DECLARE (e) =                          \
-          {                                              \
-            .format = "nat66-msg " _str,                 \
-            .format_args = "",                           \
-          };                                             \
-        ELOG_DATA (&vlib_global_main.elog_main, e);      \
-      }                                                  \
-  } while (0);
+#define nat66_elog(_level, _str)                                              \
+  do                                                                          \
+    {                                                                         \
+      nat66_main_t *nm = &nat66_main;                                         \
+      if (PREDICT_FALSE (nm->log_level >= _level))                            \
+	{                                                                     \
+	  ELOG_TYPE_DECLARE (e) = {                                           \
+	    .format = "nat66-msg " _str,                                      \
+	    .format_args = "",                                                \
+	  };                                                                  \
+	  ELOG_DATA (vlib_get_elog_main (), e);                               \
+	}                                                                     \
+    }                                                                         \
+  while (0);
 
 #define nat66_elog_warn(nat_elog_str) \
   nat66_elog(0x02, "[warning] " nat_elog_str)
@@ -120,11 +111,3 @@ int nat66_plugin_enable (u32 outside_vrf);
 int nat66_plugin_disable ();
 
 #endif /* __included_nat66_h__ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

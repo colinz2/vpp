@@ -1,48 +1,18 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * cli.c: command line interface
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* cli.c: command line interface */
 
 #include <vlib/vlib.h>
 #include <vlib/stats/stats.h>
+#include <vlib/file.h>
 #include <vlib/unix/unix.h>
 #include <vppinfra/callback.h>
 #include <vppinfra/cpu.h>
 #include <vppinfra/elog.h>
+#include <vppinfra/cJSON.h>
 #include <unistd.h>
 #include <ctype.h>
 
@@ -55,36 +25,28 @@ int vl_api_get_elog_trace_api_messages (void);
 static void *current_traced_heap;
 
 /* Root of all show commands. */
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (vlib_cli_show_command, static) = {
   .path = "show",
   .short_help = "Show commands",
 };
-/* *INDENT-ON* */
 
 /* Root of all clear commands. */
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (vlib_cli_clear_command, static) = {
   .path = "clear",
   .short_help = "Clear commands",
 };
-/* *INDENT-ON* */
 
 /* Root of all set commands. */
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (vlib_cli_set_command, static) = {
   .path = "set",
   .short_help = "Set commands",
 };
-/* *INDENT-ON* */
 
 /* Root of all test commands. */
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (vlib_cli_test_command, static) = {
   .path = "test",
   .short_help = "Test commands",
 };
-/* *INDENT-ON* */
 
 /* Returns bitmap of commands which match key. */
 static uword *
@@ -363,7 +325,6 @@ vlib_cli_get_possible_completions (u8 * str)
   /* if we have a space at the end of input, and a unique match,
    * autocomplete the next level of subcommands */
   help_next_level = (vec_len (str) == 0) || isspace (str[vec_len (str) - 1]);
-  /* *INDENT-OFF* */
   clib_bitmap_foreach (index, match_bitmap) {
     if (help_next_level && is_unique) {
 	c = get_sub_command (vcm, c, index);
@@ -375,7 +336,6 @@ vlib_cli_get_possible_completions (u8 * str)
     sc = &c->sub_commands[index];
     vec_add1(result, (u8*) sc->name);
   }
-  /* *INDENT-ON* */
 
 done:
   clib_bitmap_free (match_bitmap);
@@ -625,13 +585,11 @@ vlib_cli_dispatch_sub_commands (vlib_main_t * vm,
 	    {
 	      if (PREDICT_FALSE (vm->elog_trace_cli_commands))
 		{
-                  /* *INDENT-OFF* */
                   ELOG_TYPE_DECLARE (e) =
                     {
                       .format = "cli-cmd: %s",
                       .format_args = "T4",
                     };
-                  /* *INDENT-ON* */
 		  struct
 		  {
 		    u32 c;
@@ -657,13 +615,11 @@ vlib_cli_dispatch_sub_commands (vlib_main_t * vm,
 
 	      if (PREDICT_FALSE (vm->elog_trace_cli_commands))
 		{
-                  /* *INDENT-OFF* */
                   ELOG_TYPE_DECLARE (e) =
                     {
                       .format = "cli-cmd: %s %s",
                       .format_args = "T4T4",
                     };
-                  /* *INDENT-ON* */
 		  struct
 		  {
 		    u32 c, err;
@@ -818,11 +774,9 @@ show_memory_usage (vlib_main_t * vm,
 {
   clib_mem_main_t *mm = &clib_mem_main;
   int verbose __attribute__ ((unused)) = 0;
-  int api_segment = 0, stats_segment = 0, main_heap = 0, numa_heaps = 0;
+  int api_segment = 0, stats_segment = 0, main_heap = 0;
   int map = 0;
   clib_error_t *error;
-  u32 index = 0;
-  int i;
   uword clib_mem_trace_enable_disable (uword enable);
   uword was_enabled;
 
@@ -837,8 +791,6 @@ show_memory_usage (vlib_main_t * vm,
 	stats_segment = 1;
       else if (unformat (input, "main-heap"))
 	main_heap = 1;
-      else if (unformat (input, "numa-heaps"))
-	numa_heaps = 1;
       else if (unformat (input, "map"))
 	map = 1;
       else
@@ -849,10 +801,15 @@ show_memory_usage (vlib_main_t * vm,
 	}
     }
 
-  if ((api_segment + stats_segment + main_heap + numa_heaps + map) == 0)
-    return clib_error_return
-      (0, "Need one of api-segment, stats-segment, main-heap, numa-heaps "
-       "or map");
+  if ((api_segment + stats_segment + main_heap + map) == 0)
+    {
+      was_enabled = clib_mem_trace_enable_disable (0);
+      vec_foreach_pointer (h, clib_mem_main.heaps)
+	vlib_cli_output (vm, "%U\n\n", format_clib_mem_heap, h, 1);
+
+      clib_mem_trace_enable_disable (was_enabled);
+      return 0;
+    }
 
   if (api_segment)
     {
@@ -895,41 +852,13 @@ show_memory_usage (vlib_main_t * vm,
   {
     if (main_heap)
       {
-	/*
-	 * Note: the foreach_vlib_main causes allocator traffic,
-	 * so shut off tracing before we go there...
-	 */
 	was_enabled = clib_mem_trace_enable_disable (0);
 
-	foreach_vlib_main ()
-	  {
-	    vlib_cli_output (vm, "%sThread %d %s\n", index ? "\n" : "", index,
-			     vlib_worker_threads[index].name);
-	    vlib_cli_output (vm, "  %U\n", format_clib_mem_heap,
-			     mm->per_cpu_mheaps[index], verbose);
-	    index++;
-	  }
+	vlib_cli_output (vm, "  %U\n", format_clib_mem_heap, mm->main_heap,
+			 verbose);
 
 	/* Restore the trace flag */
 	clib_mem_trace_enable_disable (was_enabled);
-      }
-    if (numa_heaps)
-      {
-	for (i = 0; i < ARRAY_LEN (mm->per_numa_mheaps); i++)
-	  {
-	    if (mm->per_numa_mheaps[i] == 0)
-	      continue;
-	    if (mm->per_numa_mheaps[i] == mm->per_cpu_mheaps[i])
-	      {
-		vlib_cli_output (vm, "Numa %d uses the main heap...", i);
-		continue;
-	      }
-	    was_enabled = clib_mem_trace_enable_disable (0);
-
-	    vlib_cli_output (vm, "Numa %d:", i);
-	    vlib_cli_output (vm, "  %U\n", format_clib_mem_heap,
-			     mm->per_numa_mheaps[index], verbose);
-	  }
       }
     if (map)
       {
@@ -942,7 +871,7 @@ show_memory_usage (vlib_main_t * vm,
 		    "StartAddr", "size", "FD", "PageSz", "Pages");
 	while ((numa = vlib_mem_get_next_numa_node (numa)) != -1)
 	  s = format (s, " Numa%u", numa);
-	s = format (s, " NotMap");
+	s = format (s, " NotPop");
 	s = format (s, " Name");
 	vlib_cli_output (vm, "%v", s);
 	vec_reset_length (s);
@@ -966,7 +895,7 @@ show_memory_usage (vlib_main_t * vm,
 			hdr->num_pages);
 	    while ((numa = vlib_mem_get_next_numa_node (numa)) != -1)
 	      s = format (s, "%6lu", stats.per_numa[numa]);
-	    s = format (s, "%7lu", stats.not_mapped);
+	    s = format (s, "%7lu", stats.not_populated);
 	    s = format (s, " %s", hdr->name);
 	    vlib_cli_output (vm, "%v", s);
 	    vec_reset_length (s);
@@ -977,14 +906,12 @@ show_memory_usage (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_memory_usage_command, static) = {
   .path = "show memory",
   .short_help = "show memory [api-segment][stats-segment][verbose]\n"
-		"            [numa-heaps][map][main-heap]",
+		"            [map][main-heap]",
   .function = show_memory_usage,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 show_cpu (vlib_main_t * vm, unformat_input_t * input,
@@ -994,8 +921,8 @@ show_cpu (vlib_main_t * vm, unformat_input_t * input,
   _("Model name", "%U", format_cpu_model_name);
   _("Microarch model (family)", "%U", format_cpu_uarch);
   _("Flags", "%U", format_cpu_flags);
-  _("Base frequency", "%.2f GHz",
-    ((f64) vm->clib_time.clocks_per_second) * 1e-9);
+  _ ("Base frequency", "%.4f GHz",
+     ((f64) vm->clib_time.clocks_per_second) * 1e-9);
 #undef _
   return 0;
 }
@@ -1011,26 +938,22 @@ show_cpu (vlib_main_t * vm, unformat_input_t * input,
  * Base Frequency:           3.20 GHz
  * @cliexend
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_cpu_command, static) = {
   .path = "show cpu",
   .short_help = "Show cpu information",
   .function = show_cpu,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 enable_disable_memory_trace (vlib_main_t * vm,
 			     unformat_input_t * input,
 			     vlib_cli_command_t * cmd)
 {
-  clib_mem_main_t *mm = &clib_mem_main;
   unformat_input_t _line_input, *line_input = &_line_input;
   int enable = 1;
   int api_segment = 0;
   int stats_segment = 0;
   int main_heap = 0;
-  u32 numa_id = ~0;
   void *oldheap;
 
   if (!unformat_user (input, unformat_line_input, line_input))
@@ -1046,8 +969,6 @@ enable_disable_memory_trace (vlib_main_t * vm,
 	stats_segment = 1;
       else if (unformat (line_input, "main-heap"))
 	main_heap = 1;
-      else if (unformat (line_input, "numa-heap %d", &numa_id))
-	;
       else
 	{
 	  unformat_free (line_input);
@@ -1056,12 +977,11 @@ enable_disable_memory_trace (vlib_main_t * vm,
     }
   unformat_free (line_input);
 
-  if ((api_segment + stats_segment + main_heap + (enable == 0)
-       + (numa_id != ~0)) == 0)
+  if ((api_segment + stats_segment + main_heap + (enable == 0)) == 0)
     {
-      return clib_error_return
-	(0, "Need one of main-heap, stats-segment, api-segment,\n"
-	 "numa-heap <nn> or disable");
+      return clib_error_return (
+	0, "Need one of main-heap, stats-segment, api-segment,\n"
+	   "or disable");
     }
 
   /* Turn off current trace, if any */
@@ -1105,34 +1025,120 @@ enable_disable_memory_trace (vlib_main_t * vm,
       clib_mem_trace (main_heap);
     }
 
-  if (numa_id != ~0)
-    {
-      if (numa_id >= ARRAY_LEN (mm->per_numa_mheaps))
-	return clib_error_return (0, "Numa %d out of range", numa_id);
-      if (mm->per_numa_mheaps[numa_id] == 0)
-	return clib_error_return (0, "Numa %d heap not active", numa_id);
-
-      if (mm->per_numa_mheaps[numa_id] == clib_mem_get_heap ())
-	return clib_error_return (0, "Numa %d uses the main heap...",
-				  numa_id);
-      current_traced_heap = mm->per_numa_mheaps[numa_id];
-      oldheap = clib_mem_set_heap (current_traced_heap);
-      clib_mem_trace (1);
-      clib_mem_set_heap (oldheap);
-    }
-
-
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (enable_disable_memory_trace_command, static) = {
   .path = "memory-trace",
   .short_help = "memory-trace on|off [api-segment][stats-segment][main-heap]\n"
   "                   [numa-heap <numa-id>]\n",
   .function = enable_disable_memory_trace,
 };
-/* *INDENT-ON* */
+
+static clib_error_t *
+save_memory_trace (vlib_main_t *vm, unformat_input_t *input,
+		   vlib_cli_command_t *cmd)
+{
+  char *file, *chroot_file;
+  uword was_enabled;
+  clib_mem_trace_t *t, *mem_traces = 0;
+  u8 *tmp;
+  cJSON *traces, *trace, *traceback, *symbol;
+  int i;
+  FILE *fp;
+  char *json_str = 0;
+
+  cJSON_Hooks cjson_hooks = {
+    .malloc_fn = clib_mem_alloc,
+    .free_fn = clib_mem_free,
+    .realloc_fn = clib_mem_realloc,
+  };
+  cJSON_InitHooks (&cjson_hooks);
+
+  if (!unformat (input, "%s", &file))
+    {
+      vlib_cli_output (vm, "expected file name, got `%U'",
+		       format_unformat_error, input);
+      return 0;
+    }
+
+  /* It's fairly hard to get "../oopsie" through unformat; just in case */
+  if (strstr (file, "..") || strchr (file, '/'))
+    {
+      vlib_cli_output (vm, "illegal characters in filename '%s'", file);
+      return 0;
+    }
+  chroot_file = (char *) format (0, "/tmp/%s%c", file, 0);
+  vec_free (file);
+  fp = fopen ((char *) chroot_file, "w");
+  if (fp == NULL)
+    {
+      vlib_cli_output (vm, "couldn't open output file %s '%s'", chroot_file);
+      vec_free (chroot_file);
+      return 0;
+    }
+
+  was_enabled = clib_mem_trace_enable_disable (0);
+  vlib_cli_output (vm, "Saving trace to '%s'", chroot_file);
+  mem_traces = clib_mem_trace_dup (current_traced_heap);
+  traces = cJSON_CreateArray ();
+  vec_foreach (t, mem_traces)
+    {
+      /* Skip over free elements. */
+      if (t->n_allocations == 0)
+	continue;
+
+      trace = cJSON_CreateObject ();
+      cJSON_AddNumberToObject (trace, "count", t->n_allocations);
+      cJSON_AddNumberToObject (trace, "bytes", t->n_bytes);
+      tmp = format (0, "%p%c", t->offset, 0);
+      cJSON_AddStringToObject (trace, "sample", (char *) tmp);
+      vec_free (tmp);
+      traceback = cJSON_AddArrayToObject (trace, "traceback");
+      for (i = 0; i < ARRAY_LEN (t->callers) && t->callers[i]; i++)
+	{
+#if defined(CLIB_UNIX) && !defined(__APPLE__)
+	  tmp = format (0, "%U%c\n", format_clib_elf_symbol_with_address,
+			t->callers[i], 0);
+	  symbol = cJSON_CreateString ((char *) tmp);
+	  cJSON_AddItemToArray (traceback, symbol);
+	  vec_free (tmp);
+#else
+	  tmp = format (0, "%p%c\n", t->callers[i], 0);
+	  symbol = cJSON_CreateString ((char *) tmp);
+	  cJSON_AddItemToArray (traceback, symbol);
+	  vec_free (tmp);
+#endif
+	}
+
+      cJSON_AddItemToArray (traces, trace);
+    }
+  json_str = cJSON_PrintUnformatted (traces);
+  cJSON_Delete (traces);
+  fputs (json_str, fp);
+  fclose (fp);
+  clib_mem_free (json_str);
+
+  vec_free (mem_traces);
+  clib_mem_trace_enable_disable (was_enabled);
+
+  vec_free (chroot_file);
+
+  return 0;
+}
+
+/*?
+ * Save memory traces of the currently traced heap in JSON format to file.
+ * Only filename can be specified, path is fixed (/tmp/<filename>).
+ *
+ * @cliexpar
+ * @cliexcmd{save memory-trace mem_trace.json}
+?*/
+VLIB_CLI_COMMAND (save_memory_trace_command, static) = {
+  .path = "save memory-trace",
+  .short_help = "save memory-trace <filename>",
+  .function = save_memory_trace,
+};
 
 static clib_error_t *
 restart_cmd_fn (vlib_main_t * vm, unformat_input_t * input,
@@ -1140,33 +1146,29 @@ restart_cmd_fn (vlib_main_t * vm, unformat_input_t * input,
 {
   vlib_global_main_t *vgm = vlib_get_global_main ();
   clib_file_main_t *fm = &file_main;
-  clib_file_t *f;
 
   /* environ(7) does not indicate a header for this */
   extern char **environ;
 
   /* Close all known open files */
-  /* *INDENT-OFF* */
-  pool_foreach (f, fm->file_pool)
-     {
+  pool_foreach_pointer (f, fm->file_pool)
+    {
       if (f->file_descriptor > 2)
         close(f->file_descriptor);
     }
-  /* *INDENT-ON* */
 
   /* Exec ourself */
-  execve (vgm->name, (char **) vgm->argv, environ);
+  if (execve ((void *) vgm->argv[0], (char **) vgm->argv, environ))
+    return clib_error_return_unix (0, "execve failed");
 
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (restart_cmd,static) = {
     .path = "restart",
     .short_help = "restart process",
     .function = restart_cmd_fn,
 };
-/* *INDENT-ON* */
 
 #ifdef TEST_CODE
 /*
@@ -1192,13 +1194,11 @@ sleep_ten_seconds (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (ping_command, static) = {
   .path = "test sleep",
   .function = sleep_ten_seconds,
   .short_help = "Sleep for 10 seconds",
 };
-/* *INDENT-ON* */
 #endif /* ifdef TEST_CODE */
 
 static uword
@@ -1604,7 +1604,7 @@ event_logger_trace_command_fn (vlib_main_t * vm,
    */
   if (dispatch || circuit)
     {
-      elog_main_t *em = &vlib_global_main.elog_main;
+      elog_main_t *em = vlib_get_elog_main ();
 
       em->n_total_events_disable_limit =
 	em->n_total_events + vec_len (em->event_ring);
@@ -1649,7 +1649,6 @@ print_status:
  * @cliend
  * @cliexcmd{event-logger trace [api][cli][barrier][disable]}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (event_logger_trace_command, static) =
 {
   .path = "event-logger trace",
@@ -1657,7 +1656,6 @@ VLIB_CLI_COMMAND (event_logger_trace_command, static) =
   "[circuit-node <name> e.g. ethernet-input][disable]",
   .function = event_logger_trace_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 suspend_command_fn (vlib_main_t * vm,
@@ -1667,7 +1665,6 @@ suspend_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (suspend_command, static) =
 {
   .path = "suspend",
@@ -1675,7 +1672,6 @@ VLIB_CLI_COMMAND (suspend_command, static) =
   .function = suspend_command_fn,
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
 
 
 static int
@@ -1866,7 +1862,6 @@ show_cli_command_fn (vlib_main_t * vm,
  * @cliexend
 ?*/
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_cli_command, static) =
 {
   .path = "show cli",
@@ -1874,7 +1869,6 @@ VLIB_CLI_COMMAND (show_cli_command, static) =
   .function = show_cli_command_fn,
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 vlib_cli_init (vlib_main_t * vm)
@@ -1900,11 +1894,3 @@ vlib_cli_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (vlib_cli_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

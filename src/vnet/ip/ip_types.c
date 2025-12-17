@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/ip/ip_types.h>
@@ -578,10 +568,59 @@ ip6_mask_to_preflen (ip6_address_t * mask)
   return 0;
 }
 
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+u8
+ip_is_zero (ip46_address_t *ip46_address, u8 is_ip4)
+{
+  if (is_ip4)
+    return (ip46_address->ip4.as_u32 == 0);
+  else
+    return (ip46_address->as_u64[0] == 0 && ip46_address->as_u64[1] == 0);
+}
+
+u8
+ip_is_local_host (ip46_address_t *ip46_address, u8 is_ip4)
+{
+  if (is_ip4)
+    return (ip46_address->ip4.as_u8[0] == 127);
+  else
+    return (ip46_address->as_u64[0] == 0 &&
+	    clib_net_to_host_u64 (ip46_address->as_u64[1]) == 1);
+}
+
+u8
+ip4_is_local_host (ip4_address_t *ip4_address)
+{
+  return (ip4_address->as_u8[0] == 127);
+}
+
+u8
+ip6_is_local_host (ip6_address_t *ip6_address)
+{
+  return (ip6_address->as_u64[0] == 0 &&
+	  clib_net_to_host_u64 (ip6_address->as_u64[1]) == 1);
+}
+
+void
+ip_copy (ip46_address_t *dst, ip46_address_t *src, u8 is_ip4)
+{
+  if (is_ip4)
+    {
+      ip46_address_mask_ip4 (dst);
+      dst->ip4.as_u32 = src->ip4.as_u32;
+    }
+  else
+    clib_memcpy_fast (&dst->ip6, &src->ip6, sizeof (ip6_address_t));
+}
+
+void
+ip_set (ip46_address_t *dst, void *src, u8 is_ip4)
+{
+  if (is_ip4)
+    {
+      ip46_address_mask_ip4 (dst);
+      dst->ip4.as_u32 = ((ip4_address_t *) src)->as_u32;
+    }
+  else
+    clib_memcpy_fast (&dst->ip6, (ip6_address_t *) src,
+		      sizeof (ip6_address_t));
+}

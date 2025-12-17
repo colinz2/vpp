@@ -1,18 +1,7 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Doc.ai and/or its affiliates.
  * Copyright (c) 2015-2020 Jason A. Donenfeld <Jason@zx2c4.com>.
  * Copyright (c) 2019-2020 Matt Dunwoodie <ncon@noconroy.net>.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <openssl/hmac.h>
@@ -144,6 +133,7 @@ noise_create_initiation (vlib_main_t * vm, noise_remote_t * r,
   /* es */
   if (!noise_mix_dh (hs->hs_ck, key, hs->hs_e, r->r_public))
     goto error;
+  vnet_crypto_key_update (vm, key_idx);
 
   /* s */
   noise_msg_encrypt (vm, es, l->l_public, NOISE_PUBLIC_KEY_LEN, key_idx,
@@ -152,6 +142,7 @@ noise_create_initiation (vlib_main_t * vm, noise_remote_t * r,
   /* ss */
   if (!noise_mix_ss (hs->hs_ck, key, r->r_ss))
     goto error;
+  vnet_crypto_key_update (vm, key_idx);
 
   /* {t} */
   noise_tai64n_now (ets);
@@ -198,6 +189,7 @@ noise_consume_initiation (vlib_main_t * vm, noise_local_t * l,
   /* es */
   if (!noise_mix_dh (hs.hs_ck, key, l->l_private, ue))
     goto error;
+  vnet_crypto_key_update (vm, key_idx);
 
   /* s */
 
@@ -213,6 +205,7 @@ noise_consume_initiation (vlib_main_t * vm, noise_local_t * l,
   /* ss */
   if (!noise_mix_ss (hs.hs_ck, key, r->r_ss))
     goto error;
+  vnet_crypto_key_update (vm, key_idx);
 
   /* {t} */
   if (!noise_msg_decrypt (vm, timestamp, ets,
@@ -287,6 +280,7 @@ noise_create_response (vlib_main_t * vm, noise_remote_t * r, uint32_t * s_idx,
 
   /* psk */
   noise_mix_psk (hs->hs_ck, hs->hs_hash, key, r->r_psk);
+  vnet_crypto_key_update (vm, key_idx);
 
   /* {} */
   noise_msg_encrypt (vm, en, NULL, 0, key_idx, hs->hs_hash);
@@ -341,6 +335,7 @@ noise_consume_response (vlib_main_t * vm, noise_remote_t * r, uint32_t s_idx,
 
   /* psk */
   noise_mix_psk (hs.hs_ck, hs.hs_hash, key, preshared_key);
+  vnet_crypto_key_update (vm, key_idx);
 
   /* {} */
 
@@ -745,18 +740,10 @@ noise_tai64n_now (uint8_t output[NOISE_TIMESTAMP_LEN])
   unix_nanosec &= REJECT_INTERVAL_MASK;
 
   /* https://cr.yp.to/libtai/tai64.html */
-  sec = htobe64 (0x400000000000000aULL + unix_sec);
-  nsec = htobe32 (unix_nanosec);
+  sec = clib_host_to_big_u64 (0x400000000000000aULL + unix_sec);
+  nsec = clib_host_to_big_u32 (unix_nanosec);
 
   /* memcpy to output buffer, assuming output could be unaligned. */
   clib_memcpy (output, &sec, sizeof (sec));
   clib_memcpy (output + sizeof (sec), &nsec, sizeof (nsec));
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

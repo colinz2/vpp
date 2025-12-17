@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vnet/session/application_interface.h>
 #include <vnet/session/application.h>
 #include <vnet/session/session.h>
@@ -23,9 +14,11 @@
 /**
  * unformat a vnet URI
  *
- * transport-proto://[hostname]ip46-addr:port
- * eg. 	tcp://ip46-addr:port
- * 	tls://[testtsl.fd.io]ip46-addr:port
+ * transport-proto://[hostname]ip4-addr:port
+ * eg. 	tcp://ip4-addr:port
+ *      https://[ip6]:port
+ *      http://ip4:port
+ * 	    tls://[testtsl.fd.io]ip4-addr:port
  *
  * u8 ip46_address[16];
  * u16  port_in_host_byte_order;
@@ -38,43 +31,83 @@
  *
  */
 uword
-unformat_vnet_uri (unformat_input_t * input, va_list * args)
+unformat_vnet_uri (unformat_input_t *input, va_list *args)
 {
   session_endpoint_cfg_t *sep = va_arg (*args, session_endpoint_cfg_t *);
   u32 transport_proto = 0, port;
 
-  if (unformat (input, "%U://%U/%d", unformat_transport_proto,
-		&transport_proto, unformat_ip4_address, &sep->ip.ip4, &port))
+  if (unformat (input, "%U:", unformat_transport_proto, &transport_proto))
     {
       sep->transport_proto = transport_proto;
-      sep->port = clib_host_to_net_u16 (port);
+    }
+  else if (unformat (input, "%Us:", unformat_transport_proto,
+		     &transport_proto))
+    {
+      sep->flags |= SESSION_ENDPT_CFG_F_SECURE;
+      sep->transport_proto = transport_proto;
+    }
+
+  if (unformat (input, "//%U:", unformat_ip4_address, &sep->ip.ip4))
+    {
       sep->is_ip4 = 1;
-      return 1;
     }
-  else if (unformat (input, "%U://%U/%d", unformat_transport_proto,
-		     &transport_proto, unformat_ip6_address, &sep->ip.ip6,
-		     &port))
+  /* deprecated */
+  else if (unformat (input, "//%U/", unformat_ip4_address, &sep->ip.ip4))
     {
-      sep->transport_proto = transport_proto;
-      sep->port = clib_host_to_net_u16 (port);
+      sep->is_ip4 = 1;
+    }
+  else if (unformat (input, "//%U", unformat_ip4_address, &sep->ip.ip4))
+    {
+      sep->is_ip4 = 1;
+    }
+  /* deprecated */
+  else if (unformat (input, "//%U/", unformat_ip6_address, &sep->ip.ip6))
+    {
       sep->is_ip4 = 0;
-      return 1;
     }
-  else if (unformat (input, "%U://session/%lu", unformat_transport_proto,
-		     &transport_proto, &sep->parent_handle))
+  else if (unformat (input, "//[%U]:", unformat_ip6_address, &sep->ip.ip6))
     {
-      sep->transport_proto = transport_proto;
-      sep->ip.ip4.as_u32 = 1;	/* ip need to be non zero in vnet */
+      sep->is_ip4 = 0;
+    }
+  /* deprecated */
+  else if (unformat (input, "//[%U]/", unformat_ip6_address, &sep->ip.ip6))
+    {
+      sep->is_ip4 = 0;
+    }
+  else if (unformat (input, "//[%U]", unformat_ip6_address, &sep->ip.ip6))
+    {
+      sep->is_ip4 = 0;
+    }
+  else if (unformat (input, "//session/%lu", &sep->parent_handle))
+    {
+      sep->ip.ip4.as_u32 = 1; /* ip need to be non zero in vnet */
       return 1;
     }
+
+  if (unformat (input, "%d", &port))
+    {
+      sep->port = clib_host_to_net_u16 (port);
+      return 1;
+    }
+  else if (sep->transport_proto == TRANSPORT_PROTO_HTTP)
+    {
+      sep->port = clib_host_to_net_u16 (80);
+      return 1;
+    }
+  else if (sep->transport_proto == TRANSPORT_PROTO_TLS)
+    {
+      sep->port = clib_host_to_net_u16 (443);
+      return 1;
+    }
+
   return 0;
 }
 
 static u8 *cache_uri;
 static session_endpoint_cfg_t *cache_sep;
 
-int
-parse_uri (char *uri, session_endpoint_cfg_t * sep)
+session_error_t
+parse_uri (char *uri, session_endpoint_cfg_t *sep)
 {
   unformat_input_t _input, *input = &_input;
 
@@ -92,7 +125,7 @@ parse_uri (char *uri, session_endpoint_cfg_t * sep)
   if (!unformat (input, "%U", unformat_vnet_uri, sep))
     {
       unformat_free (input);
-      return VNET_API_ERROR_INVALID_VALUE;
+      return SESSION_E_INVALID;
     }
   unformat_free (input);
 
@@ -106,8 +139,47 @@ parse_uri (char *uri, session_endpoint_cfg_t * sep)
   return 0;
 }
 
-int
-vnet_bind_uri (vnet_listen_args_t * a)
+/* Use before 'parse_uri()'. Removes target from URI and copies it to 'char
+ * **target'. char **target is resized automatically.
+ */
+session_error_t
+parse_target (char **uri, char **target)
+{
+  u8 counter = 0;
+
+  for (u32 i = 0; i < (u32) strlen (*uri); i++)
+    {
+      if ((*uri)[i] == '/')
+	counter++;
+
+      if (counter == 3)
+	{
+	  /* resize and make space for NULL terminator */
+	  if (vec_len (*target) < strlen (*uri) - i + 2)
+	    vec_resize (*target, strlen (*uri) - i + 2);
+
+	  strncpy (*target, *uri + i, strlen (*uri) - i);
+	  (*uri)[i + 1] = '\0';
+	  break;
+	}
+    }
+
+  if (!*target)
+    {
+      vec_resize (*target, 2);
+      **target = '/';
+    }
+
+  vec_terminate_c_string (*target);
+
+  if (!*target)
+    return SESSION_E_INVALID;
+
+  return 0;
+}
+
+session_error_t
+vnet_bind_uri (vnet_listen_args_t *a)
 {
   session_endpoint_cfg_t sep = SESSION_ENDPOINT_CFG_NULL;
   int rv;
@@ -120,36 +192,36 @@ vnet_bind_uri (vnet_listen_args_t * a)
   return vnet_listen (a);
 }
 
-int
-vnet_unbind_uri (vnet_unlisten_args_t * a)
+session_error_t
+vnet_unbind_uri (vnet_unlisten_args_t *a)
 {
   session_endpoint_cfg_t sep = SESSION_ENDPOINT_CFG_NULL;
   application_t *app;
   session_t *listener;
   u32 table_index;
-  int rv;
+  session_error_t rv;
 
   if ((rv = parse_uri (a->uri, &sep)))
     return rv;
 
   app = application_get (a->app_index);
   if (!app)
-    return VNET_API_ERROR_INVALID_VALUE;
+    return SESSION_E_INVALID;
 
   table_index = application_session_table (app, fib_ip_proto (!sep.is_ip4));
   listener = session_lookup_listener (table_index,
 				      (session_endpoint_t *) & sep);
   if (!listener)
-    return VNET_API_ERROR_ADDRESS_NOT_IN_USE;
+    return SESSION_E_ADDR_NOT_IN_USE;
   a->handle = listen_session_get_handle (listener);
   return vnet_unlisten (a);
 }
 
-int
-vnet_connect_uri (vnet_connect_args_t * a)
+session_error_t
+vnet_connect_uri (vnet_connect_args_t *a)
 {
   session_endpoint_cfg_t sep = SESSION_ENDPOINT_CFG_NULL;
-  int rv;
+  session_error_t rv;
 
   if ((rv = parse_uri (a->uri, &sep)))
     return rv;
@@ -159,11 +231,3 @@ vnet_connect_uri (vnet_connect_args_t * a)
     return rv;
   return 0;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * ip4/packet.h: ip4 packet format
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* ip4/packet.h: ip4 packet format */
 
 #ifndef included_ip4_packet_h
 #define included_ip4_packet_h
@@ -129,19 +97,15 @@ typedef union
 
   /* For checksumming we'll want to access IP header in word sized chunks. */
   /* For 64 bit machines. */
-  /* *INDENT-OFF* */
   CLIB_PACKED (struct {
     u64 checksum_data_64[2];
     u32 checksum_data_64_32[1];
   });
-  /* *INDENT-ON* */
 
   /* For 32 bit machines. */
-  /* *INDENT-OFF* */
   CLIB_PACKED (struct {
     u32 checksum_data_32[5];
   });
-  /* *INDENT-ON* */
 } ip4_header_t;
 
 /* Value of ip_version_and_header_length for packets w/o options. */
@@ -200,9 +164,7 @@ ip4_next_header (ip4_header_t * i)
 /* Turn off array bounds check due to ip4_header_t
    option field operations. */
 
-/* *INDENT-OFF* */
 WARN_OFF(array-bounds)
-/* *INDENT-ON* */
 
 static_always_inline u16
 ip4_header_checksum_inline (ip4_header_t * i, int with_checksum)
@@ -305,9 +267,7 @@ ip4_header_checksum_inline (ip4_header_t * i, int with_checksum)
   return ~((u16) sum);
 }
 
-/* *INDENT-OFF* */
 WARN_ON(array-bounds)
-/* *INDENT-ON* */
 
 always_inline u16
 ip4_header_checksum (ip4_header_t * i)
@@ -476,11 +436,3 @@ ip4_multicast_ethernet_address (u8 * ethernet_address,
 }
 
 #endif /* included_ip4_packet_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

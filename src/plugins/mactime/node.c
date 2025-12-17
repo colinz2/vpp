@@ -1,19 +1,9 @@
-/*
- * node.c - skeleton vpp engine plug-in dual-loop node skeleton
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) <current-year> <your-organization>
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* node.c - skeleton vpp engine plug-in dual-loop node skeleton */
+
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
 #include <vppinfra/error.h>
@@ -87,7 +77,7 @@ mactime_node_inline (vlib_main_t * vm,
   clib_bihash_8_8_t *lut = &mm->lookup_table;
   u32 packets_ok = 0;
   f64 now;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   vnet_main_t *vnm = vnet_get_main ();
   vnet_interface_main_t *im = &vnm->interface_main;
   u8 arc = im->output_feature_arc_index;
@@ -349,7 +339,6 @@ mactime_node_fn (vlib_main_t * vm,
   return mactime_node_inline (vm, node, frame, 0 /* is_tx */ );
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (mactime_node) =
 {
   .function = mactime_node_fn,
@@ -370,7 +359,6 @@ VLIB_REGISTER_NODE (mactime_node) =
     [MACTIME_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 static uword
 mactime_tx_node_fn (vlib_main_t * vm,
@@ -379,7 +367,6 @@ mactime_tx_node_fn (vlib_main_t * vm,
   return mactime_node_inline (vm, node, frame, 1 /* is_tx */ );
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (mactime_tx_node) =
 {
   .function = mactime_tx_node_fn,
@@ -400,12 +387,3 @@ VLIB_REGISTER_NODE (mactime_tx_node) =
     [MACTIME_NEXT_ETHERNET_INPUT] = "ethernet-input", /* notused */
   },
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

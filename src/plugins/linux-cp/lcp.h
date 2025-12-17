@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef __LCP_H__
 #define __LCP_H__
 
@@ -28,7 +19,11 @@ typedef struct lcp_main_s
   u8 lcp_sync;	      /* Automatically sync VPP changes to LCP */
   u8 del_static_on_link_down;  /* Delete static routes when link goes down */
   u8 del_dynamic_on_link_down; /* Delete dynamic routes when link goes down */
+  u16 num_rx_queues;
+  u16 num_tx_queues;
   u8 test_mode;	      /* Set when Unit testing */
+  u8 netlink_processing_active; /* Set while a batch of Netlink messages are
+				   being processed */
 } lcp_main_t;
 
 extern lcp_main_t lcp_main;
@@ -52,12 +47,17 @@ u8 lcp_get_del_static_on_link_down (void);
 void lcp_set_del_dynamic_on_link_down (u8 is_del);
 u8 lcp_get_del_dynamic_on_link_down (void);
 
-#endif
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
+/**
+ * Get/Set when we're processing a batch of netlink messages.
+ * This is used to avoid looping messages between lcp-sync and netlink.
  */
+void lcp_set_netlink_processing_active (u8 is_processing);
+u8 lcp_get_netlink_processing_active (void);
+
+/**
+ * Get/Set the default queue number for LCP host taps.
+ */
+void lcp_set_default_num_queues (u16 num_queues, u8 is_tx);
+u16 lcp_get_default_num_queues (u8 is_tx);
+
+#endif

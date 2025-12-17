@@ -11,9 +11,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.19)
 
-set(CMAKE_C_COMPILER_NAMES clang gcc cc)
+if (DEFINED VPP_PLATFORM_C_COMPILER_NAMES)
+  set(CMAKE_C_COMPILER_NAMES ${VPP_PLATFORM_C_COMPILER_NAME})
+else()
+  set(CMAKE_C_COMPILER_NAMES clang gcc cc)
+endif()
 
 project(vpp C)
 
@@ -37,6 +41,11 @@ execute_process(
   OUTPUT_VARIABLE VPP_VERSION
   OUTPUT_STRIP_TRAILING_WHITESPACE
 )
+
+if (VPP_PLATFORM)
+  set(VPP_VERSION ${VPP_VERSION}-${VPP_PLATFORM_NAME})
+endif()
+
 string(REPLACE "-" ";" VPP_LIB_VERSION ${VPP_VERSION})
 list(GET VPP_LIB_VERSION 0 VPP_LIB_VERSION)
 
@@ -59,6 +68,14 @@ elseif(CMAKE_C_COMPILER_ID STREQUAL "GNU")
   if (CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL GCC_STRING_OVERFLOW_WARNING_DISABLE_VERSION)
     add_compile_options(-Wno-stringop-overflow)
   endif()
+  set(GCC_STRING_OVERREAD_WARNING_DISABLE_VERSION 12.0.0)
+  if (CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL GCC_STRING_OVERREAD_WARNING_DISABLE_VERSION)
+    add_compile_options(-Wno-stringop-overread)
+  endif()
+  set(GCC_ARRAY_BOUNDS_WARNING_DISABLE_VERSION 12.0.0)
+  if (CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL GCC_ARRAY_BOUNDS_WARNING_DISABLE_VERSION)
+    add_compile_options(-Wno-array-bounds)
+  endif()
 else()
   message(WARNING "WARNING: Unsupported C compiler `${CMAKE_C_COMPILER_ID}` is used")
   set (PRINT_MIN_C_COMPILER_VER TRUE)
@@ -80,13 +97,20 @@ endif()
 ##############################################################################
 # cross compiling
 ##############################################################################
+
 if(CMAKE_CROSSCOMPILING)
+  if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+    set(COMPILER_SUFFIX "linux-gnu")
+  elseif (${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD")
+    set(COMPILER_SUFFIX "freebsd")
+  endif()
+
   set(CMAKE_IGNORE_PATH
-    /usr/lib/${CMAKE_HOST_SYSTEM_PROCESSOR}-linux-gnu/
-    /usr/lib/${CMAKE_HOST_SYSTEM_PROCESSOR}-linux-gnu/lib/
+    /usr/lib/${CMAKE_HOST_SYSTEM_PROCESSOR}-${COMPILER_SUFFIX}/
+    /usr/lib/${CMAKE_HOST_SYSTEM_PROCESSOR}-${COMPILER_SUFFIX}/lib/
   )
+  set(CMAKE_C_COMPILER_TARGET ${CMAKE_SYSTEM_PROCESSOR}-${COMPILER_SUFFIX})
 endif()
-set(CMAKE_C_COMPILER_TARGET ${CMAKE_SYSTEM_PROCESSOR}-linux-gnu)
 
 ##############################################################################
 # build config
@@ -125,8 +149,9 @@ elseif (${CMAKE_BUILD_TYPE_LC} MATCHES "coverity")
   add_compile_options(-O0)
   add_compile_definitions(__COVERITY__)
 elseif (${CMAKE_BUILD_TYPE_LC} MATCHES "gcov")
-  add_compile_options(-O0 -fprofile-arcs -ftest-coverage)
+  add_compile_options(-O0 -fprofile-arcs -ftest-coverage -fprofile-update=prefer-atomic)
   add_compile_definitions(CLIB_DEBUG CLIB_GCOV)
+  link_libraries(gcov)
 endif()
 
 set(BUILD_TYPES release debug coverity gcov)
@@ -174,7 +199,7 @@ if(VPP_ENABLE_TRAJECTORY_TRACE)
 endif()
 
 ##############################################################################
-# unittest with clang ode coverage
+# unittest with clang code coverage
 ##############################################################################
 
 if("${CMAKE_VERSION}" VERSION_GREATER_EQUAL "3.13" AND "${CMAKE_C_COMPILER_ID}" MATCHES "(Apple)?[Cc]lang")
@@ -204,6 +229,22 @@ include(cmake/api.cmake)
 include(cmake/library.cmake)
 include(cmake/exec.cmake)
 include(cmake/plugin.cmake)
+include(cmake/crypto_engines.cmake)
+
+##############################################################################
+# FreeBSD - use epoll-shim
+##############################################################################
+set(EPOLL_LIB "")
+if("${CMAKE_SYSTEM_NAME}" STREQUAL "FreeBSD")
+  find_path(EPOLL_SHIM_INCLUDE_DIR NAMES sys/epoll.h HINTS /usr/local/include/libepoll-shim)
+  find_library(EPOLL_SHIM_LIB NAMES epoll-shim HINTS /usr/local/lib)
+
+  if(EPOLL_SHIM_INCLUDE_DIR AND EPOLL_SHIM_LIB)
+    message(STATUS "Found epoll-shim in ${EPOLL_SHIM_INCLUDE_DIR}")
+    include_directories(${EPOLL_SHIM_INCLUDE_DIR})
+    string(JOIN " " EPOLL_LIB "${EPOLL_SHIM_LIB}")
+  endif()
+endif()
 
 ##############################################################################
 # subdirs - order matters
@@ -211,11 +252,19 @@ include(cmake/plugin.cmake)
 option(VPP_HOST_TOOLS_ONLY "Build only host tools" OFF)
 if(VPP_HOST_TOOLS_ONLY)
   set(SUBDIRS tools/vppapigen cmake)
-elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
+  install(
+    PROGRAMS
+    vpp-api/vapi/vapi_c_gen.py
+    vpp-api/vapi/vapi_cpp_gen.py
+    vpp-api/vapi/vapi_json_parser.py
+    DESTINATION ${VPP_RUNTIME_DIR}
+    COMPONENT vpp-dev
+  )
+elseif(${CMAKE_SYSTEM_NAME} MATCHES "Linux|FreeBSD")
   find_package(OpenSSL)
   set(SUBDIRS
     vppinfra svm vlib vlibmemory vlibapi vnet vpp vat vat2 vcl vpp-api
-    plugins tools/vppapigen tools/g2 tools/perftool cmake pkg
+    plugins crypto_engines tools/vppapigen tools/g2 tools/perftool cmake pkg
     tools/appimage
   )
 elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Darwin")
@@ -290,6 +339,7 @@ mark_as_advanced(CLEAR
 # print configuration
 ##############################################################################
 message(STATUS "Configuration:")
+pr("VPP platform" ${VPP_PLATFORM_NAME})
 pr("VPP version" ${VPP_VERSION})
 pr("VPP library version" ${VPP_LIB_VERSION})
 pr("GIT toplevel dir" ${VPP_GIT_TOPLEVEL_DIR})

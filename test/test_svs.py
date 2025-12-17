@@ -2,19 +2,22 @@
 
 import unittest
 
-from framework import VppTestCase, VppTestRunner
+from framework import VppTestCase
+from asfframework import VppTestRunner
 from vpp_ip_route import VppIpTable
 
 from scapy.packet import Raw
 from scapy.layers.l2 import Ether
-from scapy.layers.inet import IP, UDP, ICMP
+from scapy.layers.inet import IP, UDP
 from scapy.layers.inet6 import IPv6
 
 from vpp_papi import VppEnum
+from config import config
 
 NUM_PKTS = 67
 
 
+@unittest.skipIf("svs" in config.excluded_plugins, "Exclude SVS plugin tests")
 class TestSVS(VppTestCase):
     """SVS Test Case"""
 

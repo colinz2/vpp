@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vlib/vlib.h>
@@ -501,11 +491,9 @@ format_fib_path (u8 * s, va_list * args)
 	else
 	{
 	    s = format (s, " %U",
-			format_vnet_sw_interface_name,
+			format_vnet_sw_if_index_name,
 			vnm,
-			vnet_get_sw_interface(
-			    vnm,
-			    path->attached_next_hop.fp_interface));
+			path->attached_next_hop.fp_interface);
 	    if (vnet_sw_interface_is_p2p(vnet_get_main(),
 					 path->attached_next_hop.fp_interface))
 	    {
@@ -532,11 +520,8 @@ format_fib_path (u8 * s, va_list * args)
 	else
 	{
 	    s = format (s, " %U",
-			format_vnet_sw_interface_name,
-			vnm,
-			vnet_get_sw_interface(
-			    vnm,
-			    path->attached.fp_interface));
+			format_vnet_sw_if_index_name,
+			vnm, path->attached.fp_interface);
 	}
 	break;
     case FIB_PATH_TYPE_RECURSIVE:
@@ -587,11 +572,8 @@ format_fib_path (u8 * s, va_list * args)
         break;
     case FIB_PATH_TYPE_DVR:
         s = format (s, " %U",
-                    format_vnet_sw_interface_name,
-                    vnm,
-                    vnet_get_sw_interface(
-                        vnm,
-                        path->dvr.fp_interface));
+                    format_vnet_sw_if_index_name,
+                    vnm, path->dvr.fp_interface);
         break;
     case FIB_PATH_TYPE_DEAG:
         s = format (s, " %sfib-index:%d",
@@ -1365,7 +1347,8 @@ fib_path_create (fib_node_index_t pl_index,
 	dpo_copy(&path->exclusive.fp_ex_dpo, &rpath->dpo);
     }
     else if ((path->fp_cfg_flags & FIB_PATH_CFG_FLAG_ICMP_PROHIBIT) ||
-        (path->fp_cfg_flags & FIB_PATH_CFG_FLAG_ICMP_UNREACH))
+	(path->fp_cfg_flags & FIB_PATH_CFG_FLAG_ICMP_UNREACH) ||
+	(path->fp_cfg_flags & FIB_PATH_CFG_FLAG_DROP))
     {
         path->fp_type = FIB_PATH_TYPE_SPECIAL;
     }

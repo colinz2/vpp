@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <svm/svm_fifo.h>
 #include <vlib/vlib.h>
 #include <svm/svm_common.h>
@@ -43,7 +34,6 @@ typedef struct
   u32 len;
 } test_pattern_t;
 
-/* *INDENT-OFF* */
 test_pattern_t test_pattern[] = {
   {380, 8}, {768, 8}, {1156, 8}, {1544, 8}, {1932, 8}, {2320, 8}, {2708, 8},
   {2992, 8}, {372, 8}, {760, 8}, {1148, 8}, {1536, 8}, {1924, 8}, {2312, 8},
@@ -102,7 +92,6 @@ test_pattern_t test_pattern[] = {
   /* missing from original data set */
   {388, 4}, {776, 4}, {1164, 4}, {1552, 4}, {1940, 4}, {2328, 4},
 };
-/* *INDENT-ON* */
 
 int
 pattern_cmp (const void *arg1, const void *arg2)
@@ -456,6 +445,20 @@ sfifo_test_fifo1 (vlib_main_t * vm, unformat_input_t * input)
   /* Try to peek beyond the data */
   rv = svm_fifo_peek (f, svm_fifo_max_dequeue (f), vec_len (data), data_buf);
   SFIFO_TEST ((rv == 0), "peeked %u expected 0", rv);
+
+  /* Try to peek empty fifo with no f->ooo_deq */
+  svm_fifo_dequeue_drop_all (f);
+  f->ooo_deq = 0;
+  rv = svm_fifo_peek (f, 0, vec_len (data), data_buf);
+  SFIFO_TEST ((rv == SVM_FIFO_EEMPTY), "peeked %d expected %d", rv,
+	      SVM_FIFO_EEMPTY);
+
+  /* and no ooo_deq_lookup */
+  f->ooo_deq = 0;
+  rb_tree_free_nodes (&f->ooo_deq_lookup);
+  rv = svm_fifo_peek (f, 0, vec_len (data), data_buf);
+  SFIFO_TEST ((rv == SVM_FIFO_EEMPTY), "peeked %d expected %d", rv,
+	      SVM_FIFO_EEMPTY);
 
   vec_free (data_buf);
   ft_fifo_free (fs, f);
@@ -1993,9 +1996,7 @@ sfifo_test_fifo_indirect (vlib_main_t * vm, unformat_input_t * input)
   return 0;
 }
 
-/* *INDENT-OFF* */
 svm_fifo_trace_elem_t fifo_trace[] = {};
-/* *INDENT-ON* */
 
 static int
 sfifo_test_fifo_replay (vlib_main_t * vm, unformat_input_t * input)
@@ -2860,22 +2861,13 @@ svm_fifo_test (vlib_main_t * vm, unformat_input_t * input,
 done:
   if (res)
     return clib_error_return (0, "svm fifo unit test failed");
+
+  vlib_cli_output (vm, "SUCCESS");
   return 0;
 }
 
-/* *INDENT-OFF* */
-VLIB_CLI_COMMAND (svm_fifo_test_command, static) =
-{
+VLIB_CLI_COMMAND (svm_fifo_test_command, static) = {
   .path = "test svm fifo",
   .short_help = "internal svm fifo unit tests",
   .function = svm_fifo_test,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

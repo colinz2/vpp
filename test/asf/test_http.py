@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
-""" Vpp HTTP tests """
+"""Vpp HTTP tests"""
 
 import unittest
-import os
-import subprocess
 import http.client
-from asfframework import VppTestCase, VppTestRunner, Worker
-from vpp_devices import VppTAPInterface
+from asfframework import VppAsfTestCase, VppTestRunner
 
 
 @unittest.skip("Requires root")
-class TestHttpTps(VppTestCase):
+class TestHttpTps(VppAsfTestCase):
     """HTTP test class"""
 
     @classmethod
@@ -31,7 +28,7 @@ class TestHttpTps(VppTestCase):
 
     def test_http_tps(self):
         fname = "test_file_1M"
-        self.vapi.cli("http tps uri tcp://0.0.0.0/8080")
+        self.vapi.cli("http tps uri http://0.0.0.0/8080")
         con = http.client.HTTPConnection(f"{self.server_ip4}", 8080)
         con.request("GET", f"/{fname}")
         r = con.getresponse()

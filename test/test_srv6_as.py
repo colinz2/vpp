@@ -1,29 +1,22 @@
 #!/usr/bin/env python3
 
 import unittest
-import binascii
-from socket import AF_INET6
 
-from framework import VppTestCase, VppTestRunner
-from vpp_ip_route import VppIpRoute, VppRoutePath, FibPathProto, VppIpTable
-from vpp_srv6 import (
-    SRv6LocalSIDBehaviors,
-    VppSRv6LocalSID,
-    VppSRv6Policy,
-    SRv6PolicyType,
-    VppSRv6Steering,
-    SRv6PolicySteeringTypes,
-)
+from framework import VppTestCase
+from asfframework import VppTestRunner
+from vpp_ip_route import VppIpRoute, VppRoutePath
 
 import scapy.compat
 from scapy.packet import Raw
 from scapy.layers.l2 import Ether, Dot1Q
 from scapy.layers.inet6 import IPv6, UDP, IPv6ExtHdrSegmentRouting
 from scapy.layers.inet import IP, UDP
+from config import config
 
 from util import ppp
 
 
+@unittest.skipIf("srv6-as" in config.excluded_plugins, "Exclude srv6-as plugin tests")
 class TestSRv6As(VppTestCase):
     """SRv6 Static Proxy plugin Test Case"""
 

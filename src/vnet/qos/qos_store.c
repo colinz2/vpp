@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/qos/qos_store.h>
@@ -181,7 +171,7 @@ qos_store_cli (vlib_main_t * vm,
 	enable = 1;
       else if (unformat (input, "disable"))
 	enable = 0;
-      else if (unformat (input, "value &d", &value))
+      else if (unformat (input, "value %d", &value))
 	;
       else
 	break;
@@ -211,14 +201,12 @@ qos_store_cli (vlib_main_t * vm,
  * @cliexpar
  * @cliexcmd{qos store ip GigEthernet0/1/0}
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (qos_store_command, static) = {
   .path = "qos store",
   .short_help = "qos store <store-source> <INTERFACE> [disable]",
   .function = qos_store_cli,
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
 
 static void
 qos_store_show_one_interface (vlib_main_t * vm, u32 sw_if_index)
@@ -295,19 +283,9 @@ qos_store_show (vlib_main_t * vm,
  * @cliexpar
  * @cliexcmd{show qos egress map}
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (qos_store_show_command, static) = {
   .path = "show qos store",
   .short_help = "show qos store [interface]",
   .function = qos_store_show,
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

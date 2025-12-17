@@ -1,21 +1,11 @@
-/*
- *------------------------------------------------------------------
- * tuntap.c - kernel stack (reverse) punt/inject path
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2009 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
+
+/*
+ * tuntap.c - kernel stack (reverse) punt/inject path
+ */
+
 /**
  * @file
  * @brief  TunTap Kernel stack (reverse) punt/inject path.
@@ -42,7 +32,7 @@
 #include <linux/if_tun.h>
 
 #include <vlib/vlib.h>
-#include <vlib/unix/unix.h>
+#include <vlib/file.h>
 
 #include <vnet/ip/ip.h>
 #include <vnet/fib/fib_table.h>
@@ -153,7 +143,7 @@ tuntap_tx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
   vnet_interface_main_t *im = &vnm->interface_main;
   u32 n_bytes = 0;
   int i;
-  u16 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
 
   for (i = 0; i < n_packets; i++)
     {
@@ -217,14 +207,12 @@ tuntap_tx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
   return n_packets;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (tuntap_tx_node,static) = {
   .function = tuntap_tx,
   .name = "tuntap-tx",
   .type = VLIB_NODE_TYPE_INTERNAL,
   .vector_size = 4,
 };
-/* *INDENT-ON* */
 
 /**
  * @brief TUNTAP receive node
@@ -244,7 +232,7 @@ tuntap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
   vlib_buffer_t *b;
   u32 bi;
   const uword buffer_size = vlib_buffer_get_default_data_size (vm);
-  u16 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
 
   /** Make sure we have some RX buffers. */
   {
@@ -366,7 +354,7 @@ tuntap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
 	  next_index = VNET_DEVICE_INPUT_NEXT_DROP;
       }
 
-    vnet_feature_start_device_input_x1 (tm->sw_if_index, &next_index, b);
+    vnet_feature_start_device_input (tm->sw_if_index, &next_index, b);
 
     vlib_set_next_frame_buffer (vm, node, next_index, bi);
 
@@ -385,7 +373,6 @@ static char *tuntap_rx_error_strings[] = {
   "unknown packet type",
 };
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (tuntap_rx_node,static) = {
   .function = tuntap_rx,
   .flags = VLIB_NODE_FLAG_TRACE_SUPPORTED,
@@ -397,7 +384,6 @@ VLIB_REGISTER_NODE (tuntap_rx_node,static) = {
   .n_errors = 1,
   .error_strings = tuntap_rx_error_strings,
 };
-/* *INDENT-ON* */
 
 /**
  * @brief Gets called when file descriptor is ready from epoll.
@@ -933,12 +919,10 @@ tuntap_nopunt_frame (vlib_main_t * vm,
   vlib_frame_free (vm, frame);
 }
 
-/* *INDENT-OFF* */
 VNET_HW_INTERFACE_CLASS (tuntap_interface_class,static) = {
   .name = "tuntap",
   .flags = VNET_HW_INTERFACE_CLASS_FLAG_P2P,
 };
-/* *INDENT-ON* */
 
 /**
  * @brief Format tun/tap interface name
@@ -984,13 +968,11 @@ tuntap_intfc_tx (vlib_main_t * vm,
   return n_buffers;
 }
 
-/* *INDENT-OFF* */
 VNET_DEVICE_CLASS (tuntap_dev_class,static) = {
   .name = "tuntap",
   .tx_function = tuntap_intfc_tx,
   .format_device_name = format_tuntap_interface_name,
 };
-/* *INDENT-ON* */
 
 /**
  * @brief tun/tap node init
@@ -1025,17 +1007,6 @@ tuntap_init (vlib_main_t * vm)
   return 0;
 }
 
-/* *INDENT-OFF* */
-VLIB_INIT_FUNCTION (tuntap_init) =
-{
-  .runs_after = VLIB_INITS("ip4_init"),
+VLIB_INIT_FUNCTION (tuntap_init) = {
+  .runs_after = VLIB_INITS ("ip4_init"),
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,19 +1,9 @@
-/*
- * node.c - skeleton vpp engine plug-in dual-loop node skeleton
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) <current-year> <your-organization>
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* node.c - skeleton vpp engine plug-in dual-loop node skeleton */
+
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
 #include <vnet/pg/pg.h>
@@ -164,7 +154,6 @@ handoffdemo_node_1_fn (vlib_main_t * vm,
 			       0 /* is_trace */ );
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (handoffdemo_node_1) =
 {
   .name = "handoffdemo-1",
@@ -183,7 +172,6 @@ VLIB_REGISTER_NODE (handoffdemo_node_1) =
         [HANDOFFDEMO_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 uword
 handoffdemo_node_2_fn (vlib_main_t * vm,
@@ -197,7 +185,6 @@ handoffdemo_node_2_fn (vlib_main_t * vm,
 			       0 /* is_trace */ );
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (handoffdemo_node_2) =
 {
   .name = "handoffdemo-2",
@@ -216,7 +203,6 @@ VLIB_REGISTER_NODE (handoffdemo_node_2) =
         [HANDOFFDEMO_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 handoffdemo_node_init (vlib_main_t * vm)
@@ -230,11 +216,3 @@ handoffdemo_node_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (handoffdemo_node_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * interface_output.c: interface output node
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* interface_output.c: interface output node */
 
 #include <vnet/vnet.h>
 #include <vnet/ip/icmp46_packet.h>
@@ -167,10 +135,32 @@ vnet_interface_output_trace (vlib_main_t * vm,
 }
 
 static_always_inline void
-vnet_interface_output_handle_offload (vlib_main_t *vm, vlib_buffer_t *b)
+vnet_interface_output_handle_offload (vlib_main_t *vm, vlib_buffer_t *b,
+				      vnet_hw_if_caps_t caps)
 {
+  u8 oflags;
   if (b->flags & VNET_BUFFER_F_GSO)
     return;
+  oflags = vnet_buffer (b)->oflags;
+
+  if ((caps & VNET_HW_IF_CAP_TX_CKSUM) == VNET_HW_IF_CAP_TX_CKSUM)
+    {
+      if (((oflags & VNET_BUFFER_OFFLOAD_F_TNL_IPIP) !=
+	   VNET_BUFFER_OFFLOAD_F_TNL_IPIP) &&
+	  ((oflags & VNET_BUFFER_OFFLOAD_F_TNL_VXLAN) !=
+	   VNET_BUFFER_OFFLOAD_F_TNL_VXLAN))
+	return;
+
+      if (((oflags & VNET_BUFFER_OFFLOAD_F_OUTER_IP_CKSUM) !=
+	   VNET_BUFFER_OFFLOAD_F_OUTER_IP_CKSUM) &&
+	  ((oflags & VNET_BUFFER_OFFLOAD_F_OUTER_UDP_CKSUM) !=
+	   VNET_BUFFER_OFFLOAD_F_OUTER_UDP_CKSUM))
+	{
+	  if ((caps & VNET_HW_IF_CAP_TX_FIXED_OFFSET) !=
+	      VNET_HW_IF_CAP_TX_FIXED_OFFSET)
+	    return;
+	}
+    }
   vnet_calc_checksums_inline (vm, b, b->flags & VNET_BUFFER_F_IS_IP4,
 			      b->flags & VNET_BUFFER_F_IS_IP6);
   vnet_calc_outer_checksums_inline (vm, b);
@@ -180,8 +170,8 @@ static_always_inline uword
 vnet_interface_output_node_inline (vlib_main_t *vm, u32 sw_if_index,
 				   vlib_combined_counter_main_t *ccm,
 				   vlib_buffer_t **b, void **p,
-				   u32 config_index, u8 arc, u32 n_left,
-				   int processing_level)
+				   vnet_hw_if_caps_t caps, u32 config_index,
+				   u8 arc, u32 n_left, int processing_level)
 {
   u32 n_bytes = 0;
   u32 n_bytes0, n_bytes1, n_bytes2, n_bytes3;
@@ -257,10 +247,10 @@ vnet_interface_output_node_inline (vlib_main_t *vm, u32 sw_if_index,
 
       if (processing_level >= 1 && (or_flags & VNET_BUFFER_F_OFFLOAD))
 	{
-	  vnet_interface_output_handle_offload (vm, b[0]);
-	  vnet_interface_output_handle_offload (vm, b[1]);
-	  vnet_interface_output_handle_offload (vm, b[2]);
-	  vnet_interface_output_handle_offload (vm, b[3]);
+	  vnet_interface_output_handle_offload (vm, b[0], caps);
+	  vnet_interface_output_handle_offload (vm, b[1], caps);
+	  vnet_interface_output_handle_offload (vm, b[2], caps);
+	  vnet_interface_output_handle_offload (vm, b[3], caps);
 	}
 
       n_left -= 4;
@@ -295,8 +285,8 @@ vnet_interface_output_node_inline (vlib_main_t *vm, u32 sw_if_index,
 	    vlib_increment_combined_counter (ccm, ti, tx_swif0, 1, n_bytes0);
 	}
 
-      if (processing_level >= 1)
-	vnet_interface_output_handle_offload (vm, b[0]);
+      if ((processing_level >= 1) && (b[0]->flags & VNET_BUFFER_F_OFFLOAD))
+	vnet_interface_output_handle_offload (vm, b[0], caps);
 
       n_left -= 1;
       b += 1;
@@ -639,27 +629,31 @@ VLIB_NODE_FN (vnet_interface_output_node)
 
   ccm = im->combined_sw_if_counters + VNET_INTERFACE_COUNTER_TX;
 
-  /* if not all three flags IP4_,TCP_,UDP_CKSUM set, do compute them
-   * here before sending to the interface */
-  if ((hi->caps & VNET_HW_IF_CAP_TX_CKSUM) != VNET_HW_IF_CAP_TX_CKSUM)
+  /* if not all three flags IP4_,TCP_,UDP_, IP4_OUTER_, UDP_OUTER_CKSUM set, do
+   * compute them here before sending to the interface */
+  if ((hi->caps & VNET_HW_IF_CAP_TX_CKSUM_MASK) !=
+      VNET_HW_IF_CAP_TX_CKSUM_MASK)
     do_tx_offloads = 1;
 
   // basic processing
   if (do_tx_offloads == 0 && arc_or_subif == 0 && is_parr == 0)
     n_bytes = vnet_interface_output_node_inline (
-      vm, sw_if_index, ccm, bufs, NULL, config_index, arc, n_buffers, 0);
+      vm, sw_if_index, ccm, bufs, NULL, 0, config_index, arc, n_buffers, 0);
   // basic processing + tx offloads
   else if (do_tx_offloads == 1 && arc_or_subif == 0 && is_parr == 0)
-    n_bytes = vnet_interface_output_node_inline (
-      vm, sw_if_index, ccm, bufs, NULL, config_index, arc, n_buffers, 1);
+    n_bytes = vnet_interface_output_node_inline (vm, sw_if_index, ccm, bufs,
+						 NULL, hi->caps, config_index,
+						 arc, n_buffers, 1);
   // basic processing + tx offloads + vlans + arcs
   else if (do_tx_offloads == 1 && arc_or_subif == 1 && is_parr == 0)
-    n_bytes = vnet_interface_output_node_inline (
-      vm, sw_if_index, ccm, bufs, NULL, config_index, arc, n_buffers, 2);
+    n_bytes = vnet_interface_output_node_inline (vm, sw_if_index, ccm, bufs,
+						 NULL, hi->caps, config_index,
+						 arc, n_buffers, 2);
   // basic processing + tx offloads + vlans + arcs + multi-txqs
   else
-    n_bytes = vnet_interface_output_node_inline (
-      vm, sw_if_index, ccm, bufs, p, config_index, arc, n_buffers, 3);
+    n_bytes = vnet_interface_output_node_inline (vm, sw_if_index, ccm, bufs, p,
+						 hi->caps, config_index, arc,
+						 n_buffers, 3);
 
   from = vlib_frame_vector_args (frame);
   if (PREDICT_TRUE (next_index == VNET_INTERFACE_OUTPUT_NEXT_TX))
@@ -950,7 +944,6 @@ interface_drop_punt (vlib_main_t * vm,
   vlib_buffer_t *bufs[VLIB_FRAME_SIZE], **b;
   u32 sw_if_indices[VLIB_FRAME_SIZE];
   vlib_simple_counter_main_t *cm;
-  u16 nexts[VLIB_FRAME_SIZE];
   u32 n_trace;
   vnet_main_t *vnm;
 
@@ -1002,7 +995,6 @@ interface_drop_punt (vlib_main_t * vm,
     interface_trace_buffers (vm, node, frame);
 
   /* All going to drop regardless, this is just a counting exercise */
-  clib_memset (nexts, 0, sizeof (nexts));
 
   cm = vec_elt_at_index (vnm->interface_main.sw_if_counters,
 			 (disposition == VNET_ERROR_DISPOSITION_PUNT
@@ -1063,7 +1055,12 @@ interface_drop_punt (vlib_main_t * vm,
 	  (cm, thread_index, sw_if0->sup_sw_if_index, count);
     }
 
-  vlib_buffer_enqueue_to_next (vm, node, from, nexts, frame->n_vectors);
+  vnet_interface_main_t *im = &vnm->interface_main;
+  u8 arc_index = im->drop_feature_arc_index;
+  u32 nextAll = 0;
+  vnet_feature_arc_start (arc_index, sw_if_index[0], &nextAll, bufs[0]);
+  vlib_buffer_enqueue_to_single_next (vm, node, from, nextAll,
+				      frame->n_vectors);
 
   return frame->n_vectors;
 }
@@ -1221,7 +1218,6 @@ VLIB_NODE_FN (interface_punt) (vlib_main_t * vm,
   return interface_drop_punt (vm, node, frame, VNET_ERROR_DISPOSITION_PUNT);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (interface_drop) = {
   .name = "error-drop",
   .vector_size = sizeof (u32),
@@ -1232,9 +1228,7 @@ VLIB_REGISTER_NODE (interface_drop) = {
     [0] = "drop",
   },
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (interface_punt) = {
   .name = "error-punt",
   .vector_size = sizeof (u32),
@@ -1245,7 +1239,6 @@ VLIB_REGISTER_NODE (interface_punt) = {
     [0] = "punt",
   },
 };
-/* *INDENT-ON* */
 
 VLIB_REGISTER_NODE (vnet_per_buffer_interface_output_node) = {
   .name = "interface-output",
@@ -1434,10 +1427,13 @@ vnet_set_interface_output_node (vnet_main_t * vnm,
 }
 #endif /* CLIB_MARCH_VARIANT */
 
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+VNET_FEATURE_ARC_INIT (interface_drop, static) = {
+  .arc_name = "error-drop",
+  .start_nodes = VNET_FEATURES ("error-drop"),
+  .last_in_arc = "drop",
+  .arc_index_ptr = &vnet_main.interface_main.drop_feature_arc_index,
+};
+
+VNET_FEATURE_INIT (drop, static) = { .arc_name = "error-drop",
+				     .node_name = "drop",
+				     .runs_before = 0 };

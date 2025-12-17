@@ -19,6 +19,10 @@ def use_running(cls):
     cls -- VPPTestCase Class
     """
     if config.running_vpp:
+        print(
+            f"Test will be run against a ****running VPP**** as "
+            f"config.running_vpp={config.running_vpp}"
+        )
         if os.path.isdir(config.socket_dir):
             RunningVPP.socket_dir = config.socket_dir
         else:
@@ -26,17 +30,18 @@ def use_running(cls):
         RunningVPP.get_set_vpp_sock_files()
         cls.get_stats_sock_path = RunningVPP.get_stats_sock_path
         cls.get_api_sock_path = RunningVPP.get_api_sock_path
+        cls.get_memif_sock_path = RunningVPP.get_memif_sock_path
         cls.run_vpp = RunningVPP.run_vpp
-        cls.quit_vpp = RunningVPP.quit_vpp
+        cls.quit = RunningVPP.terminate
         cls.vpp = RunningVPP
         cls.running_vpp = True
     return cls
 
 
 class RunningVPP:
-
     api_sock = ""  # api_sock file path
     stats_sock = ""  # stats sock_file path
+    memif_sock = ""  # memif sock path
     socket_dir = ""  # running VPP's socket directory
     pid = None  # running VPP's pid
     returncode = None  # indicates to the framework that VPP is running
@@ -50,19 +55,30 @@ class RunningVPP:
         return cls.api_sock
 
     @classmethod
-    def run_vpp(cls):
-        """VPP is already running -- skip this action."""
-        pass
+    def get_memif_sock_path(cls):
+        return cls.memif_sock
 
     @classmethod
-    def quit_vpp(cls):
-        """Indicate quitting to framework by setting returncode=1."""
-        cls.returncode = 1
+    def run_vpp(cls):
+        """Exit if VPP is not already running."""
+        if not cls.is_running_vpp():
+            print(
+                "Error: VPP is not running, but --use-running-vpp arg used."
+                "Please start VPP before running the tests against it."
+            )
+            sys.exit(1)
 
     @classmethod
     def terminate(cls):
-        """Indicate termination to framework by setting returncode=1."""
+        """Don't terminate a running VPP. Just cleanup papi resources."""
         cls.returncode = 1
+        if hasattr(cls, "vapi"):
+            print("Cleaning up PAPI resources on %s", cls.__name__)
+            print(cls.vapi.vpp.get_stats())
+            print("Disconnecting class vapi client on %s", cls.__name__)
+            cls.vapi.disconnect()
+            print("Deleting class vapi attribute on %s", cls.__name__)
+            del cls.vapi
 
     @classmethod
     def get_default_socket_dir(cls):
@@ -113,6 +129,8 @@ class RunningVPP:
                     cls.api_sock = os.path.abspath(sock_file)
                 elif "stats.sock" in sock_file:
                     cls.stats_sock = os.path.abspath(sock_file)
+                elif "memif.sock" in sock_file:
+                    cls.memif_sock = os.path.abspath(sock_file)
             if not cls.api_sock:
                 print(
                     f"Error: Could not find a valid api.sock file "

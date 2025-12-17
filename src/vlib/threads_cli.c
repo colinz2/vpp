@@ -1,19 +1,12 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #define _GNU_SOURCE
 
+#include <vppinfra/bitmap.h>
+#include <vppinfra/unix.h>
 #include <vppinfra/format.h>
 #include <vlib/vlib.h>
 
@@ -46,16 +39,20 @@ show_threads_fn (vlib_main_t * vm,
   const vlib_thread_main_t *tm = vlib_get_thread_main ();
   vlib_worker_thread_t *w;
   int i;
+  u8 *line = NULL;
 
-  vlib_cli_output (vm, "%-7s%-20s%-12s%-8s%-25s%-7s%-7s%-7s%-10s",
-		   "ID", "Name", "Type", "LWP", "Sched Policy (Priority)",
-		   "lcore", "Core", "Socket", "State");
+  line = format (line, "%-7s%-20s%-12s%-8s%-25s%-7s%-7s%-7s%-10s", "ID",
+		 "Name", "Type", "LWP", "Sched Policy (Priority)", "lcore",
+		 "Core", "Socket", "State");
+  if (tm->cpu_translate)
+    line = format (line, "%-15s", "Relative Core");
+  vlib_cli_output (vm, "%v", line);
+  vec_free (line);
 
 #if !defined(__powerpc64__)
   for (i = 0; i < vec_len (vlib_worker_threads); i++)
     {
       w = vlib_worker_threads + i;
-      u8 *line = NULL;
 
       line = format (line, "%-7d%-20s%-12s%-8d",
 		     i,
@@ -69,7 +66,13 @@ show_threads_fn (vlib_main_t * vm,
 	{
 	  int core_id = w->core_id;
 	  int numa_id = w->numa_id;
-	  line = format (line, "%-7u%-7u%-7u%", cpu_id, core_id, numa_id);
+	  line = format (line, "%-7u%-7u%-17u%", cpu_id, core_id, numa_id);
+	  if (tm->cpu_translate)
+	    {
+	      int cpu_translate_core_id =
+		os_translate_cpu_from_affinity_bitmap (cpu_id);
+	      line = format (line, "%-7u", cpu_translate_core_id);
+	    }
 	}
       else
 	{
@@ -85,13 +88,11 @@ show_threads_fn (vlib_main_t * vm,
 }
 
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_threads_command, static) = {
   .path = "show threads",
   .short_help = "Show threads",
   .function = show_threads_fn,
 };
-/* *INDENT-ON* */
 
 /*
  * Trigger threads to grab frame queue trace data
@@ -181,14 +182,12 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (cmd_trace_frame_queue,static) = {
     .path = "trace frame-queue",
     .short_help = "trace frame-queue (on|off)",
     .function = trace_frame_queue,
     .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
 
 
 /*
@@ -363,21 +362,17 @@ show_frame_queue_histogram (vlib_main_t * vm, unformat_input_t * input,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (cmd_show_frame_queue_trace,static) = {
     .path = "show frame-queue",
     .short_help = "show frame-queue trace",
     .function = show_frame_queue_trace,
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (cmd_show_frame_queue_histogram,static) = {
     .path = "show frame-queue histogram",
     .short_help = "show frame-queue histogram",
     .function = show_frame_queue_histogram,
 };
-/* *INDENT-ON* */
 
 
 /*
@@ -446,13 +441,11 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (cmd_test_frame_queue_nelts,static) = {
     .path = "test frame-queue nelts",
     .short_help = "test frame-queue nelts (4,8,16,32)",
     .function = test_frame_queue_nelts,
 };
-/* *INDENT-ON* */
 
 
 /*
@@ -525,18 +518,8 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
-VLIB_CLI_COMMAND (cmd_test_frame_queue_threshold,static) = {
-    .path = "test frame-queue threshold",
-    .short_help = "test frame-queue threshold N (0=no limit)",
-    .function = test_frame_queue_threshold,
+VLIB_CLI_COMMAND (cmd_test_frame_queue_threshold, static) = {
+  .path = "test frame-queue threshold",
+  .short_help = "test frame-queue threshold N (0=no limit)",
+  .function = test_frame_queue_threshold,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

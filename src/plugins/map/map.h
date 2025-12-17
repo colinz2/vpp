@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef included_map_h
 #define included_map_h
 
@@ -335,7 +326,11 @@ ip6_map_get_domain (ip6_address_t * addr, u32 * map_domain_index, u8 * error)
 {
   map_main_t *mm = &map_main;
   u32 mdi =
-    mm->ip6_src_prefix_tbl->lookup (mm->ip6_src_prefix_tbl, addr, 128);
+    /* This is the old src (ip6 destination) hash lookup [dgeist]
+     *
+     * mm->ip6_src_prefix_tbl->lookup (mm->ip6_src_prefix_tbl, addr, 128);
+     */
+    mm->ip6_prefix_tbl->lookup (mm->ip6_prefix_tbl, addr, 128);
   if (mdi == ~0)
     {
       *error = MAP_ERROR_NO_DOMAIN;
@@ -497,10 +492,3 @@ ip6_map_ip4_lookup_bypass (vlib_buffer_t * p0, ip4_header_t * ip)
 }
 
 #endif
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

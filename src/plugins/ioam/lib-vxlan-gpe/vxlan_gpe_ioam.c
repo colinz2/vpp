@@ -1,19 +1,10 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
-#include <vnet/vxlan-gpe/vxlan_gpe.h>
-#include <vnet/vxlan-gpe/vxlan_gpe_packet.h>
+
+#include <plugins/vxlan-gpe/vxlan_gpe.h>
+#include <plugins/vxlan-gpe/vxlan_gpe_packet.h>
 #include <vnet/ip/format.h>
 #include <ioam/lib-vxlan-gpe/vxlan_gpe_ioam.h>
 #include <vnet/dpo/load_balance.h>
@@ -423,7 +414,7 @@ vxlan_gpe_set_ioam_rewrite_command_fn (vlib_main_t *
   vxlan4_gpe_tunnel_key_t key4;
   vxlan6_gpe_tunnel_key_t key6;
   uword *p;
-  vxlan_gpe_main_t *gm = &vxlan_gpe_main;
+  vxlan_gpe_main_t *gm = hm->gpe_main;
   vxlan_gpe_tunnel_t *t = 0;
   while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
     {
@@ -510,13 +501,11 @@ vxlan_gpe_set_ioam_rewrite_command_fn (vlib_main_t *
 }
 
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (vxlan_gpe_set_ioam_rewrite_cmd, static) = {
   .path = "set vxlan-gpe-ioam",
   .short_help = "set vxlan-gpe-ioam vxlan <src-ip> <dst_ip> <vnid> [disable]",
   .function = vxlan_gpe_set_ioam_rewrite_command_fn,
 };
-/* *INDENT-ON* */
 
 
 
@@ -592,13 +581,11 @@ vxlan_gpe_set_ioam_flags_command_fn (vlib_main_t * vm,
   return rv;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (vxlan_gpe_set_ioam_flags_cmd, static) =
 {
 .path = "set vxlan-gpe-ioam rewrite",
 .short_help = "set vxlan-gpe-ioam [trace] [pot] [ppc <encap|decap>]",
 .function = vxlan_gpe_set_ioam_flags_command_fn,};
-/* *INDENT-ON* */
 
 
 int vxlan_gpe_ioam_disable_for_dest
@@ -683,13 +670,11 @@ static clib_error_t *vxlan_gpe_set_ioam_transit_rewrite_command_fn
   return rv;
 }
 
-       /* *INDENT-OFF* */
 VLIB_CLI_COMMAND (vxlan_gpe_set_ioam_transit_rewrite_cmd, static) = {
   .path = "set vxlan-gpe-ioam-transit",
   .short_help = "set vxlan-gpe-ioam-transit dst-ip <dst_ip> [outer-fib-index <outer_fib_index>] [disable]",
   .function = vxlan_gpe_set_ioam_transit_rewrite_command_fn,
 };
-/* *INDENT-ON* */
 
 clib_error_t *clear_vxlan_gpe_ioam_rewrite_command_fn
   (vlib_main_t * vm, unformat_input_t * input, vlib_cli_command_t * cmd)
@@ -697,14 +682,12 @@ clib_error_t *clear_vxlan_gpe_ioam_rewrite_command_fn
   return (vxlan_gpe_ioam_disable (0, 0, 0));
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (vxlan_gpe_clear_ioam_flags_cmd, static) =
 {
 .path = "clear vxlan-gpe-ioam rewrite",
 .short_help = "clear vxlan-gpe-ioam rewrite",
 .function = clear_vxlan_gpe_ioam_rewrite_command_fn,
 };
-/* *INDENT-ON* */
 
 
 /**
@@ -755,11 +738,3 @@ vxlan_gpe_ioam_interface_init (void)
     fib_node_register_new_type ("vxlan-gpe", &vxlan_gpe_ioam_vft);
   return;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * memclnt_api.c VLIB API implementation
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2009 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * memclnt_api.c VLIB API implementation
  */
 
 #include <fcntl.h>
@@ -145,10 +134,44 @@ vl_api_control_ping_t_handler (vl_api_control_ping_t *mp)
 		({ rmp->vpe_pid = ntohl (getpid ()); }));
 }
 
+static void
+vl_api_get_api_json_t_handler (vl_api_get_api_json_t *mp)
+{
+  vl_api_get_api_json_reply_t *rmp;
+  api_main_t *am = vlibapi_get_main ();
+  int rv = 0, n = 0;
+  u8 *s = 0;
+
+  vl_api_registration_t *rp =
+    vl_api_client_index_to_registration (mp->client_index);
+  if (rp == 0)
+    return;
+
+  s = format (s, "[\n");
+  u8 **ptr;
+  vec_foreach (ptr, am->json_api_repr)
+    {
+      s = format (s, "%s,", ptr[0]);
+    }
+  s[vec_len (s) - 1] = ']'; // Replace last comma with a bracket
+  vec_terminate_c_string (s);
+  n = vec_len (s);
+
+done:
+  REPLY_MACRO3 (VL_API_GET_API_JSON_REPLY, n, ({
+		  if (rv == 0)
+		    {
+		      vl_api_c_string_to_api_string ((char *) s, &rmp->json);
+		    }
+		}));
+  vec_free (s);
+}
+
 #define foreach_vlib_api_msg                                                  \
   _ (GET_FIRST_MSG_ID, get_first_msg_id)                                      \
   _ (API_VERSIONS, api_versions)                                              \
-  _ (CONTROL_PING, control_ping)
+  _ (CONTROL_PING, control_ping)                                              \
+  _ (GET_API_JSON, get_api_json)
 
 /*
  * vl_api_init
@@ -163,6 +186,7 @@ vlib_api_init (void)
   cJSON_Hooks cjson_hooks = {
     .malloc_fn = clib_mem_alloc,
     .free_fn = clib_mem_free,
+    .realloc_fn = clib_mem_realloc,
   };
   cJSON_InitHooks (&cjson_hooks);
 
@@ -190,6 +214,9 @@ vlib_api_init (void)
   foreach_vlib_api_msg;
 #undef _
 
+  /* Mark messages as mp safe */
+  vl_api_set_msg_thread_safe (am, VL_API_GET_FIRST_MSG_ID, 1);
+  vl_api_set_msg_thread_safe (am, VL_API_API_VERSIONS, 1);
   vl_api_set_msg_thread_safe (am, VL_API_CONTROL_PING, 1);
   vl_api_set_msg_thread_safe (am, VL_API_CONTROL_PING_REPLY, 1);
 
@@ -575,19 +602,6 @@ vl_api_rpc_call_reply_t_handler (vl_api_rpc_call_reply_t *mp)
   clib_warning ("unimplemented");
 }
 
-void
-vl_api_send_pending_rpc_requests (vlib_main_t *vm)
-{
-  vlib_main_t *vm_global = vlib_get_first_main ();
-
-  ASSERT (vm != vm_global);
-
-  clib_spinlock_lock_if_init (&vm_global->pending_rpc_lock);
-  vec_append (vm_global->pending_rpc_requests, vm->pending_rpc_requests);
-  vec_reset_length (vm->pending_rpc_requests);
-  clib_spinlock_unlock_if_init (&vm_global->pending_rpc_lock);
-}
-
 always_inline void
 vl_api_rpc_call_main_thread_inline (void *fp, u8 *data, u32 data_length,
 				    u8 force_rpc)
@@ -746,11 +760,3 @@ rpc_api_hookup (vlib_main_t *vm)
 }
 
 VLIB_API_INIT_FUNCTION (rpc_api_hookup);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

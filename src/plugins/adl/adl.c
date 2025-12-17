@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016,2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vnet/ethernet/ethernet.h>
 #include <vnet/plugin/plugin.h>
 #include <vpp/app/version.h>
@@ -150,21 +141,17 @@ adl_init (vlib_main_t * vm)
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_INIT_FUNCTION (adl_init) =
 {
   .runs_after = VLIB_INITS ("ip4_allowlist_init", "ip6_allowlist_init"),
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VNET_FEATURE_INIT (adl, static) =
 {
   .arc_name = "device-input",
   .node_name = "adl-input",
   .runs_before = VNET_FEATURES ("ethernet-input"),
 };
-/* *INDENT-ON */
 
 int adl_interface_enable_disable (u32 sw_if_index, int enable_disable)
 {
@@ -389,7 +376,6 @@ adl_allowlist_enable_disable_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (adl_allowlist_command, static) =
 {
    .path = "adl allowlist",
@@ -397,21 +383,8 @@ VLIB_CLI_COMMAND (adl_allowlist_command, static) =
    "adl allowlist <interface-name> [ip4][ip6][default][fib-id <NN>][disable]",
    .function = adl_allowlist_enable_disable_command_fn,
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
-VLIB_PLUGIN_REGISTER () =
-{
+VLIB_PLUGIN_REGISTER () = {
   .version = VPP_BUILD_VER,
   .description = "Allow/deny list plugin",
 };
-/* *INDENT-ON* */
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

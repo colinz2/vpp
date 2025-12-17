@@ -1,20 +1,11 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016-2019 Cisco and/or its affiliates.
  * Copyright (c) 2019 Arm Limited
  * Copyright (c) 2010-2017 Intel Corporation and/or its affiliates.
  * Copyright (c) 2007-2009 Kip Macy kmacy@freebsd.org
- * Inspired from DPDK rte_ring.h (SPSC only) (derived from freebsd bufring.h).
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ */
+
+/* Inspired from DPDK rte_ring.h (SPSC only) (derived from freebsd bufring.h).
  */
 #ifndef __included_ssvm_fifo_h__
 #define __included_ssvm_fifo_h__
@@ -40,6 +31,8 @@ typedef enum svm_fifo_deq_ntf_
 typedef enum svm_fifo_flag_
 {
   SVM_FIFO_F_LL_TRACKED = 1 << 0,
+  SVM_FIFO_F_SERVER_CT = 1 << 1,
+  SVM_FIFO_F_CLIENT_CT = 1 << 2,
 } svm_fifo_flag_t;
 
 typedef enum
@@ -759,7 +752,7 @@ svm_fifo_unset_event (svm_fifo_t * f)
 static inline void
 svm_fifo_add_want_deq_ntf (svm_fifo_t * f, u8 ntf_type)
 {
-  f->shr->want_deq_ntf |= ntf_type;
+  __atomic_or_fetch (&f->shr->want_deq_ntf, ntf_type, __ATOMIC_RELEASE);
 }
 
 /**
@@ -773,7 +766,21 @@ svm_fifo_add_want_deq_ntf (svm_fifo_t * f, u8 ntf_type)
 static inline void
 svm_fifo_del_want_deq_ntf (svm_fifo_t * f, u8 ntf_type)
 {
-  f->shr->want_deq_ntf &= ~ntf_type;
+  __atomic_and_fetch (&f->shr->want_deq_ntf, ~ntf_type, __ATOMIC_RELEASE);
+}
+
+/**
+ * Get want notification flag
+ *
+ * Done atomically with acquire memory ordering
+ *
+ * @param f	fifo
+ * @return 	value of want_deq_ntf flag
+ */
+static inline u32
+svm_fifo_get_want_deq_ntf (svm_fifo_t *f)
+{
+  return clib_atomic_load_acq_n (&f->shr->want_deq_ntf);
 }
 
 /**
@@ -790,10 +797,27 @@ svm_fifo_del_want_deq_ntf (svm_fifo_t * f, u8 ntf_type)
 static inline void
 svm_fifo_clear_deq_ntf (svm_fifo_t * f)
 {
-  /* Set the flag if want_notif_if_full was the only ntf requested */
-  f->shr->has_deq_ntf =
-    f->shr->want_deq_ntf == SVM_FIFO_WANT_DEQ_NOTIF_IF_FULL;
-  svm_fifo_del_want_deq_ntf (f, SVM_FIFO_WANT_DEQ_NOTIF);
+  u32 want_deq_ntf = svm_fifo_get_want_deq_ntf (f);
+  /* Set the flag if want ntf if full or empty was requested */
+  if (want_deq_ntf &
+      (SVM_FIFO_WANT_DEQ_NOTIF_IF_FULL | SVM_FIFO_WANT_DEQ_NOTIF_IF_EMPTY))
+    clib_atomic_store_rel_n (&f->shr->has_deq_ntf, 1);
+  if (want_deq_ntf & SVM_FIFO_WANT_DEQ_NOTIF)
+    svm_fifo_del_want_deq_ntf (f, SVM_FIFO_WANT_DEQ_NOTIF);
+}
+
+/**
+ * Get has dequeue notification flag
+ *
+ * Done atomically with acquire memory ordering
+ *
+ * @param f	fifo
+ * @return	has_deq_ntf flag
+ */
+static inline u32
+svm_fifo_has_deq_ntf (svm_fifo_t *f)
+{
+  return clib_atomic_load_acq_n (&f->shr->has_deq_ntf);
 }
 
 /**
@@ -824,9 +848,9 @@ svm_fifo_reset_has_deq_ntf (svm_fifo_t * f)
 static inline u8
 svm_fifo_needs_deq_ntf (svm_fifo_t * f, u32 n_last_deq)
 {
-  u8 want_ntf = f->shr->want_deq_ntf;
+  u32 want_ntf = svm_fifo_get_want_deq_ntf (f);
 
-  if (PREDICT_TRUE (want_ntf == SVM_FIFO_NO_DEQ_NOTIF))
+  if (want_ntf == SVM_FIFO_NO_DEQ_NOTIF)
     return 0;
   else if (want_ntf & SVM_FIFO_WANT_DEQ_NOTIF)
     return (svm_fifo_max_enqueue (f) >= f->shr->deq_thresh);
@@ -834,13 +858,13 @@ svm_fifo_needs_deq_ntf (svm_fifo_t * f, u32 n_last_deq)
     {
       u32 max_deq = svm_fifo_max_dequeue_cons (f);
       u32 size = f->shr->size;
-      if (!f->shr->has_deq_ntf && max_deq < size &&
-	  max_deq + n_last_deq >= size)
+      if (max_deq < size && max_deq + n_last_deq >= size &&
+	  !svm_fifo_has_deq_ntf (f))
 	return 1;
     }
   if (want_ntf & SVM_FIFO_WANT_DEQ_NOTIF_IF_EMPTY)
     {
-      if (!f->shr->has_deq_ntf && svm_fifo_is_empty (f))
+      if (!svm_fifo_has_deq_ntf (f) && svm_fifo_is_empty (f))
 	return 1;
     }
   return 0;
@@ -859,11 +883,3 @@ svm_fifo_set_deq_thresh (svm_fifo_t *f, u32 thresh)
 }
 
 #endif /* __included_ssvm_fifo_h__ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

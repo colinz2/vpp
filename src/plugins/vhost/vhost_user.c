@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * vhost.c - vhost-user
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2014-2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * vhost.c - vhost-user
  */
 
 #include <fcntl.h>		/* for open */
@@ -31,7 +20,7 @@
 #include <linux/if_tun.h>
 
 #include <vlib/vlib.h>
-#include <vlib/unix/unix.h>
+#include <vlib/file.h>
 
 #include <vnet/ethernet/ethernet.h>
 #include <vnet/devices/devices.h>
@@ -52,7 +41,6 @@
 
 vlib_node_registration_t vhost_user_send_interrupt_node;
 
-/* *INDENT-OFF* */
 vhost_user_main_t vhost_user_main = {
   .mtu_bytes = 1518,
 };
@@ -60,7 +48,6 @@ vhost_user_main_t vhost_user_main = {
 VNET_HW_INTERFACE_CLASS (vhost_interface_class, static) = {
   .name = "vhost-user",
 };
-/* *INDENT-ON* */
 
 static long
 get_huge_page_size (int fd)
@@ -327,15 +314,13 @@ vhost_user_vring_close (vhost_user_intf_t * vui, u32 qid)
 
   if (vring->kickfd_idx != ~0)
     {
-      clib_file_t *uf = pool_elt_at_index (file_main.file_pool,
-					   vring->kickfd_idx);
+      clib_file_t *uf = clib_file_get (&file_main, vring->kickfd_idx);
       clib_file_del (&file_main, uf);
       vring->kickfd_idx = ~0;
     }
   if (vring->callfd_idx != ~0)
     {
-      clib_file_t *uf = pool_elt_at_index (file_main.file_pool,
-					   vring->callfd_idx);
+      clib_file_t *uf = clib_file_get (&file_main, vring->callfd_idx);
       clib_file_del (&file_main, uf);
       vring->callfd_idx = ~0;
     }
@@ -351,7 +336,7 @@ vhost_user_vring_close (vhost_user_intf_t * vui, u32 qid)
   u16 q = vui->vrings[qid].qid;
   u32 queue_index = vui->vrings[qid].queue_index;
   u32 mode = vui->vrings[qid].mode;
-  u32 thread_index = vui->vrings[qid].thread_index;
+  clib_thread_index_t thread_index = vui->vrings[qid].thread_index;
   vhost_user_vring_init (vui, qid);
   vui->vrings[qid].qid = q;
   vui->vrings[qid].queue_index = queue_index;
@@ -369,7 +354,7 @@ vhost_user_if_disconnect (vhost_user_intf_t * vui)
 
   if (vui->clib_file_index != ~0)
     {
-      clib_file_del (&file_main, file_main.file_pool + vui->clib_file_index);
+      clib_file_del_by_index (&file_main, vui->clib_file_index);
       vui->clib_file_index = ~0;
     }
 
@@ -752,8 +737,8 @@ vhost_user_socket_read (clib_file_t * uf)
 	  /* if there is old fd, delete and close it */
 	  if (vui->vrings[q].callfd_idx != ~0)
 	    {
-	      clib_file_t *uf = pool_elt_at_index (file_main.file_pool,
-						   vui->vrings[q].callfd_idx);
+	      clib_file_t *uf =
+		clib_file_get (&file_main, vui->vrings[q].callfd_idx);
 	      clib_file_del (&file_main, uf);
 	      vui->vrings[q].callfd_idx = ~0;
 	    }
@@ -825,8 +810,8 @@ vhost_user_socket_read (clib_file_t * uf)
 
       if (vui->vrings[q].kickfd_idx != ~0)
 	{
-	  clib_file_t *uf = pool_elt_at_index (file_main.file_pool,
-					       vui->vrings[q].kickfd_idx);
+	  clib_file_t *uf =
+	    clib_file_get (&file_main, vui->vrings[q].kickfd_idx);
 	  clib_file_del (&file_main, uf);
 	  vui->vrings[q].kickfd_idx = ~0;
 	}
@@ -1150,7 +1135,7 @@ vhost_user_socksvr_accept_ready (clib_file_t * uf)
     {
       vu_log_debug (vui, "Close client socket for vhost interface %d, fd %d",
 		    vui->sw_if_index, UNIX_GET_FD (vui->clib_file_index));
-      clib_file_del (&file_main, file_main.file_pool + vui->clib_file_index);
+      clib_file_del_by_index (&file_main, vui->clib_file_index);
     }
 
   vu_log_debug (vui, "New client socket for vhost interface %d, fd %d",
@@ -1193,12 +1178,10 @@ vhost_user_init (vlib_main_t * vm)
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_INIT_FUNCTION (vhost_user_init) =
 {
   .runs_after = VLIB_INITS("ip4_init"),
 };
-/* *INDENT-ON* */
 
 static uword
 vhost_user_send_interrupt_process (vlib_main_t * vm,
@@ -1244,7 +1227,6 @@ vhost_user_send_interrupt_process (vlib_main_t * vm,
 	  /* fall through */
 
 	case ~0:
-	  /* *INDENT-OFF* */
 	  pool_foreach (vui, vum->vhost_user_interfaces) {
 	      next_timeout = timeout;
 	      FOR_ALL_VHOST_RX_TXQ (qid, vui)
@@ -1265,7 +1247,6 @@ vhost_user_send_interrupt_process (vlib_main_t * vm,
 		  timeout = next_timeout;
 	      }
 	  }
-          /* *INDENT-ON* */
 	  break;
 
 	default:
@@ -1281,13 +1262,11 @@ vhost_user_send_interrupt_process (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (vhost_user_send_interrupt_node) = {
     .function = vhost_user_send_interrupt_process,
     .type = VLIB_NODE_TYPE_PROCESS,
     .name = "vhost-user-send-interrupt-process",
 };
-/* *INDENT-ON* */
 
 static uword
 vhost_user_process (vlib_main_t * vm,
@@ -1314,7 +1293,6 @@ vhost_user_process (vlib_main_t * vm,
 
       timeout = 3.0;
 
-      /* *INDENT-OFF* */
       pool_foreach (vui, vum->vhost_user_interfaces) {
 
 	  if (vui->unix_server_index == ~0) { //Nothing to do for server sockets
@@ -1386,18 +1364,15 @@ vhost_user_process (vlib_main_t * vm,
 		}
 	  }
       }
-      /* *INDENT-ON* */
     }
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (vhost_user_process_node,static) = {
     .function = vhost_user_process,
     .type = VLIB_NODE_TYPE_PROCESS,
     .name = "vhost-user-process",
 };
-/* *INDENT-ON* */
 
 /**
  * Disables and reset interface structure.
@@ -1420,8 +1395,7 @@ vhost_user_term_if (vhost_user_intf_t * vui)
   if (vui->unix_server_index != ~0)
     {
       //Close server socket
-      clib_file_t *uf = pool_elt_at_index (file_main.file_pool,
-					   vui->unix_server_index);
+      clib_file_t *uf = clib_file_get (&file_main, vui->unix_server_index);
       clib_file_del (&file_main, uf);
       vui->unix_server_index = ~0;
       unlink (vui->sock_filename);
@@ -1456,7 +1430,7 @@ vhost_user_delete_if (vnet_main_t * vnm, vlib_main_t * vm, u32 sw_if_index)
     vhost_user_vring_t *txvq = &vui->vrings[qid];
 
     if ((txvq->mode == VNET_HW_IF_RX_MODE_POLLING) &&
-	(txvq->thread_index != ~0))
+	(txvq->thread_index != CLIB_INVALID_THREAD_INDEX))
       {
 	vhost_cpu_t *cpu = vec_elt_at_index (vum->cpus, txvq->thread_index);
 	ASSERT (cpu->polling_q_count != 0);
@@ -1507,11 +1481,9 @@ vhost_user_exit (vlib_main_t * vm)
   vhost_user_intf_t *vui;
 
   vlib_worker_thread_barrier_sync (vlib_get_main ());
-  /* *INDENT-OFF* */
   pool_foreach (vui, vum->vhost_user_interfaces) {
       vhost_user_delete_if (vnm, vm, vui->sw_if_index);
   }
-  /* *INDENT-ON* */
   vlib_worker_thread_barrier_release (vlib_get_main ());
   return 0;
 }
@@ -1653,7 +1625,9 @@ vhost_user_vui_init (vnet_main_t * vnm, vhost_user_intf_t * vui,
   for (q = 0; q < vec_len (vui->vrings); q++)
     vhost_user_vring_init (vui, q);
 
-  vnet_hw_if_set_caps (vnm, vui->hw_if_index, VNET_HW_IF_CAP_INT_MODE);
+  vnet_hw_if_set_caps (vnm, vui->hw_if_index,
+		       VNET_HW_IF_CAP_INT_MODE |
+			 VNET_HW_IF_CAP_TX_FIXED_OFFSET);
   vnet_hw_interface_set_flags (vnm, vui->hw_if_index, 0);
 
   if (sw_if_index)
@@ -2393,7 +2367,6 @@ done:
  * Once the vHost interface is created, enable the interface using:
  * @cliexcmd{set interface state VirtualEthernet0/0/0 up}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (vhost_user_connect_command, static) = {
     .path = "create vhost-user",
     .short_help = "create vhost-user socket <socket-filename> [server] "
@@ -2402,7 +2375,6 @@ VLIB_CLI_COMMAND (vhost_user_connect_command, static) = {
     .function = vhost_user_connect_command_fn,
     .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
 
 /*?
  * Delete a vHost User interface using the interface name or the
@@ -2416,7 +2388,6 @@ VLIB_CLI_COMMAND (vhost_user_connect_command, static) = {
  * Example of how to delete a vhost interface by software interface index:
  * @cliexcmd{delete vhost-user sw_if_index 1}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (vhost_user_delete_command, static) = {
     .path = "delete vhost-user",
     .short_help = "delete vhost-user {<interface> | sw_if_index <sw_idx>}",
@@ -2557,14 +2528,12 @@ VLIB_CLI_COMMAND (vhost_user_delete_command, static) = {
  * @cliexend
  * @endparblock
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_vhost_user_command, static) = {
     .path = "show vhost-user",
     .short_help = "show vhost-user [<interface> [<interface> [..]]] "
     "[[descriptors] [verbose]]",
     .function = show_vhost_user_command_fn,
 };
-/* *INDENT-ON* */
 
 
 static clib_error_t *
@@ -2603,11 +2572,3 @@ vhost_user_unmap_all (void)
 	unmap_all_mem_regions (vui);
     }
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

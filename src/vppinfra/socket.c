@@ -1,39 +1,7 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright (c) 2001, 2002, 2003, 2005 Eliot Dresselhaus
  */
-/*
-  Copyright (c) 2001, 2002, 2003, 2005 Eliot Dresselhaus
-
-  Permission is hereby granted, free of charge, to any person obtaining
-  a copy of this software and associated documentation files (the
-  "Software"), to deal in the Software without restriction, including
-  without limitation the rights to use, copy, modify, merge, publish,
-  distribute, sublicense, and/or sell copies of the Software, and to
-  permit persons to whom the Software is furnished to do so, subject to
-  the following conditions:
-
-  The above copyright notice and this permission notice shall be
-  included in all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
 
 #include <stdio.h>
 #include <string.h>		/* strchr */
@@ -48,6 +16,7 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sched.h>
 
 #include <vppinfra/mem.h>
 #include <vppinfra/vec.h>
@@ -226,7 +195,7 @@ static clib_error_t *
 default_socket_recvmsg (clib_socket_t * s, void *msg, int msglen,
 			int fds[], int num_fds)
 {
-#ifdef CLIB_LINUX
+#if CLIB_LINUX
   char ctl[CMSG_SPACE (sizeof (int) * num_fds) +
 	   CMSG_SPACE (sizeof (struct ucred))];
   struct ucred *cr = 0;
@@ -261,7 +230,7 @@ default_socket_recvmsg (clib_socket_t * s, void *msg, int msglen,
     {
       if (cmsg->cmsg_level == SOL_SOCKET)
 	{
-#ifdef CLIB_LINUX
+#if CLIB_LINUX
 	  if (cmsg->cmsg_type == SCM_CREDENTIALS)
 	    {
 	      cr = (struct ucred *) CMSG_DATA (cmsg);
@@ -314,11 +283,13 @@ static const struct
     .family = AF_INET,
     .type = CLIB_SOCKET_TYPE_INET,
     .skip_prefix = 1 },
+#if CLIB_LINUX
   { .prefix = "abstract:",
     .family = AF_UNIX,
     .type = CLIB_SOCKET_TYPE_LINUX_ABSTRACT,
     .skip_prefix = 1,
     .is_local = 1 },
+#endif /* CLIB_LINUX */
   { .prefix = "/",
     .family = AF_UNIX,
     .type = CLIB_SOCKET_TYPE_UNIX,
@@ -671,11 +642,24 @@ clib_socket_init (clib_socket_t *s)
 	}
 #endif
 
-      if (need_bind && bind (s->fd, sa, addr_len) < 0)
+      if (need_bind)
 	{
-	  err =
-	    clib_error_return_unix (0, "bind (fd %d, '%s')", s->fd, s->config);
-	  goto done;
+	  int bind_ret;
+	  if (sa->sa_family == AF_UNIX && s->allow_group_write)
+	    {
+	      mode_t def_restrictions = umask (S_IWOTH);
+	      bind_ret = bind (s->fd, sa, addr_len);
+	      umask (def_restrictions);
+	    }
+	  else
+	    bind_ret = bind (s->fd, sa, addr_len);
+
+	  if (bind_ret < 0)
+	    {
+	      err = clib_error_return_unix (0, "bind (fd %d, '%s')", s->fd,
+					    s->config);
+	      goto done;
+	    }
 	}
 
       if (listen (s->fd, 5) < 0)
@@ -683,16 +667,6 @@ clib_socket_init (clib_socket_t *s)
 	  err = clib_error_return_unix (0, "listen (fd %d, '%s')", s->fd,
 					s->config);
 	  goto done;
-	}
-
-      if (s->local_only && s->allow_group_write)
-	{
-	  if (fchmod (s->fd, S_IWGRP) < 0)
-	    {
-	      err = clib_error_return_unix (
-		0, "fchmod (fd %d, '%s', mode S_IWGRP)", s->fd, s->config);
-	      goto done;
-	    }
 	}
     }
   else
@@ -732,7 +706,7 @@ done:
 #if CLIB_LINUX
   if (netns_fd != -1)
     {
-      setns (CLONE_NEWNET, netns_fd);
+      setns (netns_fd, CLONE_NEWNET);
       close (netns_fd);
     }
 #endif
@@ -779,11 +753,3 @@ close_client:
   close (client->fd);
   return err;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

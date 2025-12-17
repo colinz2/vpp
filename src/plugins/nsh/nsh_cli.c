@@ -1,19 +1,8 @@
-/*
- * nsh_cli.c - nsh cli functions
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* nsh_cli.c - nsh cli functions */
 
 #include <vnet/vnet.h>
 #include <vnet/plugin/plugin.h>
@@ -140,7 +129,6 @@ nsh_get_adj_by_sw_if_index (u32 sw_if_index)
 {
   adj_index_t ai = ~0;
 
-  /* *INDENT-OFF* */
   pool_foreach_index (ai, adj_pool)
    {
       if (sw_if_index == adj_get_sw_if_index(ai))
@@ -148,7 +136,6 @@ nsh_get_adj_by_sw_if_index (u32 sw_if_index)
         return ai;
       }
   }
-  /* *INDENT-ON* */
 
   return ~0;
 }
@@ -290,7 +277,6 @@ nsh_add_del_map_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (create_nsh_map_command, static) = {
   .path = "create nsh map",
   .short_help =
@@ -299,7 +285,6 @@ VLIB_CLI_COMMAND (create_nsh_map_command, static) = {
     " encap-vxlan4-intf <nn> | encap-vxlan6-intf <nn>| encap-eth-intf <nn> | encap-none]\n",
   .function = nsh_add_del_map_command_fn,
 };
-/* *INDENT-ON* */
 
 /**
  * CLI command for showing the mapping between NSH entries
@@ -322,12 +307,10 @@ show_nsh_map_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_nsh_map_command, static) = {
   .path = "show nsh map",
   .function = show_nsh_map_command_fn,
 };
-/* *INDENT-ON* */
 
 /**
  * CLI command for adding NSH entry
@@ -494,7 +477,6 @@ nsh_add_del_entry_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (create_nsh_entry_command, static) = {
   .path = "create nsh entry",
   .short_help =
@@ -502,7 +484,6 @@ VLIB_CLI_COMMAND (create_nsh_entry_command, static) = {
     "  [c1 <nn> c2 <nn> c3 <nn> c4 <nn>] [tlv-ioam-trace] [del]\n",
   .function = nsh_add_del_entry_command_fn,
 };
-/* *INDENT-ON* */
 
 /* format from network order */
 u8 *
@@ -621,17 +602,7 @@ show_nsh_entry_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_nsh_entry_command, static) = {
   .path = "show nsh entry",
   .function = show_nsh_entry_command_fn,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

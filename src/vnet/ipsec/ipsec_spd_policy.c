@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/ipsec/ipsec.h>
@@ -480,7 +470,7 @@ ipsec_fp_ip6_get_policy_mask (ipsec_policy_t *policy, ipsec_fp_5tuple_t *mask,
 
   if (*prmask++ & clib_host_to_net_u64 (0x1))
     {
-      *prmask = (*pladdr_start ^ *pladdr_stop);
+      *prmask = (*praddr_start ^ *praddr_stop);
       *prmask = clib_host_to_net_u64 (
 	mask_out_highest_set_bit_u64 (clib_net_to_host_u64 (*prmask)));
     }
@@ -617,17 +607,24 @@ ipsec_fp_ip4_add_policy (ipsec_main_t *im, ipsec_spd_fp_t *fp_spd,
     }
   else
     {
+      u32 i;
+      u32 *old_fp_policies_ids = result_val->fp_policies_ids;
 
-      if (vec_max_len (result_val->fp_policies_ids) !=
-	  vec_len (result_val->fp_policies_ids))
+      vec_foreach_index (i, result_val->fp_policies_ids)
 	{
-	  /* no need to resize */
-	  vec_add1 (result_val->fp_policies_ids, policy_index);
+	  ipsec_policy_t *p =
+	    pool_elt_at_index (im->policies, result_val->fp_policies_ids[i]);
+
+	  if (p->priority <= policy->priority)
+	    {
+	      break;
+	    }
 	}
-      else
-	{
-	  vec_add1 (result_val->fp_policies_ids, policy_index);
 
+      vec_insert_elts (result_val->fp_policies_ids, &policy_index, 1, i);
+
+      if (result_val->fp_policies_ids != old_fp_policies_ids)
+	{
 	  res = clib_bihash_add_del_16_8 (bihash_table, &result, 1);
 
 	  if (res != 0)
@@ -721,17 +718,24 @@ ipsec_fp_ip6_add_policy (ipsec_main_t *im, ipsec_spd_fp_t *fp_spd,
     }
   else
     {
+      u32 i;
+      u32 *old_fp_policies_ids = result_val->fp_policies_ids;
 
-      if (vec_max_len (result_val->fp_policies_ids) !=
-	  vec_len (result_val->fp_policies_ids))
+      vec_foreach_index (i, result_val->fp_policies_ids)
 	{
-	  /* no need to resize */
-	  vec_add1 (result_val->fp_policies_ids, policy_index);
+	  ipsec_policy_t *p =
+	    pool_elt_at_index (im->policies, result_val->fp_policies_ids[i]);
+
+	  if (p->priority <= policy->priority)
+	    {
+	      break;
+	    }
 	}
-      else
-	{
-	  vec_add1 (result_val->fp_policies_ids, policy_index);
 
+      vec_insert_elts (result_val->fp_policies_ids, &policy_index, 1, i);
+
+      if (result_val->fp_policies_ids != old_fp_policies_ids)
+	{
 	  res = clib_bihash_add_del_40_8 (bihash_table, &result, 1);
 
 	  if (res != 0)
@@ -806,7 +810,7 @@ ipsec_fp_ip6_del_policy (ipsec_main_t *im, ipsec_spd_fp_t *fp_spd,
 	      clib_bihash_add_del_40_8 (bihash_table, &result, 0);
 	    }
 	  else
-	    vec_del1 (result_val->fp_policies_ids, ii);
+	    vec_delete (result_val->fp_policies_ids, 1, ii);
 
 	  vec_foreach_index (imt, fp_spd->fp_mask_ids[policy->type])
 	    {
@@ -870,7 +874,7 @@ ipsec_fp_ip4_del_policy (ipsec_main_t *im, ipsec_spd_fp_t *fp_spd,
 	      clib_bihash_add_del_16_8 (bihash_table, &result, 0);
 	    }
 	  else
-	    vec_del1 (result_val->fp_policies_ids, ii);
+	    vec_delete (result_val->fp_policies_ids, 1, ii);
 
 	  vec_foreach_index (imt, fp_spd->fp_mask_ids[policy->type])
 	    {
@@ -914,11 +918,3 @@ ipsec_fp_add_del_policy (void *fp_spd, ipsec_policy_t *policy, int is_add,
   else
     return ipsec_fp_ip4_del_policy (im, (ipsec_spd_fp_t *) fp_spd, policy);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

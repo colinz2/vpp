@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/ip/ip.h>
@@ -30,38 +20,6 @@ ip_address_family_to_ether_type (ip_address_family_t af)
     }
   ASSERT (0);
   return (ETHERNET_TYPE_IP4);
-}
-
-u8
-ip_is_zero (ip46_address_t * ip46_address, u8 is_ip4)
-{
-  if (is_ip4)
-    return (ip46_address->ip4.as_u32 == 0);
-  else
-    return (ip46_address->as_u64[0] == 0 && ip46_address->as_u64[1] == 0);
-}
-
-u8
-ip_is_local_host (ip46_address_t * ip46_address, u8 is_ip4)
-{
-  if (is_ip4)
-    return (ip46_address->ip4.as_u8[0] == 127);
-  else
-    return (ip46_address->as_u64[0] == 0 &&
-	    clib_net_to_host_u64 (ip46_address->as_u64[1]) == 1);
-}
-
-u8
-ip4_is_local_host (ip4_address_t * ip4_address)
-{
-  return (ip4_address->as_u8[0] == 127);
-}
-
-u8
-ip6_is_local_host (ip6_address_t * ip6_address)
-{
-  return (ip6_address->as_u64[0] == 0 &&
-	  clib_net_to_host_u64 (ip6_address->as_u64[1]) == 1);
 }
 
 /**
@@ -93,32 +51,6 @@ ip_is_local (u32 fib_index, ip46_address_t * ip46_address, u8 is_ip4)
   return (flags & FIB_ENTRY_FLAG_LOCAL);
 }
 
-void
-ip_copy (ip46_address_t * dst, ip46_address_t * src, u8 is_ip4)
-{
-  if (is_ip4)
-    {
-      ip46_address_mask_ip4 (dst);
-      dst->ip4.as_u32 = src->ip4.as_u32;
-    }
-  else
-    clib_memcpy_fast (&dst->ip6, &src->ip6, sizeof (ip6_address_t));
-}
-
-void
-ip_set (ip46_address_t * dst, void *src, u8 is_ip4)
-{
-  if (is_ip4)
-    {
-      ip46_address_mask_ip4 (dst);
-      dst->ip4.as_u32 = ((ip4_address_t *) src)->as_u32;
-    }
-  else
-    clib_memcpy_fast (&dst->ip6, (ip6_address_t *) src,
-		      sizeof (ip6_address_t));
-}
-
-/* *INDENT-OFF* */
 static const char *ip_arc_names[N_IP_FEATURE_LOCATIONS][N_AF][N_SAFI] = {
   [IP_FEATURE_INPUT] = {
     [AF_IP4] = {
@@ -171,7 +103,6 @@ static const char *ip_arc_names[N_IP_FEATURE_LOCATIONS][N_AF][N_SAFI] = {
     },
   },
 };
-/* *INDENT-ON* */
 
 void
 ip_feature_enable_disable (ip_address_family_t af,
@@ -203,7 +134,8 @@ ip_feature_enable_disable (ip_address_family_t af,
 }
 
 int
-ip_flow_hash_set (ip_address_family_t af, u32 table_id, u32 flow_hash_config)
+ip_flow_hash_set (ip_address_family_t af, u32 table_id,
+		  flow_hash_config_t flow_hash_config)
 {
   fib_protocol_t fproto;
   u32 fib_index;
@@ -346,11 +278,3 @@ format_ip_ecn (u8 * s, va_list * va)
 
   return (format (s, "unknown"));
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

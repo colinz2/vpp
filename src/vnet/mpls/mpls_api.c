@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * mpls_api.c - mpls api
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * mpls_api.c - mpls api
  */
 
 #include <vnet/vnet.h>
@@ -199,12 +188,10 @@ vl_api_mpls_route_add_del_t_handler (vl_api_mpls_route_add_del_t * mp)
 
   rv = mpls_route_add_del_t_handler (vnm, mp, &stats_index);
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_MPLS_ROUTE_ADD_DEL_REPLY,
   ({
     rmp->stats_index = htonl (stats_index);
   }));
-  /* *INDENT-ON* */
 }
 
 void
@@ -270,13 +257,11 @@ vl_api_mpls_tunnel_add_del_t_handler (vl_api_mpls_tunnel_add_del_t * mp)
   vec_free (rpaths);
 
 out:
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_MPLS_TUNNEL_ADD_DEL_REPLY,
   ({
     rmp->sw_if_index = ntohl(tunnel_sw_if_index);
     rmp->tunnel_index = ntohl(tunnel_index);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -401,12 +386,58 @@ vl_api_mpls_table_dump_t_handler (vl_api_mpls_table_dump_t * mp)
   if (!reg)
     return;
 
-  /* *INDENT-OFF* */
   pool_foreach (fib_table, mm->fibs)
    {
     send_mpls_table_details(am, reg, mp->context, fib_table);
   }
-  /* *INDENT-ON* */
+}
+
+static void
+send_mpls_interface_details (vpe_api_main_t *am, vl_api_registration_t *reg,
+			     u32 context, const u32 sw_if_index)
+{
+  vl_api_mpls_interface_details_t *mp;
+
+  mp = vl_msg_api_alloc_zero (sizeof (*mp));
+  mp->_vl_msg_id = ntohs (REPLY_MSG_ID_BASE + VL_API_MPLS_INTERFACE_DETAILS);
+  mp->context = context;
+
+  mp->sw_if_index = htonl (sw_if_index);
+  vl_api_send_msg (reg, (u8 *) mp);
+}
+
+static void
+vl_api_mpls_interface_dump_t_handler (vl_api_mpls_interface_dump_t *mp)
+{
+  vpe_api_main_t *am = &vpe_api_main;
+  vl_api_registration_t *reg;
+  vnet_interface_main_t *im = &vnet_main.interface_main;
+  vnet_sw_interface_t *si;
+  u32 sw_if_index = ~0;
+
+  reg = vl_api_client_index_to_registration (mp->client_index);
+  if (!reg)
+    return;
+  sw_if_index = ntohl (mp->sw_if_index);
+
+  if (sw_if_index == ~0)
+    {
+      pool_foreach (si, im->sw_interfaces)
+	{
+	  if (mpls_sw_interface_is_enabled (si->sw_if_index))
+	    {
+	      send_mpls_interface_details (am, reg, mp->context,
+					   si->sw_if_index);
+	    }
+	}
+    }
+  else
+    {
+      if (mpls_sw_interface_is_enabled (sw_if_index))
+	{
+	  send_mpls_interface_details (am, reg, mp->context, sw_if_index);
+	}
+    }
 }
 
 static void
@@ -520,11 +551,3 @@ mpls_api_hookup (vlib_main_t * vm)
 }
 
 VLIB_API_INIT_FUNCTION (mpls_api_hookup);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,24 +1,15 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vnet/vnet.h>
 #include <vppinfra/vec.h>
 #include <vppinfra/error.h>
 #include <vppinfra/format.h>
 #include <vppinfra/bitmap.h>
 #include <vppinfra/linux/sysfs.h>
-#include <vlib/unix/unix.h>
+#include <vlib/file.h>
 #include <vlib/log.h>
 
 #include <vnet/vnet.h>
@@ -30,7 +21,7 @@
 #include <dpdk/cryptodev/cryptodev.h>
 #include <vlib/pci/pci.h>
 #include <vlib/vmbus/vmbus.h>
-
+#include <vlib/stats/stats.h>
 #include <rte_ring.h>
 #include <rte_vect.h>
 
@@ -187,9 +178,11 @@ dpdk_find_startup_config (struct rte_eth_dev_info *di)
 {
   dpdk_main_t *dm = &dpdk_main;
   struct rte_pci_device *pci_dev;
-  struct rte_vmbus_device *vmbus_dev;
   vlib_pci_addr_t pci_addr;
+#ifdef __linux__
+  struct rte_vmbus_device *vmbus_dev;
   vlib_vmbus_addr_t vmbus_addr;
+#endif /* __linux__ */
   uword *p = 0;
 
   if ((pci_dev = dpdk_get_pci_device (di)))
@@ -202,6 +195,7 @@ dpdk_find_startup_config (struct rte_eth_dev_info *di)
 	hash_get (dm->conf->device_config_index_by_pci_addr, pci_addr.as_u32);
     }
 
+#ifdef __linux__
   if ((vmbus_dev = dpdk_get_vmbus_device (di)))
     {
       unformat_input_t input_vmbus;
@@ -216,10 +210,80 @@ dpdk_find_startup_config (struct rte_eth_dev_info *di)
 		       &vmbus_addr);
       unformat_free (&input_vmbus);
     }
+#endif /* __linux__ */
 
   if (p)
     return pool_elt_at_index (dm->conf->dev_confs, p[0]);
   return &dm->conf->default_devconf;
+}
+
+/*
+ * Initialise the xstats counters for a device
+ */
+void
+dpdk_counters_xstats_init (dpdk_device_t *xd)
+{
+  int len, ret, i;
+  struct rte_eth_xstat_name *xstats_names = 0;
+
+  if (vec_len (xd->xstats_symlinks) > 0)
+    {
+      /* xstats already initialized. Reset counters */
+      vec_foreach_index (i, xd->xstats_symlinks)
+	{
+	  vlib_stats_remove_entry (xd->xstats_symlinks[i]);
+	}
+    }
+  else
+    {
+      xd->xstats_counters.stat_segment_name =
+	(char *) format (0, "/if/xstats/%d%c", xd->sw_if_index, 0);
+      xd->xstats_counters.counters = 0;
+    }
+
+  len = rte_eth_xstats_get_names (xd->port_id, 0, 0);
+  if (len < 0)
+    {
+      dpdk_log_err ("[%u] rte_eth_xstats_get_names failed: %d. DPDK xstats "
+		    "not configured.",
+		    xd->port_id, len);
+      return;
+    }
+
+  vlib_validate_simple_counter (&xd->xstats_counters, len);
+  vlib_zero_simple_counter (&xd->xstats_counters, len);
+
+  vec_validate (xstats_names, len - 1);
+  vec_validate (xd->xstats, len - 1);
+  vec_validate (xd->xstats_symlinks, len - 1);
+
+  ret = rte_eth_xstats_get_names (xd->port_id, xstats_names, len);
+  if (ret >= 0 && ret <= len)
+    {
+      vec_foreach_index (i, xstats_names)
+	{
+	  /* There is a bug in the ENA driver where the xstats names are not
+	   * unique. */
+	  xd->xstats_symlinks[i] = vlib_stats_add_symlink (
+	    xd->xstats_counters.stats_entry_index, i, "/interfaces/%U/%s%c",
+	    format_vnet_sw_if_index_name, vnet_get_main (), xd->sw_if_index,
+	    xstats_names[i].name, 0);
+	  if (xd->xstats_symlinks[i] == STAT_SEGMENT_INDEX_INVALID)
+	    {
+	      xd->xstats_symlinks[i] = vlib_stats_add_symlink (
+		xd->xstats_counters.stats_entry_index, i,
+		"/interfaces/%U/%s_%d%c", format_vnet_sw_if_index_name,
+		vnet_get_main (), xd->sw_if_index, xstats_names[i].name, i, 0);
+	    }
+	}
+    }
+  else
+    {
+      dpdk_log_err ("[%u] rte_eth_xstats_get_names failed: %d. DPDK xstats "
+		    "not configured.",
+		    xd->port_id, ret);
+    }
+  vec_free (xstats_names);
 }
 
 static clib_error_t *
@@ -317,6 +381,8 @@ dpdk_lib_init (dpdk_main_t * dm)
 	    dpdk_device_flag_set (xd, DPDK_DEVICE_FLAG_INTEL_PHDR_CKSUM, 1);
 	  if (dr->int_unmaskable)
 	    dpdk_device_flag_set (xd, DPDK_DEVICE_FLAG_INT_UNMASKABLE, 1);
+	  if (dr->need_tx_prepare)
+	    dpdk_device_flag_set (xd, DPDK_DEVICE_FLAG_TX_PREPARE, 1);
 	}
       else
 	dpdk_log_warn ("[%u] unknown driver '%s'", port_id, di.driver_name);
@@ -360,12 +426,13 @@ dpdk_lib_init (dpdk_main_t * dm)
 			       pci_dev->addr.devid, pci_dev->addr.function);
 	  else
 	    xd->name = format (xd->name, "%u", port_id);
-	}
 
-      /* Handle representor devices that share the same PCI ID */
-      if ((di.switch_info.domain_id != RTE_ETH_DEV_SWITCH_DOMAIN_ID_INVALID) &&
-	  (di.switch_info.port_id != (uint16_t) -1))
-	xd->name = format (xd->name, "/%d", di.switch_info.port_id);
+	  /* Handle representor devices that share the same PCI ID */
+	  if ((di.switch_info.domain_id !=
+	       RTE_ETH_DEV_SWITCH_DOMAIN_ID_INVALID) &&
+	      (di.switch_info.port_id != (uint16_t) -1))
+	    xd->name = format (xd->name, "/%d", di.switch_info.port_id);
+	}
 
       /* number of RX and TX queues */
       if (devconf->num_tx_queues > 0)
@@ -429,6 +496,14 @@ dpdk_lib_init (dpdk_main_t * dm)
       else if (dr && dr->n_tx_desc)
 	xd->conf.n_tx_desc = dr->n_tx_desc;
 
+      if (xd->conf.n_tx_desc > di.tx_desc_lim.nb_max)
+	{
+	  dpdk_log_warn ("[%u] Configured number of TX descriptors (%u) is "
+			 "bigger than maximum supported (%u)",
+			 port_id, xd->conf.n_tx_desc, di.tx_desc_lim.nb_max);
+	  xd->conf.n_tx_desc = di.tx_desc_lim.nb_max;
+	}
+
       dpdk_log_debug (
 	"[%u] n_rx_queues: %u n_tx_queues: %u n_rx_desc: %u n_tx_desc: %u",
 	port_id, xd->conf.n_rx_queues, xd->conf.n_tx_queues,
@@ -457,7 +532,7 @@ dpdk_lib_init (dpdk_main_t * dm)
 	hi->numa_node = xd->cpu_socket = numa_node;
       sw = vnet_get_hw_sw_interface (vnm, xd->hw_if_index);
       xd->sw_if_index = sw->sw_if_index;
-      dpdk_log_debug ("[%u] interface %s created", port_id, hi->name);
+      dpdk_log_debug ("[%u] interface %v created", port_id, hi->name);
 
       if (devconf->tag)
 	vnet_set_sw_interface_tag (vnm, devconf->tag, sw->sw_if_index);
@@ -514,6 +589,9 @@ dpdk_lib_init (dpdk_main_t * dm)
       if (devconf->max_lro_pkt_size)
 	xd->conf.max_lro_pkt_size = devconf->max_lro_pkt_size;
 
+      if (devconf->disable_rxq_int)
+	xd->conf.enable_rxq_int = 0;
+
       dpdk_device_setup (xd);
 
       /* rss queues should be configured after dpdk_device_setup() */
@@ -527,6 +605,7 @@ dpdk_lib_init (dpdk_main_t * dm)
       if (vec_len (xd->errors))
 	dpdk_log_err ("[%u] setup failed Errors:\n  %U", port_id,
 		      format_dpdk_device_errors, xd);
+      dpdk_counters_xstats_init (xd);
     }
 
   for (int i = 0; i < vec_len (dm->devices); i++)
@@ -547,7 +626,6 @@ dpdk_bind_devices_to_uio (dpdk_config_main_t * conf)
   int i;
 
   addrs = vlib_pci_get_all_dev_addrs ();
-  /* *INDENT-OFF* */
   vec_foreach (addr, addrs)
     {
     dpdk_device_config_t * devconf = 0;
@@ -566,8 +644,18 @@ dpdk_bind_devices_to_uio (dpdk_config_main_t * conf)
       continue;
     }
 
+#ifdef __FreeBSD__
+    /*
+     * The defines for the PCI_CLASS_* types are platform specific and differ
+     * on FreeBSD.
+     */
+    if (d->device_class != PCI_CLASS_NETWORK &&
+	d->device_class != PCI_CLASS_PROCESSOR_CO)
+      continue;
+#else
     if (d->device_class != PCI_CLASS_NETWORK_ETHERNET && d->device_class != PCI_CLASS_PROCESSOR_CO)
       continue;
+#endif /* __FreeBSD__ */
 
     if (num_whitelisted)
       {
@@ -640,11 +728,13 @@ dpdk_bind_devices_to_uio (dpdk_config_main_t * conf)
 	     (d->device_id == 0x0443 || d->device_id == 0x18a1 ||
 	      d->device_id == 0x19e3 || d->device_id == 0x37c9 ||
 	      d->device_id == 0x6f55 || d->device_id == 0x18ef ||
-	      d->device_id == 0x4941))
+	      d->device_id == 0x4941 || d->device_id == 0x4943 ||
+	      d->device_id == 0x4945))
       ;
     /* Cisco VIC */
     else if (d->vendor_id == 0x1137 &&
-        (d->device_id == 0x0043 || d->device_id == 0x0071))
+	     (d->device_id == 0x0043 || d->device_id == 0x0071 ||
+	      d->device_id == 0x02b7))
       ;
     /* Chelsio T4/T5 */
     else if (d->vendor_id == 0x1425 && (d->device_id & 0xe000) == 0x4000)
@@ -668,10 +758,28 @@ dpdk_bind_devices_to_uio (dpdk_config_main_t * conf)
       {
         continue;
       }
-    /* Mellanox CX6, CX6VF, CX6DX, CX6DXVF */
-    else if (d->vendor_id == 0x15b3 && d->device_id >= 0x101b && d->device_id <= 0x101e)
+    /* Mellanox CX6, CX6VF, CX6DX, CX6DXVF, CX6LX */
+    else if (d->vendor_id == 0x15b3 &&
+	     (d->device_id >= 0x101b && d->device_id <= 0x101f))
       {
-        continue;
+	continue;
+      }
+    /* Mellanox CX7 */
+    else if (d->vendor_id == 0x15b3 && d->device_id == 0x1021)
+      {
+	continue;
+      }
+    /* Mellanox BF, BFVF */
+    else if (d->vendor_id == 0x15b3 &&
+	     (d->device_id >= 0xa2d2 && d->device_id <= 0Xa2d3))
+      {
+	continue;
+      }
+    /* Mellanox BF2, BF3 */
+    else if (d->vendor_id == 0x15b3 &&
+	     (d->device_id == 0xa2d6 || d->device_id == 0xa2dc))
+      {
+	continue;
       }
     /* Broadcom NetXtreme S, and E series only */
     else if (d->vendor_id == 0x14e4 &&
@@ -714,7 +822,6 @@ dpdk_bind_devices_to_uio (dpdk_config_main_t * conf)
 	clib_error_report (error);
       }
   }
-  /* *INDENT-ON* */
   vec_free (pci_addr);
   vlib_pci_free_device_info (d);
 }
@@ -729,7 +836,6 @@ dpdk_bind_vmbus_devices_to_uio (dpdk_config_main_t * conf)
 
   addrs = vlib_vmbus_get_all_dev_addrs ();
 
-  /* *INDENT-OFF* */
   vec_foreach (addr, addrs)
     {
       dpdk_device_config_t *devconf = 0;
@@ -794,7 +900,6 @@ dpdk_bind_vmbus_devices_to_uio (dpdk_config_main_t * conf)
 	  clib_error_report (error);
 	}
     }
-  /* *INDENT-ON* */
 }
 
 uword
@@ -906,6 +1011,10 @@ dpdk_device_config (dpdk_config_main_t *conf, void *addr,
 	  if (error)
 	    break;
 	}
+      else if (unformat (input, "no-rx-interrupts"))
+	{
+	  devconf->disable_rxq_int = 1;
+	}
       else if (unformat (input, "tso on"))
 	{
 	  devconf->tso = DPDK_DEVICE_TSO_ON;
@@ -990,32 +1099,51 @@ dpdk_log_read_ready (clib_file_t * uf)
 }
 
 static clib_error_t *
+dpdk_set_stat_poll_interval (f64 interval)
+{
+  if (interval < DPDK_MIN_STATS_POLL_INTERVAL)
+    return clib_error_return (0, "wrong stats-poll-interval value");
+
+  dpdk_main.stat_poll_interval = interval;
+  return 0;
+}
+
+static clib_error_t *
+dpdk_set_link_state_poll_interval (f64 interval)
+{
+  if (interval < DPDK_MIN_LINK_POLL_INTERVAL)
+    return clib_error_return (0, "wrong link-state-poll-interval value");
+
+  dpdk_main.link_state_poll_interval = interval;
+  return 0;
+}
+
+static clib_error_t *
 dpdk_config (vlib_main_t * vm, unformat_input_t * input)
 {
   dpdk_main_t *dm = &dpdk_main;
   clib_error_t *error = 0;
   dpdk_config_main_t *conf = &dpdk_config_main;
-  vlib_thread_main_t *tm = vlib_get_thread_main ();
   dpdk_device_config_t *devconf;
   vlib_pci_addr_t pci_addr = { 0 };
   vlib_vmbus_addr_t vmbus_addr = { 0 };
   unformat_input_t sub_input;
+#ifdef __linux
+  vlib_thread_main_t *tm = vlib_get_thread_main ();
   uword default_hugepage_sz, x;
+  u8 file_prefix = 0;
+#endif /* __linux__ */
   u8 *s, *tmp = 0;
   int ret, i;
   int num_whitelisted = 0;
   int eal_no_hugetlb = 0;
   u8 no_pci = 0;
   u8 no_vmbus = 0;
-  u8 file_prefix = 0;
   u8 *socket_mem = 0;
-  u8 *huge_dir_path = 0;
   u32 vendor, device, domain, bus, func;
   void *fmt_func;
   void *fmt_addr;
-
-  huge_dir_path =
-    format (0, "%s/hugepages%c", vlib_unix_get_runtime_dir (), 0);
+  f64 poll_interval;
 
   conf->device_config_index_by_pci_addr = hash_create (0, sizeof (uword));
   mhash_init (&conf->device_config_index_by_vmbus_addr, sizeof (uword),
@@ -1051,6 +1179,18 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
       else if (unformat (input, "max-simd-bitwidth %U",
 			 unformat_max_simd_bitwidth, &conf->max_simd_bitwidth))
 	;
+      else if (unformat (input, "link-state-poll-interval %f", &poll_interval))
+	{
+	  error = dpdk_set_link_state_poll_interval (poll_interval);
+	  if (error != 0)
+	    return error;
+	}
+      else if (unformat (input, "stats-poll-interval %f", &poll_interval))
+	{
+	  error = dpdk_set_stat_poll_interval (poll_interval);
+	  if (error != 0)
+	    return error;
+	}
       else if (unformat (input, "dev default %U", unformat_vlib_cli_sub_input,
 			 &sub_input))
 	{
@@ -1158,6 +1298,7 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
         }
       foreach_eal_double_hyphen_predicate_arg
 #undef _
+#ifdef __linux__
 #define _(a)                                          \
 	else if (unformat(input, #a " %s", &s))	      \
 	  {					      \
@@ -1173,6 +1314,7 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
 	  }
 	foreach_eal_double_hyphen_arg
 #undef _
+#endif /* __linux__ */
 #define _(a,b)						\
 	  else if (unformat(input, #a " %s", &s))	\
 	    {						\
@@ -1199,9 +1341,13 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
     {
       vec_add1 (conf->eal_init_args, (u8 *) "--in-memory");
 
+#ifdef __linux__
+      /*
+       * FreeBSD performs huge page prealloc through a dedicated kernel mode
+       * this process is only required on Linux.
+       */
       default_hugepage_sz = clib_mem_get_default_hugepage_size ();
 
-      /* *INDENT-OFF* */
       clib_bitmap_foreach (x, tm->cpu_socket_bitmap)
 	{
 	  clib_error_t *e;
@@ -1214,7 +1360,7 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
 	  if ((e = clib_sysfs_prealloc_hugepages(x, 0, n_pages)))
 	    clib_error_report (e);
         }
-      /* *INDENT-ON* */
+#endif /* __linux__ */
     }
 
   /* on/off dpdk's telemetry thread */
@@ -1223,6 +1369,7 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
       vec_add1 (conf->eal_init_args, (u8 *) "--no-telemetry");
     }
 
+#ifdef __linux__
   if (!file_prefix)
     {
       tmp = format (0, "--file-prefix%c", 0);
@@ -1230,6 +1377,16 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
       tmp = format (0, "vpp%c", 0);
       vec_add1 (conf->eal_init_args, tmp);
     }
+
+  /* Remap main lcore onto DPDK lcore 0 if it exceeds the max lcore index */
+  if (tm->main_lcore >= RTE_MAX_LCORE)
+    {
+      tmp = format (0, "--lcores%c", 0);
+      vec_add1 (conf->eal_init_args, tmp);
+      tmp = format (0, "0@%u%c", tm->main_lcore, 0);
+      vec_add1 (conf->eal_init_args, tmp);
+    }
+#endif
 
   if (no_pci == 0 && geteuid () == 0)
     dpdk_bind_devices_to_uio (conf);
@@ -1349,11 +1506,6 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
 				      RTE_VECT_SIMD_256 :
 				      RTE_VECT_SIMD_512);
 
-  /* lazy umount hugepages */
-  umount2 ((char *) huge_dir_path, MNT_DETACH);
-  rmdir ((char *) huge_dir_path);
-  vec_free (huge_dir_path);
-
   /* main thread 1st */
   if ((error = dpdk_buffer_pools_create (vm)))
     return error;
@@ -1370,10 +1522,12 @@ dpdk_update_link_state (dpdk_device_t * xd, f64 now)
   struct rte_eth_link prev_link = xd->link;
   u32 hw_flags = 0;
   u8 hw_flags_chg = 0;
+  int __clib_unused rv;
 
   xd->time_last_link_update = now ? now : xd->time_last_link_update;
   clib_memset (&xd->link, 0, sizeof (xd->link));
-  rte_eth_link_get_nowait (xd->port_id, &xd->link);
+  rv = rte_eth_link_get_nowait (xd->port_id, &xd->link);
+  ASSERT (rv == 0);
 
   if (LINK_STATE_ELOGS)
     {
@@ -1390,7 +1544,7 @@ dpdk_update_link_state (dpdk_device_t * xd, f64 now)
 	u8 old_link_state;
 	u8 new_link_state;
       } *ed;
-      ed = ELOG_DATA (&vlib_global_main.elog_main, e);
+      ed = ELOG_DATA (vlib_get_elog_main (), e);
       ed->sw_if_index = xd->sw_if_index;
       ed->admin_up = (xd->flags & DPDK_DEVICE_FLAG_ADMIN_UP) != 0;
       ed->old_link_state = (u8)
@@ -1437,7 +1591,7 @@ dpdk_update_link_state (dpdk_device_t * xd, f64 now)
 	    u32 sw_if_index;
 	    u32 flags;
 	  } *ed;
-	  ed = ELOG_DATA (&vlib_global_main.elog_main, e);
+	  ed = ELOG_DATA (vlib_get_elog_main (), e);
 	  ed->sw_if_index = xd->sw_if_index;
 	  ed->flags = hw_flags;
 	}
@@ -1479,15 +1633,16 @@ dpdk_process (vlib_main_t * vm, vlib_node_runtime_t * rt, vlib_frame_t * f)
     dpdk_update_link_state (xd, now);
   }
 
+  f64 timeout =
+    clib_min (dm->link_state_poll_interval, dm->stat_poll_interval);
+
   while (1)
     {
-      /*
-       * check each time through the loop in case intervals are changed
-       */
-      f64 min_wait = dm->link_state_poll_interval < dm->stat_poll_interval ?
-	dm->link_state_poll_interval : dm->stat_poll_interval;
-
+      f64 min_wait = clib_max (timeout, DPDK_MIN_POLL_INTERVAL);
       vlib_process_wait_for_event_or_clock (vm, min_wait);
+
+      timeout =
+	clib_min (dm->link_state_poll_interval, dm->stat_poll_interval);
 
       if (dm->admin_up_down_in_progress)
 	/* skip the poll if an admin up down is in progress (on any interface) */
@@ -1502,19 +1657,25 @@ dpdk_process (vlib_main_t * vm, vlib_node_runtime_t * rt, vlib_frame_t * f)
 	  dpdk_update_link_state (xd, now);
 
       }
-    }
 
+      now = vlib_time_now (vm);
+      vec_foreach (xd, dm->devices)
+	{
+	  timeout = clib_min (timeout, xd->time_last_stats_update +
+					 dm->stat_poll_interval - now);
+	  timeout = clib_min (timeout, xd->time_last_link_update +
+					 dm->link_state_poll_interval - now);
+	}
+    }
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (dpdk_process_node,static) = {
     .function = dpdk_process,
     .type = VLIB_NODE_TYPE_PROCESS,
     .name = "dpdk-process",
     .process_log2_n_stack_bytes = 17,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 dpdk_init (vlib_main_t * vm)

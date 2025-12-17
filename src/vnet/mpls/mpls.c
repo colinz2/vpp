@@ -1,19 +1,8 @@
-/*
- * mpls.c: mpls
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2012 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* mpls.c: mpls */
 
 #include <vnet/vnet.h>
 #include <vnet/mpls/mpls.h>
@@ -370,7 +359,13 @@ done:
 VLIB_CLI_COMMAND (mpls_local_label_command, static) = {
   .path = "mpls local-label",
   .function = vnet_mpls_local_label,
-  .short_help = "mpls local-label [add|del] <label-value> [eos|non-eos] via [next-hop-address] [next-hop-interface] [next-hop-table <value>] [weight <value>] [preference <value>] [udp-encap-id <value>] [ip4-lookup-in-table <value>] [ip6-lookup-in-table <value>] [mpls-lookup-in-table <value>] [resolve-via-host] [resolve-via-attached] [rx-ip4 <interface>] [out-labels <value value value>]",
+  .short_help =
+    "mpls local-label [add|del] <label-value> [eos|non-eos] via "
+    "[next-hop-address] [next-hop-interface] [next-hop-table <value>] [weight "
+    "<value>] [preference <value>] [udp-encap-id <value>] "
+    "[ip4-lookup-in-table <value>] [ip6-lookup-in-table <value>] "
+    "[mpls-lookup-in-table <value>] [resolve-via-host] [resolve-via-attached] "
+    "[rx-ip4|rx-ip6 <interface>] [out-labels <value value value>]",
 };
 
 clib_error_t *
@@ -430,13 +425,11 @@ vnet_mpls_table_cmd (vlib_main_t * vm,
    return error;
 }
 
-/* *INDENT-ON* */
 /*?
  * This command is used to add or delete MPLS Tables. All
  * Tables must be explicitly added before that can be used,
  * Including the default table.
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (mpls_table_command, static) = {
   .path = "mpls table",
   .short_help = "mpls table [add|del] <table-id>",

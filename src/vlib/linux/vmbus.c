@@ -1,17 +1,7 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018, Microsoft Corporation.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /*
  * vmbus.c: Linux user space VMBus bus management.
  */
@@ -30,8 +20,6 @@
 #include <net/if.h>
 #include <linux/ethtool.h>
 #include <linux/sockios.h>
-
-#include <uuid/uuid.h>
 
 static const char sysfs_vmbus_dev_path[] = "/sys/bus/vmbus/devices";
 static const char sysfs_vmbus_drv_path[] = "/sys/bus/vmbus/drivers";
@@ -123,16 +111,39 @@ unformat_vlib_vmbus_addr (unformat_input_t *input, va_list *args)
 {
   vlib_vmbus_addr_t *addr = va_arg (*args, vlib_vmbus_addr_t *);
   uword ret = 0;
-  u8 *s;
+  u8 *s = 0;
 
-  if (!unformat (input, "%s", &s))
+  if (!unformat (input, "%U", unformat_token, "a-zA-Z0-9-", &s))
     return 0;
 
-  if (uuid_parse ((char *) s, addr->guid) == 0)
-    ret = 1;
+  if (vec_len (s) != 36)
+    goto fail;
 
+  if (s[8] != '-' || s[13] != '-' || s[18] != '-' || s[23] != '-')
+    goto fail;
+
+  clib_memmove (s + 8, s + 9, 4);
+  clib_memmove (s + 12, s + 14, 4);
+  clib_memmove (s + 16, s + 19, 4);
+  clib_memmove (s + 20, s + 24, 12);
+
+  for (int i = 0; i < 32; i++)
+    if (s[i] >= '0' && s[i] <= '9')
+      s[i] -= '0';
+    else if (s[i] >= 'A' && s[i] <= 'F')
+      s[i] -= 'A' - 10;
+    else if (s[i] >= 'a' && s[i] <= 'f')
+      s[i] -= 'a' - 10;
+    else
+      goto fail;
+
+  for (int i = 0; i < 16; i++)
+    addr->guid[i] = s[2 * i] * 16 + s[2 * i + 1];
+
+  ret = 1;
+
+fail:
   vec_free (s);
-
   return ret;
 }
 
@@ -141,10 +152,24 @@ u8 *
 format_vlib_vmbus_addr (u8 *s, va_list *va)
 {
   vlib_vmbus_addr_t *addr = va_arg (*va, vlib_vmbus_addr_t *);
-  char tmp[40];
+  u8 *bytes = addr->guid;
 
-  uuid_unparse (addr->guid, tmp);
-  return format (s, "%s", tmp);
+  for (int i = 0; i < 4; i++)
+    s = format (s, "%02x", bytes++[0]);
+  vec_add1 (s, '-');
+  for (int i = 0; i < 2; i++)
+    s = format (s, "%02x", bytes++[0]);
+  vec_add1 (s, '-');
+  for (int i = 0; i < 2; i++)
+    s = format (s, "%02x", bytes++[0]);
+  vec_add1 (s, '-');
+  for (int i = 0; i < 2; i++)
+    s = format (s, "%02x", bytes++[0]);
+  vec_add1 (s, '-');
+  for (int i = 0; i < 6; i++)
+    s = format (s, "%02x", bytes++[0]);
+
+  return s;
 }
 
 /* workaround for mlx bug, bring lower device up before unbind */
@@ -218,16 +243,14 @@ vlib_vmbus_bind_to_uio (vlib_vmbus_addr_t * addr)
   static int uio_new_id_needed = 1;
   struct dirent *e;
   struct ifreq ifr;
-  u8 *s, *driver_name;
+  u8 *s = 0, *driver_name;
   DIR *dir;
   int fd;
 
   dev_dir_name = format (0, "%s/%U", sysfs_vmbus_dev_path,
 			 format_vlib_vmbus_addr, addr);
-  s = format (0, "%v/driver%c", dev_dir_name, 0);
 
-  driver_name = clib_sysfs_link_to_name ((char *) s);
-  vec_reset_length (s);
+  driver_name = clib_file_get_resolved_basename ("%v/driver", dev_dir_name);
 
   /* skip if not using the Linux kernel netvsc driver */
   if (!driver_name || strcmp ("hv_netvsc", (char *) driver_name) != 0)
@@ -383,7 +406,13 @@ vmbus_addr_cmp (void *v1, void *v2)
   vlib_vmbus_addr_t *a1 = v1;
   vlib_vmbus_addr_t *a2 = v2;
 
-  return uuid_compare (a1->guid, a2->guid);
+  for (int i = 0; i < ARRAY_LEN (a1->guid); i++)
+    if (a1->guid[i] > a2->guid[i])
+      return 1;
+    else if (a1->guid[i] < a2->guid[i])
+      return -1;
+
+  return 0;
 }
 
 vlib_vmbus_addr_t *
@@ -416,17 +445,4 @@ linux_vmbus_init (vlib_main_t * vm)
   return 0;
 }
 
-/* *INDENT-OFF* */
-VLIB_INIT_FUNCTION (linux_vmbus_init) =
-{
-  .runs_before = VLIB_INITS("unix_input_init"),
-};
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+VLIB_INIT_FUNCTION (linux_vmbus_init);

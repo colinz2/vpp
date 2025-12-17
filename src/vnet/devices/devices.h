@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef included_vnet_vnet_device_h
@@ -67,8 +57,6 @@ typedef struct
 
 extern vnet_device_main_t vnet_device_main;
 extern vlib_node_registration_t device_input_node;
-extern const u32 device_input_next_node_advance[];
-extern const u32 device_input_next_node_flags[];
 
 static inline u64
 vnet_get_aggregate_rx_packets (void)
@@ -83,7 +71,7 @@ vnet_get_aggregate_rx_packets (void)
 }
 
 static inline void
-vnet_device_increment_rx_packets (u32 thread_index, u64 count)
+vnet_device_increment_rx_packets (clib_thread_index_t thread_index, u64 count)
 {
   vnet_device_main_t *vdm = &vnet_device_main;
   vnet_device_per_worker_data_t *pwd;
@@ -93,11 +81,3 @@ vnet_device_increment_rx_packets (u32 thread_index, u64 count)
 }
 
 #endif /* included_vnet_vnet_device_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

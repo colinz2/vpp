@@ -1,19 +1,8 @@
-/*
- * l2_output.c : layer 2 output packet processing
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2013 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* l2_output.c : layer 2 output packet processing */
 
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
@@ -443,7 +432,6 @@ VLIB_NODE_FN (l2output_node) (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (l2output_node) = {
   .name = "l2-output",
   .vector_size = sizeof (u32),
@@ -461,7 +449,6 @@ VLIB_REGISTER_NODE (l2output_node) = {
         [L2OUTPUT_NEXT_BAD_INTF] = "l2-output-bad-intf",
   },
 };
-/* *INDENT-ON* */
 
 
 #define foreach_l2output_bad_intf_error	\
@@ -549,7 +536,6 @@ VLIB_NODE_FN (l2output_bad_intf_node) (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (l2output_bad_intf_node) = {
   .name = "l2-output-bad-intf",
   .vector_size = sizeof (u32),
@@ -565,7 +551,6 @@ VLIB_REGISTER_NODE (l2output_bad_intf_node) = {
 	[0] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 l2output_init (vlib_main_t * vm)
@@ -642,11 +627,3 @@ l2output_intf_bitmap_enable (u32 sw_if_index,
     }
 }
 #endif
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * interface.h: VNET interfaces/sub-interfaces
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* interface.h: VNET interfaces/sub-interfaces */
 
 #ifndef included_vnet_interface_h
 #define included_vnet_interface_h
@@ -97,6 +65,35 @@ typedef clib_error_t *(vnet_interface_set_l2_mode_function_t)
 typedef clib_error_t *(vnet_interface_rss_queues_set_t)
   (struct vnet_main_t * vnm, struct vnet_hw_interface_t * hi,
    clib_bitmap_t * bitmap);
+
+/* Interface EEPROM types */
+#define foreach_vnet_interface_eeprom_type                                    \
+  _ (UNKNOWN, 0x00, "unknown")                                                \
+  _ (SFF8079, 0x01, "SFF-8079")                                               \
+  _ (SFF8472, 0x02, "SFF-8472")                                               \
+  _ (SFF8636, 0x03, "SFF-8636")                                               \
+  _ (SFF8436, 0x04, "SFF-8436")
+
+typedef enum
+{
+#define _(n, v, s) VNET_INTERFACE_EEPROM_TYPE_##n = v,
+  foreach_vnet_interface_eeprom_type
+#undef _
+} vnet_interface_eeprom_type_t;
+
+/* EEPROM structure for physical network devices */
+typedef struct
+{
+  vnet_interface_eeprom_type_t eeprom_type; /* from linux/ethtool.h */
+  u32 eeprom_len;
+  u8 eeprom_raw[1024];
+} vnet_interface_eeprom_t;
+
+/* Interface EEPROM read function */
+typedef clib_error_t *(
+  vnet_interface_eeprom_read_t) (struct vnet_main_t *vnm,
+				 struct vnet_hw_interface_t *hi,
+				 vnet_interface_eeprom_t **eeprom);
 
 typedef enum
 {
@@ -190,6 +187,22 @@ static __clib_unused void * __clib_unused_##f = f;
   _VNET_INTERFACE_FUNCTION_DECL(f,sw_interface_admin_up_down)
 #define VNET_SW_INTERFACE_ADMIN_UP_DOWN_FUNCTION_PRIO(f,p)     	\
   _VNET_INTERFACE_FUNCTION_DECL_PRIO(f,sw_interface_admin_up_down, p)
+
+#define VNET_SW_INTERFACE_TABLE_BIND_V4_CB(f)                                 \
+  {                                                                           \
+    ip4_table_bind_callback_t cb = {                                          \
+      .function = f,                                                          \
+    };                                                                        \
+    vec_add1 (ip4_main.table_bind_callbacks, cb);                             \
+  }
+
+#define VNET_SW_INTERFACE_TABLE_BIND_V6_CB(f)                                 \
+  {                                                                           \
+    ip6_table_bind_callback_t cb = {                                          \
+      .function = f,                                                          \
+    };                                                                        \
+    vec_add1 (ip6_main.table_bind_callbacks, cb);                             \
+  }
 
 /**
  * Tunnel description parameters
@@ -290,7 +303,12 @@ typedef struct _vnet_device_class
   /* Interface to set rss queues of the interface */
   vnet_interface_rss_queues_set_t *set_rss_queues_function;
 
+  /* Function to read EEPROM data from physical network device */
+  vnet_interface_eeprom_read_t *eeprom_read_function;
+
 } vnet_device_class_t;
+
+u32 vnet_register_device_class (vlib_main_t *, vnet_device_class_t *);
 
 #ifndef CLIB_MARCH_VARIANT
 #define VNET_DEVICE_CLASS(x,...)                                        \
@@ -547,12 +565,13 @@ typedef enum vnet_hw_interface_flags_t_
   _ (16, UDP_TNL_GSO, "udp-tnl-gso")                                          \
   _ (17, IP_TNL_GSO, "ip-tnl-gso")                                            \
   _ (18, TCP_LRO, "tcp-lro")                                                  \
+  _ (19, TX_FIXED_OFFSET, "fixed-offset") /* virtual interfaces */            \
   _ (30, INT_MODE, "int-mode")                                                \
   _ (31, MAC_FILTER, "mac-filter")
 
 typedef enum vnet_hw_if_caps_t_
 {
-  VNET_HW_INTERFACE_CAP_NONE,
+  VNET_HW_IF_CAP_NONE,
 #define _(bit, sfx, str) VNET_HW_IF_CAP_##sfx = (1 << (bit)),
   foreach_vnet_hw_if_caps
 #undef _
@@ -597,7 +616,7 @@ typedef struct
   u32 dev_instance;
 
   /* index of thread pollling this queue */
-  u32 thread_index;
+  clib_thread_index_t thread_index;
 
   /* file index of queue interrupt line */
   u32 file_index;
@@ -1051,6 +1070,7 @@ typedef struct
 
   /* feature_arc_index */
   u8 output_feature_arc_index;
+  u8 drop_feature_arc_index;
 
   /* fast lookup tables */
   u32 *hw_if_index_by_sw_if_index;
@@ -1100,15 +1120,9 @@ typedef struct
 
 int vnet_pcap_dispatch_trace_configure (vnet_pcap_dispatch_trace_args_t *);
 
+u8 *format_vnet_interface_eeprom_type (u8 *s, va_list *args);
+
 extern vlib_node_registration_t vnet_interface_output_node;
 extern vlib_node_registration_t vnet_interface_output_arc_end_node;
 
 #endif /* included_vnet_interface_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

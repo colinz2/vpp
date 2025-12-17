@@ -1,22 +1,13 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef SRC_VNET_SESSION_TRANSPORT_H_
 #define SRC_VNET_SESSION_TRANSPORT_H_
 
 #include <vnet/vnet.h>
+#include <vnet/session/session_types.h>
 #include <vnet/session/transport_types.h>
 
 #define TRANSPORT_PACER_MIN_MSS 	1460
@@ -66,7 +57,6 @@ typedef struct transport_send_params_
 /*
  * Transport protocol virtual function table
  */
-/* *INDENT-OFF* */
 typedef struct _transport_proto_vft
 {
   /*
@@ -75,10 +65,12 @@ typedef struct _transport_proto_vft
   u32 (*start_listen) (u32 session_index, transport_endpoint_cfg_t *lcl);
   u32 (*stop_listen) (u32 conn_index);
   int (*connect) (transport_endpoint_cfg_t * rmt);
-  void (*half_close) (u32 conn_index, u32 thread_index);
-  void (*close) (u32 conn_index, u32 thread_index);
-  void (*reset) (u32 conn_index, u32 thread_index);
-  void (*cleanup) (u32 conn_index, u32 thread_index);
+  int (*connect_stream) (transport_endpoint_cfg_t *rmt,
+			 session_t *session_index, u32 *conn_index);
+  void (*half_close) (u32 conn_index, clib_thread_index_t thread_index);
+  void (*close) (u32 conn_index, clib_thread_index_t thread_index);
+  void (*reset) (u32 conn_index, clib_thread_index_t thread_index);
+  void (*cleanup) (u32 conn_index, clib_thread_index_t thread_index);
   void (*cleanup_ho) (u32 conn_index);
   clib_error_t *(*enable) (vlib_main_t * vm, u8 is_en);
 
@@ -98,9 +90,12 @@ typedef struct _transport_proto_vft
   /*
    * Connection retrieval
    */
-  transport_connection_t *(*get_connection) (u32 conn_idx, u32 thread_idx);
+  transport_connection_t *(*get_connection) (u32 conn_idx,
+					     clib_thread_index_t thread_idx);
   transport_connection_t *(*get_listener) (u32 conn_index);
   transport_connection_t *(*get_half_open) (u32 conn_index);
+  session_handle_t (*get_next_transport) (u32 conn_idx,
+					  clib_thread_index_t tidx);
 
   /*
    * Format
@@ -112,20 +107,23 @@ typedef struct _transport_proto_vft
   /*
    *  Properties retrieval/setting
    */
-  void (*get_transport_endpoint) (u32 conn_index, u32 thread_index,
-				  transport_endpoint_t *tep, u8 is_lcl);
+  void (*get_transport_endpoint) (u32 conn_index,
+				  clib_thread_index_t thread_index,
+				  transport_endpoint_t *tep_rmt,
+				  transport_endpoint_t *tep_lcl);
   void (*get_transport_listener_endpoint) (u32 conn_index,
-					   transport_endpoint_t *tep,
-					   u8 is_lcl);
-  int (*attribute) (u32 conn_index, u32 thread_index, u8 is_get,
-		    transport_endpt_attr_t *attr);
+					   transport_endpoint_t *tep_rmt,
+					   transport_endpoint_t *tep_lcl);
+  int (*attribute) (u32 conn_index, clib_thread_index_t thread_index,
+		    u8 is_get, transport_endpt_attr_t *attr);
+  tls_alpn_proto_t (*get_alpn_selected) (u32 conn_index,
+					 clib_thread_index_t thread_index);
 
   /*
    * Properties
    */
   transport_options_t transport_options;
 } transport_proto_vft_t;
-/* *INDENT-ON* */
 
 extern transport_proto_vft_t *tp_vfts;
 
@@ -135,6 +133,9 @@ extern transport_proto_vft_t *tp_vfts;
       if (VAR_ALLOW_BM & (1 << VAR))
 
 int transport_connect (transport_proto_t tp, transport_endpoint_cfg_t * tep);
+int transport_connect_stream (transport_proto_t tp,
+			      transport_endpoint_cfg_t *tep,
+			      session_t *stream_session, u32 *conn_index);
 void transport_half_close (transport_proto_t tp, u32 conn_index,
 			   u8 thread_index);
 void transport_close (transport_proto_t tp, u32 conn_index, u8 thread_index);
@@ -146,19 +147,33 @@ void transport_cleanup (transport_proto_t tp, u32 conn_index,
 			u8 thread_index);
 void transport_cleanup_half_open (transport_proto_t tp, u32 conn_index);
 void transport_get_endpoint (transport_proto_t tp, u32 conn_index,
-			     u32 thread_index, transport_endpoint_t * tep,
-			     u8 is_lcl);
+			     clib_thread_index_t thread_index,
+			     transport_endpoint_t *tep_rmt,
+			     transport_endpoint_t *tep_lcl);
 void transport_get_listener_endpoint (transport_proto_t tp, u32 conn_index,
-				      transport_endpoint_t * tep, u8 is_lcl);
+				      transport_endpoint_t *tep_rmt,
+				      transport_endpoint_t *tep_lcl);
 int transport_connection_attribute (transport_proto_t tp, u32 conn_index,
 				    u8 thread_index, u8 is_get,
 				    transport_endpt_attr_t *attr);
+tls_alpn_proto_t
+transport_get_alpn_selected (transport_proto_t tp, u32 conn_index,
+			     clib_thread_index_t thread_index);
 
 static inline transport_connection_t *
 transport_get_connection (transport_proto_t tp, u32 conn_index,
 			  u8 thread_index)
 {
   return tp_vfts[tp].get_connection (conn_index, thread_index);
+}
+
+static inline session_handle_t
+transport_get_next_transport (transport_proto_t tp, u32 conn_index,
+			      u8 thread_index)
+{
+  if (!tp_vfts[tp].get_next_transport)
+    return SESSION_INVALID_HANDLE;
+  return tp_vfts[tp].get_next_transport (conn_index, thread_index);
 }
 
 static inline transport_connection_t *
@@ -181,7 +196,8 @@ transport_custom_tx (transport_proto_t tp, void *s,
 }
 
 static inline int
-transport_app_rx_evt (transport_proto_t tp, u32 conn_index, u32 thread_index)
+transport_app_rx_evt (transport_proto_t tp, u32 conn_index,
+		      clib_thread_index_t thread_index)
 {
   transport_connection_t *tc;
   if (!tp_vfts[tp].app_rx_evt)
@@ -250,10 +266,13 @@ int transport_alloc_local_port (u8 proto, ip46_address_t *ip,
 				transport_endpoint_cfg_t *rmt);
 int transport_alloc_local_endpoint (u8 proto, transport_endpoint_cfg_t *rmt,
 				    ip46_address_t *lcl_addr, u16 *lcl_port);
-void transport_share_local_endpoint (u8 proto, ip46_address_t * lcl_ip,
-				     u16 port);
-int transport_release_local_endpoint (u8 proto, ip46_address_t *lcl_ip,
-				      u16 port);
+void transport_share_local_endpoint (u8 proto, u32 fib_index,
+				     ip46_address_t *lcl_ip, u16 port);
+int transport_release_local_endpoint (u8 proto, u32 fib_index,
+				      ip46_address_t *lcl_ip, u16 port);
+u16 transport_port_alloc_max_tries ();
+u32 transport_port_local_in_use ();
+void transport_clear_stats ();
 void transport_enable_disable (vlib_main_t * vm, u8 is_en);
 void transport_init (void);
 
@@ -367,14 +386,7 @@ transport_connection_tx_pacer_update_bytes (transport_connection_t * tc,
  * @param thread_index	thread for which time is updated
  * @param now		time now
  */
-void transport_update_pacer_time (u32 thread_index, clib_time_type_t now);
+void transport_update_pacer_time (clib_thread_index_t thread_index,
+				  clib_time_type_t now);
 
 #endif /* SRC_VNET_SESSION_TRANSPORT_H_ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

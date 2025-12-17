@@ -1,22 +1,12 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/vnet.h>
 #include <vnet/devices/devices.h>
 #include <vnet/interface/rx_queue_funcs.h>
-#include <vlib/unix/unix.h>
+#include <vlib/file.h>
 
 VLIB_REGISTER_LOG_CLASS (if_rxq_log, static) = {
   .class_name = "interface",
@@ -27,7 +17,7 @@ VLIB_REGISTER_LOG_CLASS (if_rxq_log, static) = {
 #define log_err(fmt, ...)   vlib_log_err (if_rxq_log.class, fmt, __VA_ARGS__)
 
 static u32
-next_thread_index (vnet_main_t *vnm, u32 thread_index)
+next_thread_index (vnet_main_t *vnm, clib_thread_index_t thread_index)
 {
   vnet_device_main_t *vdm = &vnet_device_main;
   if (vdm->first_worker_thread_index == 0)
@@ -62,7 +52,7 @@ vnet_hw_if_get_rx_queue_index_by_id (vnet_main_t *vnm, u32 hw_if_index,
 
 u32
 vnet_hw_if_register_rx_queue (vnet_main_t *vnm, u32 hw_if_index, u32 queue_id,
-			      u32 thread_index)
+			      clib_thread_index_t thread_index)
 {
   vnet_interface_main_t *im = &vnm->interface_main;
   vnet_hw_interface_t *hi = vnet_get_hw_interface (vnm, hw_if_index);
@@ -225,7 +215,7 @@ vnet_hw_if_get_rx_queue_mode (vnet_main_t *vnm, u32 queue_index)
 
 void
 vnet_hw_if_set_rx_queue_thread_index (vnet_main_t *vnm, u32 queue_index,
-				      u32 thread_index)
+				      clib_thread_index_t thread_index)
 {
   vnet_hw_if_rx_queue_t *rxq = vnet_hw_if_get_rx_queue (vnm, queue_index);
   vnet_hw_interface_t *hi = vnet_get_hw_interface (vnm, rxq->hw_if_index);
@@ -252,13 +242,11 @@ vnet_hw_if_generate_rxq_int_poll_vector (vlib_main_t *vm,
 
   vec_reset_length (rt->rxq_vector_int);
 
-  while ((int_num = clib_interrupt_get_next (rt->rxq_interrupts, int_num)) !=
-	 -1)
+  while ((int_num = clib_interrupt_get_next_and_clear (rt->rxq_interrupts,
+						       int_num)) != -1)
     {
       vnet_hw_if_rx_queue_t *rxq = vnet_hw_if_get_rx_queue (vnm, int_num);
       vnet_hw_if_rxq_poll_vector_t *pv;
-
-      clib_interrupt_clear (rt->rxq_interrupts, int_num);
 
       vec_add2 (rt->rxq_vector_int, pv, 1);
       pv->dev_instance = rxq->dev_instance;
@@ -266,11 +254,3 @@ vnet_hw_if_generate_rxq_int_poll_vector (vlib_main_t *vm,
     }
   return rt->rxq_vector_int;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

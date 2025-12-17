@@ -1,24 +1,15 @@
-/*
- *------------------------------------------------------------------
- * af_packet.c - linux kernel packet interface
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * af_packet.c - linux kernel packet interface
  */
 
 #include <linux/if_ether.h>
 #include <linux/if_packet.h>
+#include <linux/ethtool.h>
+#include <linux/sockios.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
 #include <dirent.h>
@@ -28,7 +19,7 @@
 
 #include <vppinfra/linux/sysfs.h>
 #include <vlib/vlib.h>
-#include <vlib/unix/unix.h>
+#include <vlib/file.h>
 #include <vnet/ip/ip.h>
 #include <vnet/devices/netlink.h>
 #include <vnet/ethernet/ethernet.h>
@@ -58,6 +49,66 @@ VNET_HW_INTERFACE_CLASS (af_packet_ip_device_hw_interface_class, static) = {
 
 /*defined in net/if.h but clashes with dpdk headers */
 unsigned int if_nametoindex (const char *ifname);
+
+#define AF_PACKET_IOCTL(fd, a, ...)                                           \
+  if (ioctl (fd, a, __VA_ARGS__) < 0)                                         \
+    {                                                                         \
+      err = clib_error_return_unix (0, "ioctl(" #a ")");                      \
+      vlib_log_err (af_packet_main.log_class, "%U", format_clib_error, err);  \
+      goto done;                                                              \
+    }
+
+u32
+af_packet_get_if_capabilities (u8 *host_if_name)
+{
+  struct ifreq ifr;
+  struct ethtool_value e; // { __u32 cmd; __u32 data; };
+  clib_error_t *err = 0;
+  int ctl_fd = -1;
+  u32 oflags = 0;
+
+  if ((ctl_fd = socket (AF_INET, SOCK_STREAM, 0)) == -1)
+    {
+      clib_warning ("Cannot open control socket");
+      goto done;
+    }
+
+  clib_memset (&ifr, 0, sizeof (ifr));
+  clib_memcpy (ifr.ifr_name, host_if_name,
+	       strlen ((const char *) host_if_name));
+  ifr.ifr_data = (void *) &e;
+
+  e.cmd = ETHTOOL_GRXCSUM;
+  AF_PACKET_IOCTL (ctl_fd, SIOCETHTOOL, &ifr);
+  if (e.data)
+    oflags |= AF_PACKET_OFFLOAD_FLAG_RXCKSUM;
+
+  e.cmd = ETHTOOL_GTXCSUM;
+  AF_PACKET_IOCTL (ctl_fd, SIOCETHTOOL, &ifr);
+  if (e.data)
+    oflags |= AF_PACKET_OFFLOAD_FLAG_TXCKSUM;
+
+  e.cmd = ETHTOOL_GTSO;
+  AF_PACKET_IOCTL (ctl_fd, SIOCETHTOOL, &ifr);
+  if (e.data)
+    oflags |= AF_PACKET_OFFLOAD_FLAG_TSO;
+
+  e.cmd = ETHTOOL_GGSO;
+  AF_PACKET_IOCTL (ctl_fd, SIOCETHTOOL, &ifr);
+  if (e.data)
+    oflags |= AF_PACKET_OFFLOAD_FLAG_GSO;
+
+  e.cmd = ETHTOOL_GGRO;
+  AF_PACKET_IOCTL (ctl_fd, SIOCETHTOOL, &ifr);
+  if (e.data)
+    oflags |= AF_PACKET_OFFLOAD_FLAG_GRO;
+
+done:
+  if (ctl_fd != -1)
+    close (ctl_fd);
+
+  return oflags;
+}
 
 static clib_error_t *
 af_packet_eth_set_max_frame_size (vnet_main_t *vnm, vnet_hw_interface_t *hi,
@@ -122,8 +173,9 @@ af_packet_fd_error (clib_file_t *uf)
   if (ret < 0)
     {
       err = clib_error_return_unix (0, "");
-      vlib_log_notice (apm->log_class, "fd %u %U", uf->file_descriptor,
-		       format_clib_error, err);
+      vlib_log_err (apm->log_class, "fd %u reason %U", uf->file_descriptor,
+		    format_clib_error, err);
+
       clib_error_free (err);
     }
 
@@ -169,7 +221,6 @@ af_packet_set_rx_queues (vlib_main_t *vm, af_packet_if_t *apif)
 	template.error_function = af_packet_fd_error;
 	template.file_descriptor = rx_queue->fd;
 	template.private_data = rx_queue->queue_index;
-	template.flags = UNIX_FILE_EVENT_EDGE_TRIGGERED;
 	template.description =
 	  format (0, "%U queue %u", format_af_packet_device_name,
 		  apif->dev_instance, rx_queue->queue_id);
@@ -372,6 +423,14 @@ error:
   return ret;
 }
 
+static u32
+af_packet_make_fanout_id (af_packet_if_t *apif)
+{
+  u16 if_hash =
+    hash_memory (apif->host_if_name, strlen ((char *) apif->host_if_name), 0);
+  return (apif->dev_instance & 0xffff) ^ (if_hash & 0xff00);
+}
+
 int
 af_packet_queue_init (vlib_main_t *vm, af_packet_if_t *apif,
 		      af_packet_create_if_arg_t *arg,
@@ -444,13 +503,14 @@ af_packet_queue_init (vlib_main_t *vm, af_packet_if_t *apif,
 
   if (rx_queue || tx_queue)
     {
-      ret =
-	create_packet_sock (apif->host_if_index, rx_req, tx_req, &fd, &ring,
-			    apif->dev_instance, &arg->flags, apif->version);
+      ret = create_packet_sock (apif->host_if_index, rx_req, tx_req, &fd,
+				&ring, af_packet_make_fanout_id (apif),
+				&arg->flags, apif->version);
 
       if (ret != 0)
 	goto error;
 
+      vec_add1 (apif->fds, fd);
       vec_add1 (apif->rings, ring);
       ring_addr = ring.ring_start_addr;
     }
@@ -566,12 +626,14 @@ af_packet_create_if (af_packet_create_if_arg_t *arg)
   u8 hw_addr[6];
   vnet_sw_interface_t *sw;
   vnet_main_t *vnm = vnet_get_main ();
-  vnet_hw_if_caps_t caps = VNET_HW_IF_CAP_INT_MODE;
+  vnet_hw_if_caps_t caps =
+    VNET_HW_IF_CAP_INT_MODE | VNET_HW_IF_CAP_TX_FIXED_OFFSET;
   uword *p;
   uword if_index;
   u8 *host_if_name_dup = 0;
   int host_if_index = -1;
   int ret = 0;
+  u32 oflags = 0, i = 0;
 
   p = mhash_get (&apm->if_index_by_host_if_name, arg->host_if_name);
   if (p)
@@ -637,6 +699,9 @@ af_packet_create_if (af_packet_create_if_arg_t *arg)
       fd2 = -1;
     }
 
+  // check the host interface capabilities
+  oflags = af_packet_get_if_capabilities (arg->host_if_name);
+
   ret = is_bridge (arg->host_if_name);
   if (ret == 0)			/* is a bridge, ignore state */
     host_if_index = -1;
@@ -650,6 +715,7 @@ af_packet_create_if (af_packet_create_if_arg_t *arg)
   apif->host_if_name = host_if_name_dup;
   apif->per_interface_next_index = ~0;
   apif->mode = arg->mode;
+  apif->host_interface_oflags = oflags;
 
   if (arg->is_v2)
     apif->version = TPACKET_V2;
@@ -709,12 +775,21 @@ af_packet_create_if (af_packet_create_if_arg_t *arg)
     (arg->flags & AF_PACKET_IF_FLAGS_QDISC_BYPASS);
 
   if (arg->flags & AF_PACKET_IF_FLAGS_CKSUM_GSO)
-    apif->is_cksum_gso_enabled = 1;
+    {
+      if (apif->host_interface_oflags & AF_PACKET_OFFLOAD_FLAG_TXCKSUM)
+	{
+	  apif->is_cksum_gso_enabled = 1;
+	  caps |= VNET_HW_IF_CAP_TX_IP4_CKSUM | VNET_HW_IF_CAP_TX_TCP_CKSUM |
+		  VNET_HW_IF_CAP_TX_UDP_CKSUM;
+	}
 
-  if (apif->is_cksum_gso_enabled)
-    caps |= VNET_HW_IF_CAP_TCP_GSO | VNET_HW_IF_CAP_TX_IP4_CKSUM |
-	    VNET_HW_IF_CAP_TX_TCP_CKSUM | VNET_HW_IF_CAP_TX_UDP_CKSUM;
-
+      if (apif->host_interface_oflags & AF_PACKET_OFFLOAD_FLAG_GSO)
+	{
+	  apif->is_cksum_gso_enabled = 1;
+	  caps |= VNET_HW_IF_CAP_TCP_GSO | VNET_HW_IF_CAP_TX_IP4_CKSUM |
+		  VNET_HW_IF_CAP_TX_TCP_CKSUM | VNET_HW_IF_CAP_TX_UDP_CKSUM;
+	}
+    }
   vnet_hw_if_set_caps (vnm, apif->hw_if_index, caps);
   vnet_hw_interface_set_flags (vnm, apif->hw_if_index,
 			       VNET_HW_INTERFACE_FLAG_LINK_UP);
@@ -731,9 +806,15 @@ error:
       close (fd2);
       fd2 = -1;
     }
+
   vec_free (host_if_name_dup);
+
   if (apif)
     {
+      vec_foreach_index (i, apif->fds)
+	if (apif->fds[i] != -1)
+	  close (apif->fds[i]);
+      vec_free (apif->fds);
       memset (apif, 0, sizeof (*apif));
       pool_put (apm->interfaces, apif);
     }
@@ -744,7 +825,6 @@ static int
 af_packet_rx_queue_free (af_packet_if_t *apif, af_packet_queue_t *rx_queue)
 {
   clib_file_del_by_index (&file_main, rx_queue->clib_file_index);
-  close (rx_queue->fd);
   rx_queue->fd = -1;
   rx_queue->rx_ring = NULL;
   vec_free (rx_queue->rx_req);
@@ -755,7 +835,6 @@ af_packet_rx_queue_free (af_packet_if_t *apif, af_packet_queue_t *rx_queue)
 static int
 af_packet_tx_queue_free (af_packet_if_t *apif, af_packet_queue_t *tx_queue)
 {
-  close (tx_queue->fd);
   tx_queue->fd = -1;
   clib_spinlock_free (&tx_queue->lockp);
   tx_queue->tx_ring = NULL;
@@ -794,6 +873,7 @@ af_packet_delete_if (u8 *host_if_name)
   af_packet_queue_t *tx_queue;
   af_packet_ring_t *ring;
   uword *p;
+  u32 i = 0;
 
   p = mhash_get (&apm->if_index_by_host_if_name, host_if_name);
   if (p == NULL)
@@ -812,6 +892,9 @@ af_packet_delete_if (u8 *host_if_name)
     vnet_delete_hw_interface (vnm, apif->hw_if_index);
 
   /* clean up */
+  vec_foreach_index (i, apif->fds)
+    if (apif->fds[i] != -1)
+      close (apif->fds[i]);
   vec_foreach (rx_queue, apif->rx_queues)
     af_packet_rx_queue_free (apif, rx_queue);
   vec_foreach (tx_queue, apif->tx_queues)
@@ -819,6 +902,8 @@ af_packet_delete_if (u8 *host_if_name)
   vec_foreach (ring, apif->rings)
     af_packet_ring_free (apif, ring);
 
+  vec_free (apif->fds);
+  apif->fds = NULL;
   vec_free (apif->rx_queues);
   apif->rx_queues = NULL;
   vec_free (apif->tx_queues);
@@ -835,6 +920,60 @@ af_packet_delete_if (u8 *host_if_name)
   memset (apif, 0, sizeof (*apif));
   pool_put (apm->interfaces, apif);
 
+  return 0;
+}
+
+int
+af_packet_enable_disable_qdisc_bypass (u32 sw_if_index, u8 enable_disable)
+{
+  af_packet_main_t *apm = &af_packet_main;
+  af_packet_if_t *apif;
+  vnet_main_t *vnm = vnet_get_main ();
+  vnet_hw_interface_t *hw;
+  u32 i;
+
+  hw = vnet_get_sup_hw_interface_api_visible_or_null (vnm, sw_if_index);
+
+  if (hw->dev_class_index != af_packet_device_class.index)
+    return VNET_API_ERROR_INVALID_INTERFACE;
+
+  apif = pool_elt_at_index (apm->interfaces, hw->dev_instance);
+
+#if defined(PACKET_QDISC_BYPASS)
+  vec_foreach_index (i, apif->fds)
+    {
+      if (enable_disable)
+	{
+	  int opt = 1;
+
+	  /* Introduced with Linux 3.14 so the ifdef should eventually be
+	   * removed  */
+	  if (setsockopt (apif->fds[i], SOL_PACKET, PACKET_QDISC_BYPASS, &opt,
+			  sizeof (opt)) < 0)
+	    {
+	      vlib_log_err (apm->log_class,
+			    "Failed to enable qdisc bypass error "
+			    "handling option: %s (errno %d)",
+			    strerror (errno), errno);
+	    }
+	  apif->is_qdisc_bypass_enabled = 1;
+	}
+      else
+	{
+	  int opt = 0;
+	  if (setsockopt (apif->fds[i], SOL_PACKET, PACKET_QDISC_BYPASS, &opt,
+			  sizeof (opt)) < 0)
+	    {
+	      vlib_log_err (apm->log_class,
+			    "Failed to disable qdisc bypass error "
+			    "handling option: %s (errno %d)",
+			    strerror (errno), errno);
+	    }
+	  apif->is_qdisc_bypass_enabled = 0;
+	}
+    }
+
+#endif
   return 0;
 }
 
@@ -890,11 +1029,3 @@ af_packet_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (af_packet_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

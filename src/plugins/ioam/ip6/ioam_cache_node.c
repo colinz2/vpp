@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /*
  * This file implements caching of ioam header and reattaching
  * it in response message by performing request-response matching.
@@ -179,7 +170,6 @@ ip6_ioam_cache_node_fn (vlib_main_t * vm,
 /*
  * Node for IP6 iOAM header cache
  */
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ioam_cache_node) =
 {
   .function = ip6_ioam_cache_node_fn,
@@ -196,7 +186,6 @@ VLIB_REGISTER_NODE (ioam_cache_node) =
     [IOAM_CACHE_NEXT_POP_HBYH] = "ip6-pop-hop-by-hop"
   },
 };
-/* *INDENT-ON* */
 
 typedef struct
 {
@@ -356,7 +345,7 @@ VLIB_NODE_FN (ip6_add_from_cache_hbh_node) (vlib_main_t * vm,
 
 	  /* Patch the protocol chain, insert the h-b-h (type 0) header */
 	  srh0->protocol = ip0->protocol;
-	  hbh0->protocol = IPPROTO_IPV6_ROUTE;
+	  hbh0->protocol = IP_PROTOCOL_IPV6_ROUTE;
 	  ip0->protocol = 0;
 	  new_l0 =
 	    clib_net_to_host_u16 (ip0->payload_length) + rewrite_len +
@@ -386,7 +375,6 @@ VLIB_NODE_FN (ip6_add_from_cache_hbh_node) (vlib_main_t * vm,
 			       processed);
   return frame->n_vectors;
 }
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_add_from_cache_hbh_node) =
 {
   .name = "ip6-add-from-cache-hop-by-hop",
@@ -404,12 +392,3 @@ VLIB_REGISTER_NODE (ip6_add_from_cache_hbh_node) =
 #undef _
   },
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

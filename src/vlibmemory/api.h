@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2009 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #ifndef included_vlibmemory_api_common_h
@@ -28,7 +15,6 @@
 void vl_api_rpc_call_main_thread (void *fp, u8 * data, u32 data_length);
 void vl_api_force_rpc_call_main_thread (void *fp, u8 * data, u32 data_length);
 u16 vl_client_get_first_plugin_msg_id (const char *plugin_name);
-void vl_api_send_pending_rpc_requests (vlib_main_t * vm);
 u8 *vl_api_serialize_message_table (api_main_t * am, u8 * vector);
 
 always_inline void
@@ -164,11 +150,3 @@ void sockclnt_close_index (u32 index);
 void vl_client_msg_api_send (vl_api_registration_t * cm, u8 * elem);
 
 #endif /* included_vlibmemory_api_common_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

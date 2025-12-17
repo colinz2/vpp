@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #define _GNU_SOURCE
@@ -67,12 +54,37 @@ format_memif_device (u8 * s, va_list * args)
   u32 dev_instance = va_arg (*args, u32);
   int verbose = va_arg (*args, int);
   u32 indent = format_get_indent (s);
+  memif_main_t *mm = &memif_main;
+  memif_queue_t *mq;
+  uword i;
 
   s = format (s, "MEMIF interface");
   if (verbose)
     {
       s = format (s, "\n%U instance %u", format_white_space, indent + 2,
 		  dev_instance);
+
+      memif_if_t *mif = pool_elt_at_index (mm->interfaces, dev_instance);
+      vec_foreach_index (i, mif->tx_queues)
+	{
+	  mq = vec_elt_at_index (mif->tx_queues, i);
+	  s = format (s, "\n%U master-to-slave ring %u", format_white_space,
+		      indent + 4, i);
+	  s = format (s, "\n%U packets sent: %u", format_white_space,
+		      indent + 6, mq->n_packets);
+	  s = format (s, "\n%U no tx slot: %u", format_white_space, indent + 6,
+		      mq->no_free_tx);
+	  s = format (s, "\n%U max no tx slot: %u", format_white_space,
+		      indent + 6, mq->max_no_free_tx);
+	}
+      vec_foreach_index (i, mif->rx_queues)
+	{
+	  mq = vec_elt_at_index (mif->rx_queues, i);
+	  s = format (s, "\n%U slave-to-master ring %u", format_white_space,
+		      indent + 4, i);
+	  s = format (s, "\n%U packets received: %u", format_white_space,
+		      indent + 6, mq->n_packets);
+	}
     }
   return s;
 }
@@ -111,12 +123,14 @@ memif_interface_tx_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
   memif_region_index_t last_region = ~0;
   void *last_region_shm = 0;
   u16 head, tail;
+  u64 local_n_packets = 0;
 
   ring = mq->ring;
   ring_size = 1 << mq->log2_ring_size;
   mask = ring_size - 1;
 
 retry:
+  local_n_packets = 0;
 
   if (type == MEMIF_RING_S2M)
     {
@@ -226,8 +240,10 @@ retry:
 
       buffers++;
       n_left--;
+      local_n_packets++;
     }
 no_free_slots:
+  mq->n_packets += local_n_packets;
 
   /* copy data */
   n_copy_op = vec_len (ptd->copy_ops);
@@ -291,8 +307,10 @@ memif_interface_tx_zc_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
   int n_retries = 5;
   vlib_buffer_t *b0;
   u16 head, tail;
+  u64 local_n_packets = 0;
 
 retry:
+  local_n_packets = 0;
   tail = __atomic_load_n (&ring->tail, __ATOMIC_ACQUIRE);
   slot = head = ring->head;
 
@@ -358,8 +376,10 @@ retry:
       /* next from */
       buffers++;
       n_left--;
+      local_n_packets++;
     }
 no_free_slots:
+  mq->n_packets += local_n_packets;
 
   __atomic_store_n (&ring->head, slot, __ATOMIC_RELEASE);
 
@@ -419,6 +439,7 @@ memif_interface_tx_dma_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
   memif_per_thread_data_t *ptd;
   memif_main_t *mm = &memif_main;
   u16 mif_id = mif - mm->interfaces;
+  u64 local_n_packets = 0;
 
   ring = mq->ring;
   ring_size = 1 << mq->log2_ring_size;
@@ -450,6 +471,7 @@ retry:
   head = __atomic_load_n (&ring->head, __ATOMIC_ACQUIRE);
   mq->last_tail += tail - mq->last_tail;
   free_slots = head - mq->dma_tail;
+  local_n_packets = 0;
 
   while (n_left && free_slots)
     {
@@ -543,8 +565,10 @@ retry:
 
       buffers++;
       n_left--;
+      local_n_packets += 1;
     }
 no_free_slots:
+  mq->n_packets += local_n_packets;
 
   /* copy data */
   n_copy_op = vec_len (ptd->copy_ops);
@@ -676,8 +700,13 @@ VNET_DEVICE_CLASS_TX_FN (memif_device_class) (vlib_main_t * vm,
     clib_spinlock_unlock (&mq->lockp);
 
   if (n_left)
-    vlib_error_count (vm, node->node_index, MEMIF_TX_ERROR_NO_FREE_SLOTS,
-		      n_left);
+    {
+      vlib_error_count (vm, node->node_index, MEMIF_TX_ERROR_NO_FREE_SLOTS,
+			n_left);
+      mq->no_free_tx += n_left;
+      if (n_left > mq->max_no_free_tx)
+	mq->max_no_free_tx = n_left;
+    }
 
   if ((mq->ring->flags & MEMIF_RING_FLAG_MASK_INT) == 0 && mq->int_fd > -1)
     {
@@ -721,7 +750,23 @@ memif_set_interface_next_node (vnet_main_t * vnm, u32 hw_if_index,
 static void
 memif_clear_hw_interface_counters (u32 instance)
 {
-  /* Nothing for now */
+  memif_main_t *mm = &memif_main;
+  memif_queue_t *mq;
+  uword i;
+
+  memif_if_t *mif = pool_elt_at_index (mm->interfaces, instance);
+  vec_foreach_index (i, mif->tx_queues)
+    {
+      mq = vec_elt_at_index (mif->tx_queues, i);
+      mq->n_packets = 0;
+      mq->no_free_tx = 0;
+      mq->max_no_free_tx = 0;
+    }
+  vec_foreach_index (i, mif->rx_queues)
+    {
+      mq = vec_elt_at_index (mif->rx_queues, i);
+      mq->n_packets = 0;
+    }
 }
 
 static clib_error_t *
@@ -741,16 +786,6 @@ memif_interface_rx_mode_change (vnet_main_t * vnm, u32 hw_if_index, u32 qid,
   return 0;
 }
 
-static clib_error_t *
-memif_subif_add_del_function (vnet_main_t * vnm,
-			      u32 hw_if_index,
-			      struct vnet_sw_interface_t *st, int is_add)
-{
-  /* Nothing for now */
-  return 0;
-}
-
-/* *INDENT-OFF* */
 VNET_DEVICE_CLASS (memif_device_class) = {
   .name = "memif",
   .format_device_name = format_memif_device_name,
@@ -761,16 +796,5 @@ VNET_DEVICE_CLASS (memif_device_class) = {
   .rx_redirect_to_node = memif_set_interface_next_node,
   .clear_counters = memif_clear_hw_interface_counters,
   .admin_up_down_function = memif_interface_admin_up_down,
-  .subif_add_del_function = memif_subif_add_del_function,
   .rx_mode_change_function = memif_interface_rx_mode_change,
 };
-
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,45 +1,14 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * pg_cli.c: packet generator cli
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* pg_cli.c: packet generator cli */
 
 #include <sys/stat.h>
 
 #include <vnet/vnet.h>
+#include <vnet/ethernet/ethernet.h>
 #include <vnet/pg/pg.h>
 
 #include <strings.h>
@@ -47,12 +16,10 @@
 
 
 /* Root of all packet generator cli commands. */
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (vlib_cli_pg_command, static) = {
   .path = "packet-generator",
   .short_help = "Packet generator commands",
 };
-/* *INDENT-ON* */
 
 void
 pg_enable_disable (u32 stream_index, int is_enable)
@@ -63,11 +30,9 @@ pg_enable_disable (u32 stream_index, int is_enable)
   if (stream_index == ~0)
     {
       /* No stream specified: enable/disable all streams. */
-      /* *INDENT-OFF* */
         pool_foreach (s, pg->streams)  {
             pg_stream_enable_disable (pg, s, is_enable);
         }
-	/* *INDENT-ON* */
     }
   else
     {
@@ -138,23 +103,19 @@ doit:
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (enable_streams_cli, static) = {
   .path = "packet-generator enable-stream",
   .short_help = "Enable packet generator streams",
   .function = enable_disable_stream,
   .function_arg = 1,		/* is_enable */
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (disable_streams_cli, static) = {
   .path = "packet-generator disable-stream",
   .short_help = "Disable packet generator streams",
   .function = enable_disable_stream,
   .function_arg = 0,		/* is_enable */
 };
-/* *INDENT-ON* */
 
 static u8 *
 format_pg_edit_group (u8 * s, va_list * va)
@@ -210,12 +171,10 @@ format_pg_stream (u8 * s, va_list * va)
   if (verbose)
     {
       pg_edit_group_t *g;
-  /* *INDENT-OFF* */
   vec_foreach (g, t->edit_groups)
     {
       s = format (s, "\n%U%U", format_white_space, indent, format_pg_edit_group, g);
     }
-  /* *INDENT-ON* */
     }
 
   return s;
@@ -244,23 +203,19 @@ show_streams (vlib_main_t * vm,
     }
 
   vlib_cli_output (vm, "%U", format_pg_stream, 0, 0);
-  /* *INDENT-OFF* */
   pool_foreach (s, pg->streams)  {
       vlib_cli_output (vm, "%U", format_pg_stream, s, verbose);
     }
-  /* *INDENT-ON* */
 
 done:
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_streams_cli, static) = {
   .path = "show packet-generator ",
   .short_help = "show packet-generator [verbose]",
   .function = show_streams,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 pg_pcap_read (pg_stream_t * s, char *file_name)
@@ -395,7 +350,13 @@ new_stream (vlib_main_t * vm,
 
       else if (unformat (input, "buffer-flags %U",
 			 unformat_vnet_buffer_flags, &s.buffer_flags))
-	;
+	{
+	  if (s.buffer_flags & VNET_BUFFER_F_GSO)
+	    {
+	      if (unformat (input, "gso-size %u", &s.gso_size))
+		;
+	    }
+	}
       else if (unformat (input, "buffer-offload-flags %U",
 			 unformat_vnet_buffer_offload_flags, &s.buffer_oflags))
 	;
@@ -505,7 +466,6 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (new_stream_cli, static) = {
   .path = "packet-generator new",
   .function = new_stream,
@@ -523,7 +483,6 @@ VLIB_CLI_COMMAND (new_stream_cli, static) = {
   "rate PPS             rate to transfer packet data\n"
   "maxframe NPKTS       maximum number of packets per frame\n",
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 del_stream (vlib_main_t * vm,
@@ -541,13 +500,11 @@ del_stream (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (del_stream_cli, static) = {
   .path = "packet-generator delete",
   .function = del_stream,
   .short_help = "Delete stream with given name",
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 change_stream_parameters (vlib_main_t * vm,
@@ -588,13 +545,11 @@ change_stream_parameters (vlib_main_t * vm,
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (change_stream_parameters_cli, static) = {
   .path = "packet-generator configure",
   .short_help = "Change packet generator stream parameters",
   .function = change_stream_parameters,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 pg_capture_cmd_fn (vlib_main_t * vm,
@@ -671,13 +626,11 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (pg_capture_cmd, static) = {
   .path = "packet-generator capture",
   .short_help = "packet-generator capture <interface name> pcap <filename> [count <n>]",
   .function = pg_capture_cmd_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 create_pg_if_cmd_fn (vlib_main_t * vm,
@@ -685,23 +638,29 @@ create_pg_if_cmd_fn (vlib_main_t * vm,
 {
   pg_main_t *pg = &pg_main;
   unformat_input_t _line_input, *line_input = &_line_input;
-  u32 if_id, gso_enabled = 0, gso_size = 0, coalesce_enabled = 0;
+  pg_interface_args_t args = { 0 };
   clib_error_t *error = NULL;
-  pg_interface_mode_t mode = PG_MODE_ETHERNET;
+
+  args.if_id = ~0;
+  args.flags = 0;
+  args.rv = -1;
+  args.hw_addr_set = 0;
+  args.gso_size = 0;
+  args.mode = PG_MODE_ETHERNET;
 
   if (!unformat_user (input, unformat_line_input, line_input))
     return 0;
 
   while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
     {
-      if (unformat (line_input, "interface pg%u", &if_id))
+      if (unformat (line_input, "pg%u", &args.if_id))
 	;
       else if (unformat (line_input, "coalesce-enabled"))
-	coalesce_enabled = 1;
+	args.flags |= PG_INTERFACE_FLAG_GRO_COALESCE;
       else if (unformat (line_input, "gso-enabled"))
 	{
-	  gso_enabled = 1;
-	  if (unformat (line_input, "gso-size %u", &gso_size))
+	  args.flags |= PG_INTERFACE_FLAG_GSO;
+	  if (unformat (line_input, "gso-size %u", &args.gso_size))
 	    ;
 	  else
 	    {
@@ -709,10 +668,15 @@ create_pg_if_cmd_fn (vlib_main_t * vm,
 	      goto done;
 	    }
 	}
+      else if (unformat (line_input, "csum-offload-enabled"))
+	args.flags |= PG_INTERFACE_FLAG_CSUM_OFFLOAD;
+      else if (unformat (line_input, "hw-addr %U", unformat_ethernet_address,
+			 args.hw_addr.bytes))
+	args.hw_addr_set = 1;
       else if (unformat (line_input, "mode ip4"))
-	mode = PG_MODE_IP4;
+	args.mode = PG_MODE_IP4;
       else if (unformat (line_input, "mode ip6"))
-	mode = PG_MODE_IP6;
+	args.mode = PG_MODE_IP6;
       else
 	{
 	  error = clib_error_create ("unknown input `%U'",
@@ -721,8 +685,7 @@ create_pg_if_cmd_fn (vlib_main_t * vm,
 	}
     }
 
-  pg_interface_add_or_get (pg, if_id, gso_enabled, gso_size, coalesce_enabled,
-			   mode);
+  pg_interface_add_or_get (pg, &args);
 
 done:
   unformat_free (line_input);
@@ -730,15 +693,129 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (create_pg_if_cmd, static) = {
-  .path = "create packet-generator",
-  .short_help = "create packet-generator interface <interface name>"
-		" [gso-enabled gso-size <size> [coalesce-enabled]]"
-		" [mode <ethernet | ip4 | ip6>]",
+  .path = "create packet-generator interface",
+  .short_help =
+    "create packet-generator interface <interface name>"
+    " [hw-addr <addr>] [gso-enabled gso-size <size> [coalesce-enabled]]"
+    " [csum-offload-enabled] [mode <ethernet | ip4 | ip6>]",
   .function = create_pg_if_cmd_fn,
 };
-/* *INDENT-ON* */
+
+static clib_error_t *
+delete_pg_if_cmd_fn (vlib_main_t *vm, unformat_input_t *input,
+		     vlib_cli_command_t *cmd)
+{
+  vnet_main_t *vnm = vnet_get_main ();
+  unformat_input_t _line_input, *line_input = &_line_input;
+  u32 sw_if_index = ~0;
+  int rv = 0;
+
+  if (!unformat_user (input, unformat_line_input, line_input))
+    return clib_error_return (0, "Missing <interface>");
+
+  while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (line_input, "sw_if_index %d", &sw_if_index))
+	;
+      else if (unformat (line_input, "%U", unformat_vnet_sw_interface, vnm,
+			 &sw_if_index))
+	;
+      else
+	{
+	  return clib_error_create ("unknown input `%U'",
+				    format_unformat_error, input);
+	}
+    }
+  unformat_free (line_input);
+
+  if (sw_if_index == ~0)
+    return clib_error_return (0,
+			      "please specify interface name or sw_if_index");
+
+  rv = pg_interface_delete (sw_if_index);
+  if (rv == VNET_API_ERROR_INVALID_SW_IF_INDEX)
+    return clib_error_return (0, "not a pg interface");
+  else if (rv != 0)
+    return clib_error_return (0, "error on deleting pg interface");
+
+  return 0;
+}
+
+VLIB_CLI_COMMAND (delete_pg_if_cmd, static) = {
+  .path = "delete packet-generator interface",
+  .short_help = "delete packet-generator interface {<interface name> | "
+		"sw_if_index <sw_idx>}",
+  .function = delete_pg_if_cmd_fn,
+};
+
+static u8 *
+format_pg_interface_mode (u8 *s, va_list *va)
+{
+  pg_interface_mode_t mode = va_arg (*va, pg_interface_mode_t);
+
+  if (mode == PG_MODE_IP4)
+    s = format (s, "ip4");
+  else if (mode == PG_MODE_IP6)
+    s = format (s, "ip6");
+  else // mode == PG_MODE_ETHERNET
+    s = format (s, "ethernet");
+  return s;
+}
+
+static clib_error_t *
+show_pg_if_cmd_fn (vlib_main_t *vm, unformat_input_t *input,
+		   vlib_cli_command_t *cmd)
+{
+  vnet_main_t *vnm = vnet_get_main ();
+  u32 sw_if_index = ~0;
+  pg_interface_details_t pid = { 0 };
+  int rv = 0;
+
+  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (input, "sw_if_index %d", &sw_if_index))
+	;
+      else if (unformat (input, "%U", unformat_vnet_sw_interface, vnm,
+			 &sw_if_index))
+	;
+      else
+	{
+	  return clib_error_create ("unknown input `%U'",
+				    format_unformat_error, input);
+	}
+    }
+
+  if (sw_if_index == ~0)
+    return clib_error_return (0,
+			      "please specify interface name or sw_if_index");
+
+  rv = pg_interface_details (sw_if_index, &pid);
+  if (rv == VNET_API_ERROR_INVALID_SW_IF_INDEX)
+    return clib_error_return (0, "not a pg interface");
+
+  vlib_cli_output (vm, "Interface: %U", format_vnet_hw_if_index_name, vnm,
+		   pid.hw_if_index);
+  vlib_cli_output (vm, "  id: %d", pid.id);
+  vlib_cli_output (vm, "  mode: %U", format_pg_interface_mode, pid.mode);
+  if ((pid.mode & PG_MODE_ETHERNET) == PG_MODE_ETHERNET)
+    vlib_cli_output (vm, "  hw-addr: %U", format_ethernet_address,
+		     pid.hw_addr.bytes);
+  vlib_cli_output (vm, "  csum_offload_enabled: %d", pid.csum_offload_enabled);
+  vlib_cli_output (vm, "  gso_enabled: %d", pid.gso_enabled);
+  if (pid.gso_enabled)
+    vlib_cli_output (vm, "    gso_size: %d", pid.gso_size);
+  vlib_cli_output (vm, "  coalesce_enabled: %d", pid.coalesce_enabled);
+
+  return 0;
+}
+
+VLIB_CLI_COMMAND (show_pg_if_cmd, static) = {
+  .path = "show packet-generator interface",
+  .short_help = "show packet-generator interface {<interface name> | "
+		"sw_if_index <sw_idx>}",
+  .function = show_pg_if_cmd_fn,
+};
 
 /* Dummy init function so that we can be linked in. */
 static clib_error_t *
@@ -748,11 +825,3 @@ pg_cli_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (pg_cli_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

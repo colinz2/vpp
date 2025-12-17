@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <vnet/policer/policer.h>
@@ -225,6 +216,9 @@ int
 policer_input (u32 policer_index, u32 sw_if_index, vlib_dir_t dir, bool apply)
 {
   vnet_policer_main_t *pm = &vnet_policer_main;
+
+  if (pool_is_free_index (pm->policers, policer_index))
+    return VNET_API_ERROR_NO_SUCH_ENTRY;
 
   if (apply)
     {
@@ -605,10 +599,13 @@ policer_add_command_fn (vlib_main_t *vm, unformat_input_t *input,
 	    policer_index = p[0];
 	}
 
-      if (~0 != policer_index)
+      if (~0 == policer_index)
 	{
-	  rv = policer_update (vm, policer_index, &c);
+	  error = clib_error_return (0, "Update policer failure");
+	  goto done;
 	}
+
+      rv = policer_update (vm, policer_index, &c);
     }
   else
     {
@@ -1008,13 +1005,11 @@ done:
 }
 
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_policer_command, static) = {
   .path = "show policer",
   .short_help = "show policer [name <name> | index <index>]",
   .function = show_policer_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 show_policer_pools_command_fn (vlib_main_t * vm,
@@ -1027,13 +1022,24 @@ show_policer_pools_command_fn (vlib_main_t * vm,
 		   pool_elts (pm->configs), pool_elts (pm->policers));
   return 0;
 }
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_policer_pools_command, static) = {
     .path = "show policer pools",
     .short_help = "show policer pools",
     .function = show_policer_pools_command_fn,
 };
-/* *INDENT-ON* */
+
+/*
+ * Return the number of hardware TSC timer ticks per second for the dataplane.
+ * This is approximately, but not exactly, the clock speed.
+ */
+static u64
+get_tsc_hz (void)
+{
+  f64 cpu_freq;
+
+  cpu_freq = os_cpu_clock_frequency ();
+  return (u64) cpu_freq;
+}
 
 clib_error_t *
 policer_init (vlib_main_t * vm)
@@ -1050,6 +1056,7 @@ policer_init (vlib_main_t * vm)
 
   pm->policer_config_by_name = hash_create_string (0, sizeof (uword));
   pm->policer_index_by_name = hash_create_string (0, sizeof (uword));
+  pm->tsc_hz = get_tsc_hz ();
 
   vnet_classify_register_unformat_policer_next_index_fn
     (unformat_policer_classify_next_index);
@@ -1060,13 +1067,3 @@ policer_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (policer_init);
-
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

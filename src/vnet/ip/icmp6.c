@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * ip/icmp6.c: ip6 icmp
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* ip/icmp6.c: ip6 icmp */
 
 #include <vlib/vlib.h>
 #include <vnet/ip/ip.h>
@@ -235,7 +203,6 @@ ip6_icmp_input (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_icmp_input_node) = {
   .function = ip6_icmp_input,
   .name = "ip6-icmp-input",
@@ -252,7 +219,6 @@ VLIB_REGISTER_NODE (ip6_icmp_input_node) = {
     [ICMP_INPUT_NEXT_PUNT] = "ip6-punt",
   },
 };
-/* *INDENT-ON* */
 
 typedef enum
 {
@@ -294,7 +260,7 @@ ip6_icmp_error (vlib_main_t * vm,
   u32 *from, *to_next;
   uword n_left_from, n_left_to_next;
   ip6_icmp_error_next_t next_index;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
 
   from = vlib_frame_vector_args (frame);
   n_left_from = frame->n_vectors;
@@ -340,7 +306,7 @@ ip6_icmp_error (vlib_main_t * vm,
 
 	  if (throttle_check (&icmp_throttle, thread_index, r0, seed))
 	    {
-	      vlib_error_count (vm, node->node_index, ICMP4_ERROR_DROP, 1);
+	      vlib_error_count (vm, node->node_index, ICMP6_ERROR_DROP, 1);
 	      from += 1;
 	      n_left_from -= 1;
 	      continue;
@@ -359,14 +325,13 @@ ip6_icmp_error (vlib_main_t * vm,
 
 	  sw_if_index0 = vnet_buffer (p0)->sw_if_index[VLIB_RX];
 
-	  vlib_buffer_copy_trace_flag (vm, p0, pi0);
+	  vlib_buffer_copy_trace_flag (vm, org_p0, pi0);
 
 	  /* Add IP header and ICMPv6 header including a 4 byte data field */
 	  vlib_buffer_advance (p0,
 			       -(sizeof (ip6_header_t) +
 				 sizeof (icmp46_header_t) + 4));
 
-	  vnet_buffer (p0)->sw_if_index[VLIB_TX] = ~0;
 	  p0->flags |= VNET_BUFFER_F_LOCALLY_ORIGINATED;
 	  p0->current_length =
 	    p0->current_length > 1280 ? 1280 : p0->current_length;
@@ -427,7 +392,6 @@ ip6_icmp_error (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_icmp_error_node) = {
   .function = ip6_icmp_error,
   .name = "ip6-icmp-error",
@@ -444,7 +408,6 @@ VLIB_REGISTER_NODE (ip6_icmp_error_node) = {
 
   .format_trace = format_icmp6_input_trace,
 };
-/* *INDENT-ON* */
 
 
 static uword
@@ -650,11 +613,3 @@ icmp6_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (icmp6_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

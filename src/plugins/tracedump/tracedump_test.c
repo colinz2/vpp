@@ -1,19 +1,9 @@
-/*
- * tracedump.c - tracedump vpp-api-test plug-in
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) <current-year> <your-organization>
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* tracedump.c - tracedump vpp-api-test plug-in */
+
 #include <vat/vat.h>
 #include <vlibapi/api.h>
 #include <vlibmemory/api.h>
@@ -155,6 +145,18 @@ vl_api_trace_details_t_handler (vl_api_trace_details_t * dmp)
 	   packet_number, vl_api_format_string, (&dmp->trace_data));
 }
 
+static void
+vl_api_trace_v2_details_t_handler (vl_api_trace_v2_details_t *dmp)
+{
+  u32 thread_id, position;
+
+  thread_id = clib_net_to_host_u32 (dmp->thread_id);
+  position = clib_net_to_host_u32 (dmp->position);
+  fformat (stdout, "thread %d position %d more %d", thread_id, position,
+	   dmp->more);
+  fformat (stdout, "Packet %d\n%U\n\n", position, vl_api_format_string,
+	   (&dmp->trace_data));
+}
 
 static void
 vl_api_trace_dump_reply_t_handler (vl_api_trace_dump_reply_t * rmp)
@@ -203,7 +205,7 @@ vl_api_trace_dump_reply_t_handler (vl_api_trace_dump_reply_t * rmp)
 }
 
 static int
-api_trace_dump (vat_main_t * vam)
+api_trace_dump (vat_main_t *vam)
 {
   vl_api_trace_dump_t *mp;
   int ret;
@@ -220,8 +222,26 @@ api_trace_dump (vat_main_t * vam)
   return ret;
 }
 
+static int
+api_trace_v2_dump (vat_main_t *vam)
+{
+  vl_api_trace_v2_dump_t *mp;
+  int ret;
+
+  M (TRACE_V2_DUMP, mp);
+  mp->clear_cache = 1;
+  mp->thread_id = ~0;
+  mp->position = 0;
+  mp->max = clib_host_to_net_u32 (10);
+
+  S (mp);
+
+  W (ret);
+  return ret;
+}
+
 int
-api_trace_clear_capture (vat_main_t * vam)
+api_trace_clear_capture (vat_main_t *vam)
 {
   vl_api_trace_clear_capture_t *mp;
   int ret;
@@ -232,8 +252,49 @@ api_trace_clear_capture (vat_main_t * vam)
   return ret;
 }
 
+static int
+api_trace_clear_cache (vat_main_t *vam)
+{
+  vl_api_trace_clear_capture_t *mp;
+  int ret;
 
+  M (TRACE_CLEAR_CACHE, mp);
+  S (mp);
+  W (ret);
+  return ret;
+}
 
+static int
+api_trace_set_filter_function (vat_main_t *vam)
+{
+  vl_api_trace_set_filter_function_t *mp;
+  int ret;
+
+  M (TRACE_SET_FILTER_FUNCTION, mp);
+  S (mp);
+  W (ret);
+  return ret;
+}
+
+static int
+api_trace_filter_function_dump (vat_main_t *vam)
+{
+  vl_api_trace_filter_function_dump_t *mp;
+  int ret;
+
+  M (TRACE_FILTER_FUNCTION_DUMP, mp);
+  S (mp);
+  W (ret);
+  return ret;
+}
+
+static void
+vl_api_trace_filter_function_details_t_handler (
+  vl_api_trace_filter_function_details_t *dmp)
+{
+  fformat (stdout, "name: %U, selected: %u\n\n", vl_api_format_string,
+	   &dmp->name, dmp->selected);
+}
 
 #define vl_endianfun
 #include <tracedump/tracedump.api.h>
@@ -266,11 +327,3 @@ manual_setup_message_id_table (vat_main_t * vam)
 #define VL_API_TRACE_DUMP_REPLY_T_HANDLER
 
 #include <tracedump/tracedump.api_test.c>
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

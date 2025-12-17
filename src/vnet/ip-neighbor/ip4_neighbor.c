@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /*
  * ip/ip4_forward.c: IP v4 forwarding
  *
@@ -56,7 +47,7 @@ VLIB_REGISTER_LOG_CLASS (ip4_neighbor_log, static) = {
   vlib_log_debug (ip4_neighbor_log.class, fmt, __VA_ARGS__)
 
 void
-ip4_neighbor_probe_dst (u32 sw_if_index, u32 thread_index,
+ip4_neighbor_probe_dst (u32 sw_if_index, clib_thread_index_t thread_index,
 			const ip4_address_t *dst)
 {
   ip4_address_t src;
@@ -74,7 +65,8 @@ ip4_neighbor_probe_dst (u32 sw_if_index, u32 thread_index,
 
 void
 ip4_neighbor_advertise (vlib_main_t *vm, vnet_main_t *vnm, u32 sw_if_index,
-			u32 thread_index, const ip4_address_t *addr)
+			clib_thread_index_t thread_index,
+			const ip4_address_t *addr)
 {
   vnet_hw_interface_t *hi = vnet_get_sup_hw_interface (vnm, sw_if_index);
   ip4_main_t *i4m = &ip4_main;
@@ -142,7 +134,7 @@ ip4_arp_inline (vlib_main_t * vm,
   vnet_main_t *vnm = vnet_get_main ();
   u32 *from, *to_next_drop;
   uword n_left_from, n_left_to_next_drop, next_index;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   u64 seed;
 
   if (node->flags & VLIB_NODE_FLAG_TRACE)
@@ -187,12 +179,16 @@ ip4_arp_inline (vlib_main_t * vm,
 	      /* resolve the packet's destination */
 	      ip4_header_t *ip0 = vlib_buffer_get_current (p0);
 	      resolve0 = ip0->dst_address;
-	      src0 = adj0->sub_type.glean.rx_pfx.fp_addr.ip4;
 	    }
 	  else
+	    /* resolve the incomplete adj */
+	    resolve0 = adj0->sub_type.nbr.next_hop.ip4;
+
+	  if (is_glean && adj0->sub_type.glean.rx_pfx.fp_len)
+	    /* the glean is for a connected, local prefix */
+	    src0 = adj0->sub_type.glean.rx_pfx.fp_addr.ip4;
+	  else
 	    {
-	      /* resolve the incomplete adj */
-	      resolve0 = adj0->sub_type.nbr.next_hop.ip4;
 	      /* Src IP address in ARP header. */
 	      if (!fib_sas4_get (sw_if_index0, &resolve0, &src0) &&
 		  !ip4_sas_by_sw_if_index (sw_if_index0, &resolve0, &src0))
@@ -270,7 +266,6 @@ VLIB_NODE_FN (ip4_glean_node) (vlib_main_t * vm, vlib_node_runtime_t * node,
   return (ip4_arp_inline (vm, node, frame, 1));
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip4_arp_node) =
 {
   .name = "ip4-arp",
@@ -296,7 +291,6 @@ VLIB_REGISTER_NODE (ip4_glean_node) =
     [IP4_ARP_NEXT_DROP] = "ip4-drop",
   },
 };
-/* *INDENT-ON* */
 
 #define foreach_notrace_ip4_arp_error           \
 _(THROTTLED)                                    \
@@ -334,12 +328,3 @@ ip4_neighbor_main_loop_enter (vlib_main_t * vm)
 }
 
 VLIB_MAIN_LOOP_ENTER_FUNCTION (ip4_neighbor_main_loop_enter);
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

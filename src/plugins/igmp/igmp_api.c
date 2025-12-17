@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <igmp/igmp.h>
@@ -154,7 +141,6 @@ igmp_config_dump (igmp_main_t * im,
   igmp_group_t *group;
   igmp_src_t *src;
 
-  /* *INDENT-OFF* */
   FOR_EACH_GROUP (group, config,
     ({
       FOR_EACH_SRC (src, group, IGMP_FILTER_MODE_INCLUDE,
@@ -162,7 +148,6 @@ igmp_config_dump (igmp_main_t * im,
           send_igmp_details (rp, im, config, group, src, context);
         }));
     }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -180,12 +165,10 @@ vl_api_igmp_dump_t_handler (vl_api_igmp_dump_t * mp)
   sw_if_index = ntohl (mp->sw_if_index);
   if (~0 == sw_if_index)
     {
-      /* *INDENT-OFF* */
       pool_foreach (config, im->configs)
          {
           igmp_config_dump(im, rp, mp->context, config);
         }
-      /* *INDENT-ON* */
     }
   else
     {
@@ -401,14 +384,12 @@ igmp_event (igmp_filter_mode_t filter,
 	    vnet_get_main (), sw_if_index, format_igmp_filter_mode, filter);
 
 
-  /* *INDENT-OFF* */
   pool_foreach (api_client, im->api_clients)
      {
       rp = vl_api_client_index_to_registration (api_client->client_index);
       if (rp)
         send_igmp_event (rp, filter, sw_if_index, saddr, gaddr);
     }
-  /* *INDENT-ON* */
 }
 
 /* Set up the API message handling tables */
@@ -425,11 +406,3 @@ igmp_plugin_api_hookup (vlib_main_t * vm)
 }
 
 VLIB_API_INIT_FUNCTION (igmp_plugin_api_hookup);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

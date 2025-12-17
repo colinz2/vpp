@@ -1,19 +1,7 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
+
 #include <signal.h>
 
 #include <vlib/vlib.h>
@@ -661,14 +649,12 @@ vl_mem_api_dead_client_scan (api_main_t * am, vl_shmem_hdr_t * shm, f64 now)
   vec_reset_length (dead_indices);
   vec_reset_length (confused_indices);
 
-  /* *INDENT-OFF* */
   pool_foreach (regpp, am->vl_clients)  {
       if (!(*regpp)->keepalive)
 	continue;
       vl_mem_send_client_keepalive_w_reg (am, now, regpp, &dead_indices,
 					  &confused_indices);
   }
-  /* *INDENT-ON* */
 
   /* This should "never happen," but if it does, fix it... */
   if (PREDICT_FALSE (vec_len (confused_indices) > 0))
@@ -825,9 +811,9 @@ vl_mem_api_handler_with_vm_node (api_main_t *am, svm_region_t *vlib_rp,
 
       if (m->is_autoendian)
 	{
-	  void (*endian_fp) (void *);
+	  void (*endian_fp) (void *, bool);
 	  endian_fp = am->msg_data[id].endian_handler;
-	  (*endian_fp) (the_msg);
+	  (*endian_fp) (the_msg, 0);
 	}
       if (PREDICT_FALSE (vec_len (am->perf_counter_cbs) != 0))
 	clib_call_callbacks (am->perf_counter_cbs, am, id, 0 /* before */);
@@ -1106,7 +1092,6 @@ vl_api_ring_command (vlib_main_t * vm,
       vl_api_registration_t *regp = 0;
 
       /* For horizontal scaling, add a hash table... */
-      /* *INDENT-OFF* */
       pool_foreach (regpp, am->vl_clients)
        {
         regp = *regpp;
@@ -1118,7 +1103,6 @@ vl_api_ring_command (vlib_main_t * vm,
       }
       vlib_cli_output (vm, "regp %llx not found?", regp);
       continue;
-      /* *INDENT-ON* */
     found:
       vlib_cli_output (vm, "%U", format_api_message_rings, am,
 		       0 /* print header */ , 0 /* notused */ );
@@ -1132,14 +1116,12 @@ vl_api_ring_command (vlib_main_t * vm,
 /*?
  * Display binary api message allocation ring statistics
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (cli_show_api_ring_command, static) =
 {
   .path = "show api ring-stats",
   .short_help = "Message ring statistics",
   .function = vl_api_ring_command,
 };
-/* *INDENT-ON* */
 
 clib_error_t *
 vlibmemory_init (vlib_main_t * vm)
@@ -1196,11 +1178,3 @@ vl_set_memory_region_name (const char *name)
   api_main_t *am = vlibapi_get_main ();
   am->region_name = name;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

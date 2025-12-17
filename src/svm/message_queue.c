@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <svm/message_queue.h>
@@ -18,7 +8,7 @@
 #include <vppinfra/format.h>
 #include <vppinfra/time.h>
 #include <sys/eventfd.h>
-#include <sys/socket.h>
+#include <poll.h>
 
 static inline svm_msg_q_ring_t *
 svm_msg_q_ring_inline (svm_msg_q_t * mq, u32 ring_index)
@@ -340,15 +330,15 @@ svm_msq_q_msg_is_valid (svm_msg_q_t * mq, svm_msg_q_msg_t * msg)
   return (dist1 < dist2);
 }
 
-static void
-svm_msg_q_add_raw (svm_msg_q_t *mq, u8 *elem)
+void
+svm_msg_q_add_raw (svm_msg_q_t *mq, svm_msg_q_msg_t *msg)
 {
   svm_msg_q_shared_queue_t *sq = mq->q.shr;
   i8 *tailp;
   u32 sz;
 
   tailp = (i8 *) (&sq->data[0] + sq->elsize * sq->tail);
-  clib_memcpy_fast (tailp, elem, sq->elsize);
+  clib_memcpy_fast (tailp, msg, sq->elsize);
 
   sq->tail = (sq->tail + 1) % sq->maxsize;
 
@@ -381,7 +371,7 @@ svm_msg_q_add (svm_msg_q_t * mq, svm_msg_q_msg_t * msg, int nowait)
 	svm_msg_q_wait_prod (mq);
     }
 
-  svm_msg_q_add_raw (mq, (u8 *) msg);
+  svm_msg_q_add_raw (mq, msg);
 
   svm_msg_q_unlock (mq);
 
@@ -392,7 +382,7 @@ void
 svm_msg_q_add_and_unlock (svm_msg_q_t * mq, svm_msg_q_msg_t * msg)
 {
   ASSERT (svm_msq_q_msg_is_valid (mq, msg));
-  svm_msg_q_add_raw (mq, (u8 *) msg);
+  svm_msg_q_add_raw (mq, msg);
   svm_msg_q_unlock (mq);
 }
 
@@ -629,25 +619,29 @@ svm_msg_q_timedwait (svm_msg_q_t *mq, double timeout)
     }
   else
     {
-      struct timeval tv;
+      struct pollfd fds = { .fd = mq->q.evtfd, .events = POLLIN };
       u64 buf;
       int rv;
 
-      tv.tv_sec = (u64) timeout;
-      tv.tv_usec = ((u64) timeout - (u64) timeout) * 1e9;
-      rv = setsockopt (mq->q.evtfd, SOL_SOCKET, SO_RCVTIMEO,
-		       (const char *) &tv, sizeof tv);
+      rv = poll (&fds, 1, timeout * 1e3 /* ms */);
       if (rv < 0)
 	{
-	  clib_unix_warning ("setsockopt");
+	  clib_unix_warning ("poll");
 	  return -1;
+	}
+      else if (rv == 0)
+	{
+	  /* timeout occured */
+	  return 0;
 	}
 
       rv = read (mq->q.evtfd, &buf, sizeof (buf));
-      if (rv < 0)
-	clib_warning ("read %u", errno);
-
-      return rv < 0 ? errno : 0;
+      if (rv < 0 && errno != EAGAIN)
+	{
+	  clib_warning ("read %u", errno);
+	  return -2;
+	}
+      return 0;
     }
 }
 
@@ -663,11 +657,3 @@ format_svm_msg_q (u8 * s, va_list * args)
     }
   return s;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -8,8 +8,8 @@ import unittest
 from io import BytesIO
 
 import scapy.compat
-from framework import tag_fixme_debian11, is_distro_debian11
-from framework import VppTestCase, VppTestRunner, VppLoInterface
+from framework import VppTestCase, VppLoInterface
+from asfframework import VppTestRunner, tag_fixme_debian11, is_distro_debian11
 from ipfix import IPFIX, Set, Template, Data, IPFIXDecoder
 from scapy.all import (
     bind_layers,
@@ -36,6 +36,7 @@ from util import ppp
 from vpp_ip_route import VppIpRoute, VppRoutePath
 from vpp_neighbor import VppNeighbor
 from vpp_papi import VppEnum
+from config import config
 
 
 # NAT HA protocol event data
@@ -663,6 +664,7 @@ class MethodHolder(VppTestCase):
         self.assertEqual(scapy.compat.orb(record[230]), 3)
         # natPoolID
         self.assertEqual(struct.pack("!I", 0), record[283])
+        return len(data)
 
     def verify_ipfix_max_sessions(self, data, limit):
         self.assertEqual(1, len(data))
@@ -673,6 +675,7 @@ class MethodHolder(VppTestCase):
         self.assertEqual(struct.pack("!I", 1), record[466])
         # maxSessionEntries
         self.assertEqual(struct.pack("!I", limit), record[471])
+        return len(data)
 
     def verify_no_nat44_user(self):
         """Verify that there is no NAT44EI user"""
@@ -801,7 +804,6 @@ class MethodHolder(VppTestCase):
         proto=IP_PROTOS.tcp,
         ignore_port=False,
     ):
-
         layer = self.proto2layer(proto)
 
         if proto == IP_PROTOS.tcp:
@@ -912,6 +914,7 @@ def get_nat44_ei_in2out_worker_index(ip, vpp_worker_count):
 
 
 @tag_fixme_debian11
+@unittest.skipIf("nat" in config.excluded_plugins, "Exclude NAT plugin tests")
 class TestNAT44EI(MethodHolder):
     """NAT44EI Test Cases"""
 
@@ -952,8 +955,8 @@ class TestNAT44EI(MethodHolder):
         cls.pg1.configure_ipv4_neighbors()
 
         cls.overlapping_interfaces = list(list(cls.pg_interfaces[4:7]))
-        cls.vapi.ip_table_add_del(is_add=1, table={"table_id": 10})
-        cls.vapi.ip_table_add_del(is_add=1, table={"table_id": 20})
+        cls.vapi.ip_table_add_del_v2(is_add=1, table={"table_id": 10})
+        cls.vapi.ip_table_add_del_v2(is_add=1, table={"table_id": 20})
 
         cls.pg4._local_ip4 = "172.16.255.1"
         cls.pg4._remote_hosts[0]._ip4 = "172.16.255.2"
@@ -2464,7 +2467,7 @@ class TestNAT44EI(MethodHolder):
             Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
             / IP(src=self.pg0.remote_ip4, dst=self.pg1.remote_ip4)
             / TCP(sport=3025)
-        )
+        ) * 3
         self.pg0.add_stream(p)
         self.pg_enable_capture(self.pg_interfaces)
         self.pg_start()
@@ -2483,10 +2486,12 @@ class TestNAT44EI(MethodHolder):
             if p.haslayer(Template):
                 ipfix.add_template(p.getlayer(Template))
         # verify events in data set
+        event_count = 0
         for p in capture:
             if p.haslayer(Data):
                 data = ipfix.decode_data_set(p.getlayer(Set))
-                self.verify_ipfix_addr_exhausted(data)
+                event_count += self.verify_ipfix_addr_exhausted(data)
+        self.assertEqual(event_count, 1)
 
     def test_ipfix_max_sessions(self):
         """NAT44EI IPFIX logging maximum session entries exceeded"""
@@ -2530,7 +2535,7 @@ class TestNAT44EI(MethodHolder):
             Ether(dst=self.pg0.local_mac, src=self.pg0.remote_mac)
             / IP(src=self.pg0.remote_ip4, dst=self.pg1.remote_ip4)
             / TCP(sport=1025)
-        )
+        ) * 3
         self.pg0.add_stream(p)
         self.pg_enable_capture(self.pg_interfaces)
         self.pg_start()
@@ -2549,10 +2554,14 @@ class TestNAT44EI(MethodHolder):
             if p.haslayer(Template):
                 ipfix.add_template(p.getlayer(Template))
         # verify events in data set
+        event_count = 0
         for p in capture:
             if p.haslayer(Data):
                 data = ipfix.decode_data_set(p.getlayer(Set))
-                self.verify_ipfix_max_sessions(data, max_sessions_per_thread)
+                event_count += self.verify_ipfix_max_sessions(
+                    data, max_sessions_per_thread
+                )
+        self.assertEqual(event_count, 1)
 
     def test_syslog_apmap(self):
         """NAT44EI syslog address and port mapping creation and deletion"""
@@ -2675,8 +2684,8 @@ class TestNAT44EI(MethodHolder):
 
         self.pg0.unconfig_ip4()
         self.pg1.unconfig_ip4()
-        self.vapi.ip_table_add_del(is_add=1, table={"table_id": vrf_id1})
-        self.vapi.ip_table_add_del(is_add=1, table={"table_id": vrf_id2})
+        self.vapi.ip_table_add_del_v2(is_add=1, table={"table_id": vrf_id1})
+        self.vapi.ip_table_add_del_v2(is_add=1, table={"table_id": vrf_id2})
         self.pg0.set_table_ip4(vrf_id1)
         self.pg1.set_table_ip4(vrf_id2)
         self.pg0.config_ip4()
@@ -2723,8 +2732,8 @@ class TestNAT44EI(MethodHolder):
             self.pg1.config_ip4()
             self.pg0.resolve_arp()
             self.pg1.resolve_arp()
-            self.vapi.ip_table_add_del(is_add=0, table={"table_id": vrf_id1})
-            self.vapi.ip_table_add_del(is_add=0, table={"table_id": vrf_id2})
+            self.vapi.ip_table_add_del_v2(is_add=0, table={"table_id": vrf_id1})
+            self.vapi.ip_table_add_del_v2(is_add=0, table={"table_id": vrf_id2})
 
     def test_vrf_feature_independent(self):
         """NAT44EI tenant VRF independent address pool mode"""
@@ -3461,8 +3470,8 @@ class TestNAT44EI(MethodHolder):
 
         self.pg1.unconfig_ip4()
         self.pg2.unconfig_ip4()
-        self.vapi.ip_table_add_del(is_add=1, table={"table_id": vrf_id1})
-        self.vapi.ip_table_add_del(is_add=1, table={"table_id": vrf_id2})
+        self.vapi.ip_table_add_del_v2(is_add=1, table={"table_id": vrf_id1})
+        self.vapi.ip_table_add_del_v2(is_add=1, table={"table_id": vrf_id2})
         self.pg1.set_table_ip4(vrf_id1)
         self.pg2.set_table_ip4(vrf_id2)
         self.pg1.config_ip4()
@@ -4115,6 +4124,7 @@ class TestNAT44EI(MethodHolder):
             i.remove_vpp_config()
 
 
+@unittest.skipIf("nat" in config.excluded_plugins, "Exclude NAT plugin tests")
 class TestNAT44Out2InDPO(MethodHolder):
     """NAT44EI Test Cases using out2in DPO"""
 
@@ -4256,6 +4266,7 @@ class TestNAT44Out2InDPO(MethodHolder):
         self.verify_capture_in(capture, self.pg0)
 
 
+@unittest.skipIf("nat" in config.excluded_plugins, "Exclude NAT plugin tests")
 class TestNAT44EIMW(MethodHolder):
     """NAT44EI Test Cases (multiple workers)"""
 
@@ -4295,8 +4306,8 @@ class TestNAT44EIMW(MethodHolder):
         cls.pg1.configure_ipv4_neighbors()
 
         cls.overlapping_interfaces = list(list(cls.pg_interfaces[4:7]))
-        cls.vapi.ip_table_add_del(is_add=1, table={"table_id": 10})
-        cls.vapi.ip_table_add_del(is_add=1, table={"table_id": 20})
+        cls.vapi.ip_table_add_del_v2(is_add=1, table={"table_id": 10})
+        cls.vapi.ip_table_add_del_v2(is_add=1, table={"table_id": 20})
 
         cls.pg4._local_ip4 = "172.16.255.1"
         cls.pg4._remote_hosts[0]._ip4 = "172.16.255.2"

@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vlib/vlib.h>
 
 #include <vppinfra/serialize.h>
@@ -84,26 +75,27 @@ vlib_node_serialize (vlib_main_t * vm, vlib_node_t *** node_dups, u8 * vector,
 	    {
 	      vlib_process_t *p = vlib_get_process_from_node (vm, n);
 
-	      switch (p->flags
-		      & (VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_CLOCK
-			 | VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_EVENT))
+	      switch (p->state)
 		{
 		default:
-		  if (!(p->flags & VLIB_PROCESS_IS_RUNNING))
-		    state_code = STATE_DONE;
 		  break;
 
-		case VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_CLOCK:
+		case VLIB_PROCESS_STATE_WAIT_FOR_CLOCK:
+		case VLIB_PROCESS_STATE_SUSPENDED:
 		  state_code = STATE_TIME_WAIT;
 		  break;
 
-		case VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_EVENT:
+		case VLIB_PROCESS_STATE_WAIT_FOR_EVENT:
+		case VLIB_PROCESS_STATE_WAIT_FOR_ONE_TIME_EVENT:
 		  state_code = STATE_EVENT_WAIT;
 		  break;
 
-		case (VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_EVENT | VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_CLOCK):
-		  state_code =
-		    STATE_ANY_WAIT;
+		case VLIB_PROCESS_STATE_WAIT_FOR_EVENT_OR_CLOCK:
+		  state_code = STATE_ANY_WAIT;
+		  break;
+
+		case VLIB_PROCESS_STATE_NOT_STARTED:
+		  state_code = STATE_DONE;
 		  break;
 		}
 	    }
@@ -326,19 +318,9 @@ test_node_serialize_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (test_node_serialize_node, static) = {
     .path = "test node serialize",
     .short_help = "test node serialize [max-threads NN] nexts stats",
     .function = test_node_serialize_command_fn,
 };
-/* *INDENT-ON* */
 #endif
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

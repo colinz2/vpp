@@ -1,19 +1,8 @@
-/*
- * ip_neighboor.h: ip neighbor generic services
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* ip_neighboor.h: ip neighbor generic services */
 
 #include <vnet/ip-neighbor/ip_neighbor_types.h>
 
@@ -68,19 +57,18 @@ format_ip_neighbor_watcher (u8 * s, va_list * va)
 u8 *
 format_ip_neighbor (u8 * s, va_list * va)
 {
+  f64 now = va_arg (*va, f64);
   index_t ipni = va_arg (*va, index_t);
   ip_neighbor_t *ipn;
 
   ipn = ip_neighbor_get (ipni);
 
-  return (format (s, "%=12U%=40U%=6U%=20U%U",
-		  format_vlib_time, vlib_get_main (),
-		  ipn->ipn_time_last_updated,
-		  format_ip_address, &ipn->ipn_key->ipnk_ip,
-		  format_ip_neighbor_flags, ipn->ipn_flags,
-		  format_mac_address_t, &ipn->ipn_mac,
-		  format_vnet_sw_if_index_name, vnet_get_main (),
-		  ipn->ipn_key->ipnk_sw_if_index));
+  return (
+    format (s, "%=12U%=40U%=6U%=20U%U", format_vlib_time, vlib_get_main (),
+	    now - ipn->ipn_time_last_updated, format_ip_address,
+	    &ipn->ipn_key->ipnk_ip, format_ip_neighbor_flags, ipn->ipn_flags,
+	    format_mac_address_t, &ipn->ipn_mac, format_vnet_sw_if_index_name,
+	    vnet_get_main (), ipn->ipn_key->ipnk_sw_if_index));
 }
 
 static void
@@ -129,11 +117,3 @@ format_ip_neighbor_counters (u8 *s, va_list *args)
 
   return (s);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

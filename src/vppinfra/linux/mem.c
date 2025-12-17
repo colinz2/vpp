@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #define _GNU_SOURCE
@@ -31,7 +21,6 @@
 #include <vppinfra/bitmap.h>
 #include <vppinfra/format.h>
 #include <vppinfra/clib_error.h>
-#include <vppinfra/linux/sysfs.h>
 
 #ifndef F_LINUX_SPECIFIC_BASE
 #define F_LINUX_SPECIFIC_BASE 1024
@@ -102,11 +91,13 @@ legacy_get_log2_default_hugepage_size (void)
 void
 clib_mem_main_init (void)
 {
+  unsigned long nodemask = 0, maxnode = CLIB_MAX_NUMAS;
+  unsigned long flags = MPOL_F_MEMS_ALLOWED;
   clib_mem_main_t *mm = &clib_mem_main;
   long sysconf_page_size;
   uword page_size;
-  void *va;
-  int fd;
+  void *va = 0;
+  int fd, mode;
 
   if (mm->log2_page_sz != CLIB_MEM_PAGE_SZ_UNKNOWN)
     return;
@@ -132,23 +123,8 @@ clib_mem_main_init (void)
   mm->log2_sys_default_hugepage_sz = mm->log2_default_hugepage_sz;
 
   /* numa nodes */
-  va = mmap (0, page_size, PROT_READ | PROT_WRITE, MAP_PRIVATE |
-	     MAP_ANONYMOUS, -1, 0);
-  if (va == MAP_FAILED)
-    return;
-
-  if (mlock (va, page_size))
-    goto done;
-
-  for (int i = 0; i < CLIB_MAX_NUMAS; i++)
-    {
-      int status;
-      if (syscall (__NR_move_pages, 0, 1, &va, &i, &status, 0) == 0)
-	mm->numa_node_bitmap |= 1ULL << i;
-    }
-
-done:
-  munmap (va, page_size);
+  if (syscall (__NR_get_mempolicy, &mode, &nodemask, maxnode, va, flags) == 0)
+    mm->numa_node_bitmap = nodemask;
 }
 
 __clib_export u64
@@ -245,7 +221,8 @@ clib_mem_vm_create_fd (clib_mem_page_sz_t log2_page_size, char *fmt, ...)
 
   if (log2_page_size == mm->log2_page_sz)
     log2_page_size = CLIB_MEM_PAGE_SZ_DEFAULT;
-  else if (log2_page_size == mm->log2_sys_default_hugepage_sz)
+  else if (mm->log2_sys_default_hugepage_sz != CLIB_MEM_PAGE_SZ_UNKNOWN &&
+	   log2_page_size == mm->log2_sys_default_hugepage_sz)
     log2_page_size = CLIB_MEM_PAGE_SZ_DEFAULT_HUGE;
 
   switch (log2_page_size)
@@ -261,6 +238,10 @@ clib_mem_vm_create_fd (clib_mem_page_sz_t log2_page_size, char *fmt, ...)
     default:
       memfd_flags = MFD_HUGETLB | log2_page_size << MFD_HUGE_SHIFT;
     }
+
+  /* Set FD_CLOEXEC flag on memory file descriptor, such that mapped memory
+   * doesn't leak through child processes if VPP crashes. */
+  memfd_flags |= MFD_CLOEXEC;
 
   va_start (va, fmt);
   s = va_format (0, fmt, &va);
@@ -302,62 +283,6 @@ clib_mem_vm_create_fd (clib_mem_page_sz_t log2_page_size, char *fmt, ...)
   return fd;
 }
 
-uword
-clib_mem_vm_reserve (uword start, uword size, clib_mem_page_sz_t log2_page_sz)
-{
-  clib_mem_main_t *mm = &clib_mem_main;
-  uword pagesize = 1ULL << log2_page_sz;
-  uword sys_page_sz = 1ULL << mm->log2_page_sz;
-  uword n_bytes;
-  void *base = 0, *p;
-
-  size = round_pow2 (size, pagesize);
-
-  /* in adition of requested reservation, we also rserve one system page
-   * (typically 4K) adjacent to the start off reservation */
-
-  if (start)
-    {
-      /* start address is provided, so we just need to make sure we are not
-       * replacing existing map */
-      if (start & pow2_mask (log2_page_sz))
-	return ~0;
-
-      base = (void *) start - sys_page_sz;
-      base = mmap (base, size + sys_page_sz, PROT_NONE,
-		   MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
-      return (base == MAP_FAILED) ? ~0 : start;
-    }
-
-  /* to make sure that we get reservation aligned to page_size we need to
-   * request one additional page as mmap will return us address which is
-   * aligned only to system page size */
-  base = mmap (0, size + pagesize, PROT_NONE,
-	       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-
-  if (base == MAP_FAILED)
-    return ~0;
-
-  /* return additional space at the end of allocation */
-  p = base + size + pagesize;
-  n_bytes = (uword) p & pow2_mask (log2_page_sz);
-  if (n_bytes)
-    {
-      p -= n_bytes;
-      munmap (p, n_bytes);
-    }
-
-  /* return additional space at the start of allocation */
-  n_bytes = pagesize - sys_page_sz - n_bytes;
-  if (n_bytes)
-    {
-      munmap (base, n_bytes);
-      base += n_bytes;
-    }
-
-  return (uword) base + sys_page_sz;
-}
-
 __clib_export clib_mem_vm_map_hdr_t *
 clib_mem_vm_get_next_map_hdr (clib_mem_vm_map_hdr_t * hdr)
 {
@@ -380,7 +305,8 @@ clib_mem_vm_get_next_map_hdr (clib_mem_vm_map_hdr_t * hdr)
 
 void *
 clib_mem_vm_map_internal (void *base, clib_mem_page_sz_t log2_page_sz,
-			  uword size, int fd, uword offset, char *name)
+			  uword size, int fd, u8 log2_align, uword offset,
+			  char *name)
 {
   clib_mem_main_t *mm = &clib_mem_main;
   clib_mem_vm_map_hdr_t *hdr;
@@ -426,7 +352,8 @@ clib_mem_vm_map_internal (void *base, clib_mem_page_sz_t log2_page_sz,
 
   size = round_pow2 (size, 1ULL << log2_page_sz);
 
-  base = (void *) clib_mem_vm_reserve ((uword) base, size, log2_page_sz);
+  base = (void *) clib_mem_vm_reserve ((uword) base, size,
+				       clib_max (log2_page_sz, log2_align));
 
   if (base == (void *) ~0)
     return CLIB_MEM_VM_MAP_FAILED;
@@ -529,8 +456,10 @@ __clib_export void
 clib_mem_get_page_stats (void *start, clib_mem_page_sz_t log2_page_size,
 			 uword n_pages, clib_mem_page_stats_t * stats)
 {
-  int i, *status = 0;
+  int *status = 0;
+  uword i;
   void **ptr = 0;
+  unsigned char incore;
 
   log2_page_size = clib_mem_log2_page_size_validate (log2_page_size);
 
@@ -552,13 +481,26 @@ clib_mem_get_page_stats (void *start, clib_mem_page_sz_t log2_page_size,
 
   for (i = 0; i < n_pages; i++)
     {
+      /* move_pages() returns -ENONET in status for huge pages on 5.19+ kernel.
+       * Retry with get_mempolicy() to obtain NUMA node info only if the pages
+       * are allocated and in memory, which is checked by mincore(). */
+      if (status[i] == -ENOENT &&
+	  syscall (__NR_mincore, ptr[i], 1, &incore) == 0 && (incore & 1) != 0)
+	{
+	  if (syscall (__NR_get_mempolicy, &status[i], 0, 0, ptr[i],
+		       MPOL_F_NODE | MPOL_F_ADDR) != 0)
+	    {
+	      /* if get_mempolicy fails, keep the original value in status */
+	      status[i] = -ENONET;
+	    }
+	}
       if (status[i] >= 0 && status[i] < CLIB_MAX_NUMAS)
 	{
-	  stats->mapped++;
+	  stats->populated++;
 	  stats->per_numa[status[i]]++;
 	}
-      else if (status[i] == -EFAULT)
-	stats->not_mapped++;
+      else if (status[i] == -EFAULT || status[i] == -ENOENT)
+	stats->not_populated++;
       else
 	stats->unknown++;
     }
@@ -662,11 +604,3 @@ clib_mem_set_default_numa_affinity ()
     }
   return 0;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

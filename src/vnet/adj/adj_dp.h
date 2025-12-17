@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef __ADJ_DP_H__
@@ -36,22 +26,36 @@ adj_midchain_ipip44_fixup (vlib_main_t * vm,
   ip4->length = clib_host_to_net_u16 (vlib_buffer_length_in_chain (vm, b));
 
   if (PREDICT_TRUE(TUNNEL_ENCAP_DECAP_FLAG_NONE == flags))
-  {
-      ip_csum_t sum;
-      u16 old,new;
-
-      old = 0;
-      new = ip4->length;
-
-      sum = ip4->checksum;
-      sum = ip_csum_update (sum, old, new, ip4_header_t, length);
-      ip4->checksum = ip_csum_fold (sum);
-  }
+    {
+      if (PREDICT_FALSE (b->flags & VNET_BUFFER_F_OFFLOAD))
+       {
+         vnet_buffer2 (b)->outer_l3_hdr_offset = (u8 *) ip4 - b->data;
+         vnet_buffer_offload_flags_set (b, VNET_BUFFER_OFFLOAD_F_TNL_IPIP |
+                                     VNET_BUFFER_OFFLOAD_F_OUTER_IP_CKSUM);
+       }
+      else
+       {
+         ip_csum_t sum;
+         u16 old,new;
+         old = 0;
+         new = ip4->length;
+         sum = ip4->checksum;
+         sum = ip_csum_update (sum, old, new, ip4_header_t, length);
+         ip4->checksum = ip_csum_fold (sum);
+       }
+    }
   else
-  {
+    {
       tunnel_encap_fixup_4o4 (flags, ip4 + 1, ip4);
-      ip4->checksum = ip4_header_checksum (ip4);
-  }
+      if (PREDICT_FALSE (b->flags & VNET_BUFFER_F_OFFLOAD))
+       {
+         vnet_buffer2 (b)->outer_l3_hdr_offset = (u8 *) ip4 - b->data;
+         vnet_buffer_offload_flags_set (b, VNET_BUFFER_OFFLOAD_F_TNL_IPIP |
+                                     VNET_BUFFER_OFFLOAD_F_OUTER_IP_CKSUM);
+       }
+      else
+        ip4->checksum = ip4_header_checksum (ip4);
+    }
 }
 
 static_always_inline void

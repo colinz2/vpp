@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * node_cli.c: node CLI
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* node_cli.c: node CLI */
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -85,13 +53,11 @@ show_node_graph (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_node_graph_command, static) = {
   .path = "show vlib graph",
   .short_help = "Show packet processing node graph",
   .function = show_node_graph,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 show_node_graphviz (vlib_main_t * vm,
@@ -324,14 +290,12 @@ show_node_graphviz (vlib_main_t * vm,
  * @cliend
  * @cliexcmd{show vlib graphviz [filter][calls][vectors][file <filename>]}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_node_graphviz_command, static) = {
   .path = "show vlib graphviz",
   .short_help = "Dump packet processing node graph as a graphviz dotfile",
   .function = show_node_graphviz,
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
 
 static u8 *
 format_vlib_node_state (u8 * s, va_list * va)
@@ -343,29 +307,16 @@ format_vlib_node_state (u8 * s, va_list * va)
   state = "active";
   if (n->type == VLIB_NODE_TYPE_PROCESS)
     {
+      char *state_str[] = {
+#define _(n, s) [VLIB_PROCESS_STATE_##n] = #s,
+	foreach_vlib_process_state
+      };
       vlib_process_t *p = vlib_get_process_from_node (vm, n);
 
-      switch (p->flags & (VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_CLOCK
-			  | VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_EVENT))
-	{
-	default:
-	  if (!(p->flags & VLIB_PROCESS_IS_RUNNING))
-	    state = "done";
-	  break;
-
-	case VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_CLOCK:
-	  state = "time wait";
-	  break;
-
-	case VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_EVENT:
-	  state = "event wait";
-	  break;
-
-	case (VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_EVENT | VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_CLOCK):
-	  state =
-	    "any wait";
-	  break;
-	}
+      if (p->state >= ARRAY_LEN (state_str) || state_str[p->state] == 0)
+	state = "unknown";
+      else
+	state = state_str[p->state];
     }
   else if (n->type != VLIB_NODE_TYPE_INTERNAL)
     {
@@ -630,14 +581,12 @@ show_node_runtime (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_node_runtime_command, static) = {
   .path = "show runtime",
   .short_help = "Show packet processing runtime",
   .function = show_node_runtime,
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 clear_node_runtime (vlib_main_t * vm,
@@ -685,13 +634,11 @@ clear_node_runtime (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (clear_node_runtime_command, static) = {
   .path = "clear runtime",
   .short_help = "Clear packet processing runtime statistics",
   .function = clear_node_runtime,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 show_node (vlib_main_t * vm, unformat_input_t * input,
@@ -755,6 +702,9 @@ show_node (vlib_main_t * vm, unformat_input_t * input,
     case VLIB_NODE_TYPE_PROCESS:
       type_str = "process";
       break;
+    case VLIB_NODE_TYPE_SCHED:
+      type_str = "sched";
+      break;
     default:
       type_str = "unknown";
     }
@@ -811,7 +761,6 @@ show_node (vlib_main_t * vm, unformat_input_t * input,
   if (n->type == VLIB_NODE_TYPE_INTERNAL)
     {
       int j = 0;
-      /* *INDENT-OFF* */
       clib_bitmap_foreach (i, n->prev_node_bitmap)  {
 	    vlib_node_t *pn = vlib_get_node (vm, i);
 	    if (j++ % 3 == 0)
@@ -820,7 +769,6 @@ show_node (vlib_main_t * vm, unformat_input_t * input,
 	    s = format (s, "%-35v", s2);
 	    vec_reset_length (s2);
 	  }
-      /* *INDENT-ON* */
 
       if (vec_len (s) == 0)
 	s = format (s, "\n    none");
@@ -855,7 +803,6 @@ done:
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_node_command, static) = {
   .path = "show node",
   .short_help = "show node [index] <node-name | node-index>",
@@ -908,24 +855,14 @@ done:
   return err;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_node_fn_command, static) = {
   .path = "set node function",
   .short_help = "set node function <node-name> <variant-name>",
   .function = set_node_fn,
 };
-/* *INDENT-ON* */
 
 /* Dummy function to get us linked in. */
 void
 vlib_node_cli_reference (void)
 {
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

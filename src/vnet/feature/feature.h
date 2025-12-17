@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef included_features_h
@@ -344,8 +334,8 @@ vnet_device_input_have_features (u32 sw_if_index)
 }
 
 static_always_inline void
-vnet_feature_start_device_input_x1 (u32 sw_if_index, u32 * next0,
-				    vlib_buffer_t * b0)
+vnet_feature_start_device_input (u32 sw_if_index, u32 *next0,
+				 vlib_buffer_t *b0)
 {
   vnet_feature_main_t *fm = &feature_main;
   vnet_feature_config_main_t *cm;
@@ -356,118 +346,11 @@ vnet_feature_start_device_input_x1 (u32 sw_if_index, u32 * next0,
       (clib_bitmap_get
        (fm->sw_if_index_has_features[feature_arc_index], sw_if_index)))
     {
-      /*
-       * Save next0 so that the last feature in the chain
-       * can skip ethernet-input if indicated...
-       */
-      u16 adv;
-
-      adv = device_input_next_node_advance[*next0];
-      vlib_buffer_advance (b0, -adv);
-
       vnet_buffer (b0)->feature_arc_index = feature_arc_index;
       b0->current_config_index =
 	vec_elt (cm->config_index_by_sw_if_index, sw_if_index);
       vnet_get_config_data (&cm->config_main, &b0->current_config_index,
 			    next0, /* # bytes of config data */ 0);
-    }
-}
-
-static_always_inline void
-vnet_feature_start_device_input_x2 (u32 sw_if_index,
-				    u32 * next0,
-				    u32 * next1,
-				    vlib_buffer_t * b0, vlib_buffer_t * b1)
-{
-  vnet_feature_main_t *fm = &feature_main;
-  vnet_feature_config_main_t *cm;
-  u8 feature_arc_index = fm->device_input_feature_arc_index;
-  cm = &fm->feature_config_mains[feature_arc_index];
-
-  if (PREDICT_FALSE
-      (clib_bitmap_get
-       (fm->sw_if_index_has_features[feature_arc_index], sw_if_index)))
-    {
-      /*
-       * Save next0 so that the last feature in the chain
-       * can skip ethernet-input if indicated...
-       */
-      u16 adv;
-
-      adv = device_input_next_node_advance[*next0];
-      vlib_buffer_advance (b0, -adv);
-
-      adv = device_input_next_node_advance[*next1];
-      vlib_buffer_advance (b1, -adv);
-
-      vnet_buffer (b0)->feature_arc_index = feature_arc_index;
-      vnet_buffer (b1)->feature_arc_index = feature_arc_index;
-      b0->current_config_index =
-	vec_elt (cm->config_index_by_sw_if_index, sw_if_index);
-      b1->current_config_index = b0->current_config_index;
-      vnet_get_config_data (&cm->config_main, &b0->current_config_index,
-			    next0, /* # bytes of config data */ 0);
-      vnet_get_config_data (&cm->config_main, &b1->current_config_index,
-			    next1, /* # bytes of config data */ 0);
-    }
-}
-
-static_always_inline void
-vnet_feature_start_device_input_x4 (u32 sw_if_index,
-				    u32 * next0,
-				    u32 * next1,
-				    u32 * next2,
-				    u32 * next3,
-				    vlib_buffer_t * b0,
-				    vlib_buffer_t * b1,
-				    vlib_buffer_t * b2, vlib_buffer_t * b3)
-{
-  vnet_feature_main_t *fm = &feature_main;
-  vnet_feature_config_main_t *cm;
-  u8 feature_arc_index = fm->device_input_feature_arc_index;
-  cm = &fm->feature_config_mains[feature_arc_index];
-
-  if (PREDICT_FALSE
-      (clib_bitmap_get
-       (fm->sw_if_index_has_features[feature_arc_index], sw_if_index)))
-    {
-      /*
-       * Save next0 so that the last feature in the chain
-       * can skip ethernet-input if indicated...
-       */
-      u16 adv;
-
-      adv = device_input_next_node_advance[*next0];
-      vlib_buffer_advance (b0, -adv);
-
-      adv = device_input_next_node_advance[*next1];
-      vlib_buffer_advance (b1, -adv);
-
-      adv = device_input_next_node_advance[*next2];
-      vlib_buffer_advance (b2, -adv);
-
-      adv = device_input_next_node_advance[*next3];
-      vlib_buffer_advance (b3, -adv);
-
-      vnet_buffer (b0)->feature_arc_index = feature_arc_index;
-      vnet_buffer (b1)->feature_arc_index = feature_arc_index;
-      vnet_buffer (b2)->feature_arc_index = feature_arc_index;
-      vnet_buffer (b3)->feature_arc_index = feature_arc_index;
-
-      b0->current_config_index =
-	vec_elt (cm->config_index_by_sw_if_index, sw_if_index);
-      b1->current_config_index = b0->current_config_index;
-      b2->current_config_index = b0->current_config_index;
-      b3->current_config_index = b0->current_config_index;
-
-      vnet_get_config_data (&cm->config_main, &b0->current_config_index,
-			    next0, /* # bytes of config data */ 0);
-      vnet_get_config_data (&cm->config_main, &b1->current_config_index,
-			    next1, /* # bytes of config data */ 0);
-      vnet_get_config_data (&cm->config_main, &b2->current_config_index,
-			    next2, /* # bytes of config data */ 0);
-      vnet_get_config_data (&cm->config_main, &b3->current_config_index,
-			    next3, /* # bytes of config data */ 0);
     }
 }
 
@@ -497,11 +380,3 @@ vnet_feature_is_enabled (const char *arc_name, const char *feature_node_name,
 			 u32 sw_if_index);
 
 #endif /* included_feature_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

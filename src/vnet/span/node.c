@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vlib/vlib.h>
@@ -84,7 +74,6 @@ span_mirror (vlib_main_t * vm, vlib_node_runtime_t * node, u32 sw_if_index0,
   if (PREDICT_FALSE (b0->flags & VNET_BUFFER_F_SPAN_CLONE))
     return;
 
-  /* *INDENT-OFF* */
   clib_bitmap_foreach (i, sm0->mirror_ports)
     {
       if (mirror_frames[i] == 0)
@@ -122,7 +111,6 @@ span_mirror (vlib_main_t * vm, vlib_node_runtime_t * node, u32 sw_if_index0,
 	    }
 	}
     }
-  /* *INDENT-ON* */
 }
 
 static_always_inline uword
@@ -304,7 +292,6 @@ VLIB_NODE_FN (span_l2_output_node) (vlib_main_t * vm,
     [0] = "error-drop"                           \
   }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (span_input_node) = {
   span_node_defs,
   .name = "span-input",
@@ -349,14 +336,6 @@ clib_error_t *span_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (span_init);
-/* *INDENT-ON* */
 #endif /* CLIB_MARCH_VARIANT */
 
 #undef span_node_defs
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

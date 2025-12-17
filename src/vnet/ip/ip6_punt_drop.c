@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/ip/ip.h>
@@ -18,7 +8,6 @@
 #include <vnet/policer/policer.h>
 #include <vnet/policer/police_inlines.h>
 
-/* *INDENT-OFF* */
 VNET_FEATURE_ARC_INIT (ip6_punt) =
 {
   .arc_name  = "ip6-punt",
@@ -30,7 +19,6 @@ VNET_FEATURE_ARC_INIT (ip6_drop) =
   .arc_name  = "ip6-drop",
   .start_nodes = VNET_FEATURES ("ip6-drop", "ip6-not-enabled"),
 };
-/* *INDENT-ON* */
 
 extern ip_punt_policer_t ip6_punt_policer_cfg;
 
@@ -77,7 +65,6 @@ VLIB_NODE_FN (ip6_punt_policer_node) (vlib_main_t * vm,
 }
 
 
-/* *INDENT-OFF* */
 
 VLIB_REGISTER_NODE (ip6_punt_policer_node) = {
   .name = "ip6-punt-policer",
@@ -99,7 +86,6 @@ VNET_FEATURE_INIT (ip6_punt_policer_node, static) = {
   .node_name = "ip6-punt-policer",
   .runs_before = VNET_FEATURES("ip6-punt-redirect")
 };
-/* *INDENT-ON* */
 
 VLIB_NODE_FN (ip6_drop_node) (vlib_main_t * vm, vlib_node_runtime_t * node,
 			      vlib_frame_t * frame)
@@ -134,7 +120,6 @@ VLIB_NODE_FN (ip6_punt_node) (vlib_main_t * vm, vlib_node_runtime_t * node,
 			  vnet_feat_arc_ip6_punt.feature_arc_index);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_drop_node) =
 {
   .name = "ip6-drop",
@@ -175,7 +160,6 @@ VNET_FEATURE_INIT (ip6_drop_end_of_arc, static) = {
   .node_name = "error-drop",
   .runs_before = 0, /* not before any other features */
 };
-/* *INDENT-ON */
 
 #ifndef CLIB_MARCH_VARIANT
 void
@@ -239,7 +223,6 @@ done:
  * @cliexpar
  * @cliexcmd{set ip punt policer <INDEX>}
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (ip6_punt_policer_command, static) =
 {
   .path = "ip6 punt policer",
@@ -247,7 +230,6 @@ VLIB_CLI_COMMAND (ip6_punt_policer_command, static) =
   .short_help = "ip6 punt policer [add|del] <index>",
 };
 
-/* *INDENT-ON* */
 
 #define foreach_ip6_punt_redirect_error         \
 _(DROP, "ip6 punt redirect drop")
@@ -275,7 +257,6 @@ VLIB_NODE_FN (ip6_punt_redirect_node) (vlib_main_t * vm,
 			    FIB_PROTOCOL_IP6));
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_punt_redirect_node) = {
   .name = "ip6-punt-redirect",
   .vector_size = sizeof (u32),
@@ -297,7 +278,6 @@ VNET_FEATURE_INIT (ip6_punt_redirect_node, static) = {
   .node_name = "ip6-punt-redirect",
   .runs_before = VNET_FEATURES("error-punt")
 };
-/* *INDENT-ON* */
 
 #ifndef CLIB_MARCH_VARIANT
 
@@ -393,14 +373,12 @@ done:
  * @cliexpar
  * @cliexcmd{set ip punt policer <INDEX>}
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (ip6_punt_redirect_command, static) =
 {
   .path = "ip6 punt redirect",
   .function = ip6_punt_redirect_cmd,
   .short_help = "ip6 punt redirect [add|del] rx [<interface>|all] via [<nh>] <tx_interface>",
 };
-/* *INDENT-ON* */
 
 #ifndef CLIB_MARCH_VARIANT
 
@@ -421,20 +399,9 @@ ip6_punt_redirect_show_cmd (vlib_main_t * vm,
  * @cliexpar
  * @cliexcmd{set ip punt policer <INDEX>}
  ?*/
-/* *INDENT-OFF* */
-VLIB_CLI_COMMAND (show_ip6_punt_redirect_command, static) =
-{
+VLIB_CLI_COMMAND (show_ip6_punt_redirect_command, static) = {
   .path = "show ip6 punt redirect",
   .function = ip6_punt_redirect_show_cmd,
   .short_help = "show ip6 punt redirect",
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

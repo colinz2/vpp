@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef included_ip46_address_h
@@ -34,7 +24,6 @@ typedef enum
 
 extern u8 *format_ip46_type (u8 * s, va_list * args);
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (union ip46_address_t_ {
   struct {
     u32 pad[3];
@@ -44,7 +33,6 @@ typedef CLIB_PACKED (union ip46_address_t_ {
   u8 as_u8[16];
   u64 as_u64[2];
 }) ip46_address_t;
-/* *INDENT-ON* */
 
 
 format_function_t format_ip46_address;
@@ -162,11 +150,3 @@ extern void ip6_address_increment (ip6_address_t * i);
 extern void ip46_address_increment (ip46_type_t type, ip46_address_t * ip);
 
 #endif /* included_ip46_address_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,16 +1,5 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vcl/vcl_private.h>
@@ -309,7 +298,7 @@ vcl_bapi_hookup (void)
     .endian = vl_api_##n##_t_endian,                                          \
     .format_fn = vl_api_##n##_t_format,                                       \
     .size = sizeof (vl_api_##n##_t),                                          \
-    .traced = 1,                                                              \
+    .traced = (u32) 1,                                                        \
     .tojson = vl_api_##n##_t_tojson,                                          \
     .fromjson = vl_api_##n##_t_fromjson,                                      \
     .calc_size = vl_api_##n##_t_calc_size,                                    \
@@ -360,7 +349,8 @@ vcl_bapi_send_attach (void)
     (vcm->cfg.app_scope_global ? APP_OPTIONS_FLAGS_USE_GLOBAL_SCOPE : 0) |
     (app_is_proxy ? APP_OPTIONS_FLAGS_IS_PROXY : 0) |
     (vcm->cfg.use_mq_eventfd ? APP_OPTIONS_FLAGS_EVT_MQ_USE_EVENTFD : 0) |
-    (vcm->cfg.huge_page ? APP_OPTIONS_FLAGS_USE_HUGE_PAGE : 0);
+    (vcm->cfg.huge_page ? APP_OPTIONS_FLAGS_USE_HUGE_PAGE : 0) |
+    (vcm->cfg.app_original_dst ? APP_OPTIONS_FLAGS_GET_ORIGINAL_DST : 0);
   bmp->options[APP_OPTIONS_PROXY_TRANSPORT] =
     (u64) ((vcm->cfg.app_proxy_transport_tcp ? 1 << TRANSPORT_PROTO_TCP : 0) |
 	   (vcm->cfg.app_proxy_transport_udp ? 1 << TRANSPORT_PROTO_UDP : 0));
@@ -508,7 +498,7 @@ static int
 vcl_bapi_connect_to_vpp (void)
 {
   vcl_worker_t *wrk = vcl_worker_get_current ();
-  vppcom_cfg_t *vcl_cfg = &vcm->cfg;
+  vcl_cfg_t *vcl_cfg = &vcm->cfg;
   int rv = VPPCOM_OK;
   api_main_t *am;
   u8 *wrk_name;
@@ -552,7 +542,6 @@ vcl_bapi_connect_to_vpp (void)
   wrk->api_client_handle = (u32) am->my_client_index;
 
   VDBG (0, "app (%s) is connected to VPP!", wrk_name);
-  vcl_evt (VCL_EVT_INIT, vcm);
 
 error:
   vec_free (wrk_name);
@@ -563,7 +552,7 @@ void
 vcl_bapi_disconnect_from_vpp (void)
 {
   vcl_worker_t *wrk = vcl_worker_get_current ();
-  vppcom_cfg_t *vcl_cfg = &vcm->cfg;
+  vcl_cfg_t *vcl_cfg = &vcm->cfg;
 
   if (vcl_cfg->vpp_bapi_socket_name)
     vl_socket_client_disconnect2 (&wrk->bapi_sock_ctx);
@@ -617,7 +606,7 @@ vcl_bapi_wait_for_wrk_state_change (vcl_bapi_app_state_t app_state)
     }
   VDBG (0, "timeout waiting for state %s, current state %d",
 	vcl_bapi_app_state_str (app_state), wrk->bapi_app_state);
-  vcl_evt (VCL_EVT_SESSION_TIMEOUT, vcm, bapi_app_state);
+  //  vcl_evt (VCL_EVT_SESSION_TIMEOUT, vcm, bapi_app_state);
 
   return VPPCOM_ETIMEDOUT;
 }
@@ -778,11 +767,3 @@ vcl_bapi_worker_set (void)
     }
   return -1;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

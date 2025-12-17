@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * classify_api.c - classify api
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * classify_api.c - classify api
  */
 
 #include <vnet/vnet.h>
@@ -379,7 +368,6 @@ static void vl_api_classify_add_del_table_t_handler
      current_data_flag, current_data_offset, mp->is_add, mp->del_chain);
 
 out:
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_CLASSIFY_ADD_DEL_TABLE_REPLY,
   ({
     if (rv == 0 && mp->is_add)
@@ -396,7 +384,6 @@ out:
         rmp->new_table_index = ~0;
       }
   }));
-  /* *INDENT-ON* */
 }
 
 static void vl_api_classify_add_del_session_t_handler
@@ -533,12 +520,10 @@ vl_api_classify_table_ids_t_handler (vl_api_classify_table_ids_t * mp)
   u32 *table_ids = 0;
   u32 count;
 
-   /* *INDENT-OFF* */
    pool_foreach (t, cm->tables)
     {
      vec_add1 (table_ids, ntohl(t - cm->tables));
    }
-   /* *INDENT-ON* */
   count = vec_len (table_ids);
 
   vl_api_classify_table_ids_reply_t *rmp;
@@ -595,7 +580,6 @@ static void
 
   BAD_SW_IF_INDEX_LABEL;
 
-   /* *INDENT-OFF* */
    REPLY_MACRO2(VL_API_CLASSIFY_TABLE_BY_INTERFACE_REPLY,
    ({
      rmp->sw_if_index = ntohl(sw_if_index);
@@ -603,7 +587,6 @@ static void
      rmp->ip4_table_id = ntohl(acl[IN_OUT_ACL_TABLE_IP4]);
      rmp->ip6_table_id = ntohl(acl[IN_OUT_ACL_TABLE_IP6]);
    }));
-   /* *INDENT-ON* */
   vec_free (acl);
 }
 
@@ -694,7 +677,6 @@ vl_api_classify_session_dump_t_handler (vl_api_classify_session_dump_t * mp)
   if (!reg)
     return;
 
-  /* *INDENT-OFF* */
   pool_foreach (t, cm->tables)
    {
     if (table_id == t - cm->tables)
@@ -728,7 +710,6 @@ vl_api_classify_session_dump_t_handler (vl_api_classify_session_dump_t * mp)
         break;
       }
   }
-  /* *INDENT-ON* */
 }
 
 static void
@@ -979,11 +960,3 @@ classify_api_hookup (vlib_main_t * vm)
 }
 
 VLIB_API_INIT_FUNCTION (classify_api_hookup);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include "map.h"
 
 #include <vnet/ip/ip4_to_ip6.h>
@@ -118,7 +109,7 @@ ip6_map_t_icmp (vlib_main_t * vm,
   n_left_from = frame->n_vectors;
   next_index = node->cached_next_index;
   vlib_combined_counter_main_t *cm = map_main.domain_counters;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
 
   while (n_left_from > 0)
     {
@@ -151,9 +142,8 @@ ip6_map_t_icmp (vlib_main_t * vm,
 			       vnet_buffer (p0)->map_t.map_domain_index);
 	  ctx0.d = d0;
 	  ctx0.sender_port = 0;
-	  if (!ip6_get_port
-	      (vm, p0, ip60, p0->current_length, NULL, &ctx0.sender_port,
-	       NULL, NULL, NULL, NULL))
+	  if (!ip6_get_port (vm, p0, ip60, p0->current_length, NULL,
+			     &ctx0.sender_port, NULL, NULL, NULL, NULL, NULL))
 	    {
 	      // In case of 1:1 mapping, we don't care about the port
 	      if (!(d0->ea_bits_len == 0 && d0->rules))
@@ -495,7 +485,7 @@ ip6_map_t (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
     vlib_node_get_runtime (vm, ip6_map_t_node.index);
   map_main_t *mm = &map_main;
   vlib_combined_counter_main_t *cm = map_main.domain_counters;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
 
   from = vlib_frame_vector_args (frame);
   n_left_from = frame->n_vectors;
@@ -529,7 +519,10 @@ ip6_map_t (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
 	  ip60 = vlib_buffer_get_current (p0);
 
 	  d0 =
-	    ip6_map_get_domain (&ip60->dst_address,
+	    /* Originally using the IPv6 dest for rule lookup, now source
+	     * [dgeist] ip6_map_get_domain (&ip60->dst_address,
+	     */
+	    ip6_map_get_domain (&ip60->src_address,
 				&vnet_buffer (p0)->map_t.map_domain_index,
 				&error0);
 	  if (!d0)
@@ -687,7 +680,6 @@ ip6_map_t (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE(ip6_map_t_fragmented_node) = {
   .function = ip6_map_t_fragmented,
   .name = "ip6-map-t-fragmented",
@@ -707,9 +699,7 @@ VLIB_REGISTER_NODE(ip6_map_t_fragmented_node) = {
     [IP6_MAPT_FRAGMENTED_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE(ip6_map_t_icmp_node) = {
   .function = ip6_map_t_icmp,
   .name = "ip6-map-t-icmp",
@@ -729,9 +719,7 @@ VLIB_REGISTER_NODE(ip6_map_t_icmp_node) = {
     [IP6_MAPT_ICMP_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE(ip6_map_t_tcp_udp_node) = {
   .function = ip6_map_t_tcp_udp,
   .name = "ip6-map-t-tcp-udp",
@@ -751,9 +739,7 @@ VLIB_REGISTER_NODE(ip6_map_t_tcp_udp_node) = {
     [IP6_MAPT_TCP_UDP_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VNET_FEATURE_INIT (ip6_map_t_feature, static) = {
     .arc_name = "ip6-unicast",
     .node_name = "ip6-map-t",
@@ -781,12 +767,3 @@ VLIB_REGISTER_NODE(ip6_map_t_node) = {
     [IP6_MAPT_NEXT_ICMP] = "ip6-icmp-error",
   },
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,19 +1,8 @@
-/*
- * ct6.c - skeleton vpp engine plug-in
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) <current-year> <your-organization>
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* ct6.c - skeleton vpp engine plug-in */
 
 #include <vnet/vnet.h>
 #include <vnet/plugin/plugin.h>
@@ -153,7 +142,6 @@ set_ct6_enable_disable_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_ct6_command, static) =
 {
   .path = "set ct6",
@@ -161,7 +149,6 @@ VLIB_CLI_COMMAND (set_ct6_command, static) =
   "set ct6 [inside|outside] <interface-name> [disable]",
   .function = set_ct6_enable_disable_command_fn,
 };
-/* *INDENT-ON* */
 
 /* API message handler */
 static void vl_api_ct6_enable_disable_t_handler
@@ -216,30 +203,24 @@ ct6_init (vlib_main_t * vm)
 
 VLIB_INIT_FUNCTION (ct6_init);
 
-/* *INDENT-OFF* */
 VNET_FEATURE_INIT (ct6out2in, static) =
 {
   .arc_name = "ip6-unicast",
   .node_name = "ct6-out2in",
   .runs_before = VNET_FEATURES ("ip6-lookup"),
 };
-/* *INDENT-ON */
 
-/* *INDENT-OFF* */
 VNET_FEATURE_INIT (ct6in2out, static) = {
   .arc_name = "interface-output",
   .node_name = "ct6-in2out",
   .runs_before = VNET_FEATURES ("interface-output-arc-end"),
 };
-/* *INDENT-ON */
 
-/* *INDENT-OFF* */
 VLIB_PLUGIN_REGISTER () =
 {
   .version = VPP_BUILD_VER,
   .description = "IPv6 Connection Tracker",
 };
-/* *INDENT-ON* */
 
 u8 *
 format_ct6_session (u8 * s, va_list * args)
@@ -320,26 +301,22 @@ show_ct6_command_fn_command_fn (vlib_main_t * vm,
 	format (s, "%U", format_ct6_session, cmp,
 		0 /* pool */ , 0 /* header */ , verbose);
 
-      /* *INDENT-OFF* */
       pool_foreach (s0, cmp->sessions[i])
        {
         s = format (s, "%U", format_ct6_session, cmp, i, s0, verbose);
       }
-      /* *INDENT-ON* */
     }
   vlib_cli_output (cmp->vlib_main, "%v", s);
   vec_free (s);
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_ct6_command_fn_command, static) =
 {
   .path = "show ip6 connection-tracker",
   .short_help = "show ip6 connection-tracker",
   .function = show_ct6_command_fn_command_fn,
 };
-/* *INDENT-ON* */
 
 static void
 increment_v6_address (ip6_address_t * a)
@@ -429,12 +406,10 @@ test_ct6_command_fn_command_fn (vlib_main_t * vm,
       created = 0;
     }
 
-  /* *INDENT-OFF* */
   pool_foreach (s0, cmp->sessions[0])
    {
     s = format (s, "%U", format_ct6_session, cmp, 0, s0, 1 /* verbose */);
   }
-  /* *INDENT-ON* */
 
   vlib_cli_output (vm, "\nEnd state: first index %d last index %d\n%v",
 		   cmp->first_index[0], cmp->last_index[0], s);
@@ -449,12 +424,10 @@ test_ct6_command_fn_command_fn (vlib_main_t * vm,
 
   ct6_update_session_hit (cmp, s0, 234.0);
 
-  /* *INDENT-OFF* */
   pool_foreach (s0, cmp->sessions[0])
    {
     s = format (s, "%U", format_ct6_session, cmp, 0, s0, 1 /* verbose */);
   }
-  /* *INDENT-ON* */
 
   vlib_cli_output (vm, "\nEnd state: first index %d last index %d\n%v",
 		   cmp->first_index[0], cmp->last_index[0], s);
@@ -464,14 +437,12 @@ test_ct6_command_fn_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (test_ct6_command_fn_command, static) =
 {
   .path = "test ip6 connection-tracker",
   .short_help = "test ip6 connection-tracker",
   .function = test_ct6_command_fn_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 ct6_config (vlib_main_t * vm, unformat_input_t * input)
@@ -499,11 +470,3 @@ ct6_config (vlib_main_t * vm, unformat_input_t * input)
 }
 
 VLIB_CONFIG_FUNCTION (ct6_config, "ct6");
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

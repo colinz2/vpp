@@ -66,7 +66,7 @@ class ToJSON:
         write("#ifndef included_{}_api_tojson_h\n".format(self.module))
         write("#define included_{}_api_tojson_h\n".format(self.module))
         write("#include <vppinfra/cJSON.h>\n\n")
-        write("#include <vppinfra/jsonformat.h>\n\n")
+        write("#include <vlibapi/jsonformat.h>\n\n")
         if self.module == "interface_types":
             write("#define vl_printfun\n")
             write("#include <vnet/interface_types.api.h>\n\n")
@@ -123,7 +123,6 @@ class ToJSON:
                 )
             )
         else:
-
             write(
                 '    cJSON_AddStringToObject(o, "{n}", (char *)a->{n});\n'.format(
                     n=o.fieldname
@@ -172,14 +171,10 @@ class ToJSON:
             write("    {\n")
             # What is length field doing here?
             write(
-                '    u8 *s = format(0, "0x%U", format_hex_bytes, '
+                '    char *s = format_c_string(0, "0x%U", format_hex_bytes_no_wrap, '
                 "&a->{n}, {lfield});\n".format(n=o.fieldname, lfield=lfield)
             )
-            write(
-                '    cJSON_AddStringToObject(o, "{n}", (char *)s);\n'.format(
-                    n=o.fieldname
-                )
-            )
+            write('    cJSON_AddStringToObject(o, "{n}", s);\n'.format(n=o.fieldname))
             write("    vec_free(s);\n")
             write("    }\n")
             return
@@ -276,8 +271,12 @@ class ToJSON:
             "(vl_api_{name}_t *a) {{\n".format(name=o.name)
         )
 
-        write('    u8 *s = format(0, "%U", format_vl_api_{}_t, a);\n'.format(o.name))
-        write("    cJSON *o = cJSON_CreateString((char *)s);\n")
+        write(
+            '    char *s = format_c_string(0, "%U", format_vl_api_{}_t, a);\n'.format(
+                o.name
+            )
+        )
+        write("    cJSON *o = cJSON_CreateString(s);\n")
         write("    vec_free(s);\n")
         write("    return o;\n")
         write("}\n")
@@ -339,7 +338,7 @@ class FromJSON:
         write("#ifndef included_{}_api_fromjson_h\n".format(self.module))
         write("#define included_{}_api_fromjson_h\n".format(self.module))
         write("#include <vppinfra/cJSON.h>\n\n")
-        write("#include <vppinfra/jsonformat.h>\n\n")
+        write("#include <vlibapi/jsonformat.h>\n\n")
         write('#pragma GCC diagnostic ignored "-Wunused-label"\n')
 
     def is_base_type(self, t):
@@ -366,7 +365,7 @@ class FromJSON:
             write("    char *p = cJSON_GetStringValue(item);\n")
             write("    size_t plen = strlen(p);\n")
             write(
-                "    {msgvar} = cJSON_realloc({msgvar}, {msgsize} + plen, {msgsize});\n".format(
+                "    {msgvar} = cJSON_realloc({msgvar}, {msgsize} + plen);\n".format(
                     msgvar=msgvar, msgsize=msgsize
                 )
             )
@@ -435,7 +434,7 @@ class FromJSON:
         cJSON *array = cJSON_GetObjectItem(o, "{n}");
         int size = cJSON_GetArraySize(array);
         {lfield} = size;
-        {realloc} = cJSON_realloc({realloc}, {msgsize} + sizeof({t}) * size, {msgsize});
+        {realloc} = cJSON_realloc({realloc}, {msgsize} + sizeof({t}) * size);
         {t} *d = (void *){realloc} + {msgsize};
         {msgsize} += sizeof({t}) * size;
         for (i = 0; i < size; i++) {{
@@ -462,12 +461,12 @@ class FromJSON:
 
                 write(
                     "    {realloc} = cJSON_realloc({realloc}, {msgsize} + "
-                    "vec_len(s), {msgsize});\n".format(
+                    "vec_len(s));\n".format(
                         msgvar=msgvar, msgsize=msgsize, realloc=realloc
                     )
                 )
                 write(
-                    "    memcpy((void *){realloc} + {msgsize}, s, "
+                    "    clib_memcpy((void *){realloc} + {msgsize}, s, "
                     "vec_len(s));\n".format(realloc=realloc, msgsize=msgsize)
                 )
                 write("    {msgsize} += vec_len(s);\n".format(msgsize=msgsize))
@@ -751,6 +750,17 @@ TOP_BOILERPLATE = """\
 #endif
 
 #define VL_API_PACKED(x) x __attribute__ ((packed))
+
+/*
+ * Note: VL_API_MAX_ARRAY_SIZE is set to an arbitrarily large limit.
+ *
+ * However, any message with a ~2 billion element array is likely to break the
+ * api handling long before this limit causes array element endian issues.
+ *
+ * Applications should be written to create reasonable api messages.
+ */
+#define VL_API_MAX_ARRAY_SIZE 0x7fffffff
+
 """
 
 BOTTOM_BOILERPLATE = """\
@@ -1133,9 +1143,23 @@ ENDIAN_STRINGS = {
 }
 
 
-def endianfun_array(o):
+def get_endian_string(fieldtype):
+    """Return proper endian string conversion function"""
+    return ENDIAN_STRINGS[fieldtype]
+
+
+def get_lengthfield_type(fieldname, block):
+    """Return the type of the length field"""
+    for o in block:
+        if o.fieldname == fieldname:
+            return o.fieldtype
+    return None
+
+
+def endianfun_array(o, block):
     """Generate endian functions for arrays"""
     forloop = """\
+    ASSERT((u32){length} <= (u32)VL_API_MAX_ARRAY_SIZE);
     for (i = 0; i < {length}; i++) {{
         a->{name}[i] = {format}(a->{name}[i]);
     }}
@@ -1143,7 +1167,7 @@ def endianfun_array(o):
 
     forloop_format = """\
     for (i = 0; i < {length}; i++) {{
-        {type}_endian(&a->{name}[i]);
+        {type}_endian(&a->{name}[i], to_net);
     }}
 """
 
@@ -1151,10 +1175,25 @@ def endianfun_array(o):
     if o.fieldtype == "u8" or o.fieldtype == "string" or o.fieldtype == "bool":
         output += "    /* a->{n} = a->{n} (no-op) */\n".format(n=o.fieldname)
     else:
-        lfield = "a->" + o.lengthfield if o.lengthfield else o.length
+        # lfield = "a->" + o.lengthfield if o.lengthfield else o.length
+        if o.lengthfield:
+            fieldtype = get_lengthfield_type(o.lengthfield, block)
+            if fieldtype == "u8":
+                output += f"    u32 count = a->{o.lengthfield};\n"
+            else:
+                output += (
+                    f"    u32 count = to_net ? {get_endian_string(fieldtype)}(a->{o.lengthfield}) : "
+                    f"a->{o.lengthfield};\n"
+                )
+            lfield = "count"
+        else:
+            lfield = o.length
+
         if o.fieldtype in ENDIAN_STRINGS:
             output += forloop.format(
-                length=lfield, format=ENDIAN_STRINGS[o.fieldtype], name=o.fieldname
+                length=lfield,
+                format=get_endian_string(o.fieldtype),
+                name=o.fieldname,
             )
         else:
             output += forloop_format.format(
@@ -1166,11 +1205,11 @@ def endianfun_array(o):
 NO_ENDIAN_CONVERSION = {"client_index": None}
 
 
-def endianfun_obj(o):
+def endianfun_obj(o, block):
     """Generate endian conversion function for type"""
     output = ""
     if o.type == "Array":
-        return endianfun_array(o)
+        return endianfun_array(o, block)
     if o.type != "Field":
         output += '    s = format(s, "\\n{} {} {} (print not implemented");\n'.format(
             o.type, o.fieldtype, o.fieldname
@@ -1181,10 +1220,10 @@ def endianfun_obj(o):
         return output
     if o.fieldtype in ENDIAN_STRINGS:
         output += "    a->{name} = {format}(a->{name});\n".format(
-            name=o.fieldname, format=ENDIAN_STRINGS[o.fieldtype]
+            name=o.fieldname, format=get_endian_string(o.fieldtype)
         )
     elif o.fieldtype.startswith("vl_api_"):
-        output += "    {type}_endian(&a->{name});\n".format(
+        output += "    {type}_endian(&a->{name}, to_net);\n".format(
             type=o.fieldtype, name=o.fieldname
         )
     else:
@@ -1203,17 +1242,20 @@ def endianfun(objs, modulename):
 #define included_{module}_endianfun
 
 #undef clib_net_to_host_uword
+#undef clib_host_to_net_uword
 #ifdef LP64
 #define clib_net_to_host_uword clib_net_to_host_u64
+#define clib_host_to_net_uword clib_host_to_net_u64
 #else
 #define clib_net_to_host_uword clib_net_to_host_u32
+#define clib_host_to_net_uword clib_host_to_net_u32
 #endif
 
 """
     output = output.format(module=modulename)
 
     signature = """\
-static inline void vl_api_{name}_t_endian (vl_api_{name}_t *a)
+static inline void vl_api_{name}_t_endian (vl_api_{name}_t *a, bool to_net)
 {{
     int i __attribute__((unused));
 """
@@ -1222,7 +1264,7 @@ static inline void vl_api_{name}_t_endian (vl_api_{name}_t *a)
         if t.__class__.__name__ == "Enum" or t.__class__.__name__ == "EnumFlag":
             output += signature.format(name=t.name)
             if t.enumtype in ENDIAN_STRINGS:
-                output += "    *a = {}(*a);\n".format(ENDIAN_STRINGS[t.enumtype])
+                output += "    *a = {}(*a);\n".format(get_endian_string(t.enumtype))
             else:
                 output += "    /* a->{name} = a->{name} (no-op) */\n".format(
                     name=t.name
@@ -1242,7 +1284,9 @@ static inline void vl_api_{name}_t_endian (vl_api_{name}_t *a)
                     name=t.name
                 )
             elif t.alias["type"] in FORMAT_STRINGS:
-                output += "    *a = {}(*a);\n".format(ENDIAN_STRINGS[t.alias["type"]])
+                output += "    *a = {}(*a);\n".format(
+                    get_endian_string(t.alias["type"])
+                )
             else:
                 output += "    /* Not Implemented yet {} */".format(t.name)
             output += "}\n\n"
@@ -1250,13 +1294,8 @@ static inline void vl_api_{name}_t_endian (vl_api_{name}_t *a)
 
         output += signature.format(name=t.name)
 
-        # make Array type appear before the others:
-        # some arrays have dynamic length, and we want to iterate over
-        # them before changing endiann for the length field
-        t.block.sort(key=lambda x: x.type)
-
         for o in t.block:
-            output += endianfun_obj(o)
+            output += endianfun_obj(o, t.block)
         output += "}\n\n"
 
     output += "\n#endif"
@@ -1322,7 +1361,7 @@ static inline uword vl_api_{name}_t_calc_size (vl_api_{name}_t *a)
                             )
                         lf = m[0]
                         if lf.fieldtype in ENDIAN_STRINGS:
-                            output += f" + {ENDIAN_STRINGS[lf.fieldtype]}(a->{b.lengthfield}) * sizeof(a->{b.fieldname}[0])"
+                            output += f" + {get_endian_string(lf.fieldtype)}(a->{b.lengthfield}) * sizeof(a->{b.fieldname}[0])"
                         elif lf.fieldtype == "u8":
                             output += (
                                 f" + a->{b.lengthfield} * sizeof(a->{b.fieldname}[0])"
@@ -1521,6 +1560,7 @@ def generate_c_boilerplate(services, defines, counters, file_crc, module, stream
 #include "{module}.api.h"
 #undef vl_printfun
 
+#include "{module}.api_json.h"
 """
 
     write(hdr.format(module=module))
@@ -1533,6 +1573,7 @@ def generate_c_boilerplate(services, defines, counters, file_crc, module, stream
             '   u16 msg_id_base = vl_msg_api_get_msg_ids ("{}_{crc:08x}", '
             "VL_MSG_{m}_LAST);\n".format(module, crc=file_crc, m=module.upper())
         )
+        write(f"   vec_add1(am->json_api_repr, (u8 *)json_api_repr_{module});\n")
 
     for d in defines:
         write(
@@ -1797,7 +1838,7 @@ api_{n} (cJSON *o)
   }}
 
   mp->_vl_msg_id = vac_get_msg_index(VL_API_{N}_CRC);
-  vl_api_{n}_t_endian(mp);
+  vl_api_{n}_t_endian(mp, 1);
   vac_write((char *)mp, len);
   cJSON_free(mp);
 
@@ -1812,7 +1853,7 @@ api_{n} (cJSON *o)
     return 0;
   }}
   vl_api_{r}_t *rmp = (vl_api_{r}_t *)p;
-  vl_api_{r}_t_endian(rmp);
+  vl_api_{r}_t_endian(rmp, 0);
   return vl_api_{r}_t_tojson(rmp);
 }}
 
@@ -1830,7 +1871,7 @@ api_{n} (cJSON *o)
       return 0;
   }}
   mp->_vl_msg_id = msg_id;
-  vl_api_{n}_t_endian(mp);
+  vl_api_{n}_t_endian(mp, 1);
   vac_write((char *)mp, len);
   cJSON_free(mp);
 
@@ -1864,7 +1905,7 @@ api_{n} (cJSON *o)
             return 0;
         }}
         vl_api_{r}_t *rmp = (vl_api_{r}_t *)p;
-        vl_api_{r}_t_endian(rmp);
+        vl_api_{r}_t_endian(rmp, 0);
         cJSON_AddItemToArray(reply, vl_api_{r}_t_tojson(rmp));
     }}
   }}
@@ -1886,7 +1927,7 @@ api_{n} (cJSON *o)
   }}
   mp->_vl_msg_id = msg_id;
 
-  vl_api_{n}_t_endian(mp);
+  vl_api_{n}_t_endian(mp, 1);
   vac_write((char *)mp, len);
   cJSON_free(mp);
 
@@ -1907,14 +1948,14 @@ api_{n} (cJSON *o)
     u16 msg_id = ntohs(*((u16 *)p));
     if (msg_id == reply_msg_id) {{
         vl_api_{r}_t *rmp = (vl_api_{r}_t *)p;
-        vl_api_{r}_t_endian(rmp);
+        vl_api_{r}_t_endian(rmp, 0);
         cJSON_AddItemToArray(reply, vl_api_{r}_t_tojson(rmp));
         break;
     }}
 
     if (msg_id == details_msg_id) {{
         vl_api_{d}_t *rmp = (vl_api_{d}_t *)p;
-        vl_api_{d}_t_endian(rmp);
+        vl_api_{d}_t_endian(rmp, 0);
         cJSON_AddItemToArray(reply, vl_api_{d}_t_tojson(rmp));
     }}
   }}
@@ -2003,6 +2044,8 @@ def generate_c_test2_boilerplate(services, defines, module, stream):
         "void vat2_register_function(char *, cJSON * (*)(cJSON *), cJSON * (*)(void *), u32);\n"
     )
     # write('__attribute__((constructor))')
+    write("clib_error_t *\n")
+    write("vat2_register_plugin (void);\n")
     write("clib_error_t *\n")
     write("vat2_register_plugin (void) {\n")
     for s in services:

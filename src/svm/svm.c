@@ -1,21 +1,10 @@
+/* SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2009 Cisco and/or its affiliates.
+ */
+
 /*
- *------------------------------------------------------------------
  * svm.c - shared VM allocation, mmap(...MAP_FIXED...)
  * library
- *
- * Copyright (c) 2009 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <stdio.h>
@@ -551,7 +540,6 @@ svm_map_region (svm_map_region_args_t * a)
   int svm_fd;
   svm_region_t *rp;
   int deadman = 0;
-  u8 junk = 0;
   void *oldheap;
   int rv;
   int pid_holding_region_lock;
@@ -582,6 +570,15 @@ svm_map_region (svm_map_region_args_t * a)
 
       vec_free (shm_name);
 
+#ifdef __FreeBSD__
+      if (ftruncate (svm_fd, a->size) < 0)
+	{
+	  clib_warning ("ftruncate region size");
+	  close (svm_fd);
+	  return (0);
+	}
+#else
+      u8 junk = 0;
       if (lseek (svm_fd, a->size, SEEK_SET) == (off_t) - 1)
 	{
 	  clib_warning ("seek region size");
@@ -594,6 +591,7 @@ svm_map_region (svm_map_region_args_t * a)
 	  close (svm_fd);
 	  return (0);
 	}
+#endif /* __FreeBSD__ */
 
       rp = mmap (uword_to_pointer (a->baseva, void *), a->size,
 		 PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, svm_fd, 0);
@@ -883,7 +881,7 @@ svm_region_find_or_create (svm_map_region_args_t * a)
   svm_main_region_t *mp;
   svm_region_t *rp;
   uword need_nbits;
-  int index, i;
+  int index;
   void *oldheap;
   uword *p;
   u8 *name;
@@ -924,39 +922,31 @@ svm_region_find_or_create (svm_map_region_args_t * a)
 
   need_nbits = a->size / MMAP_PAGESIZE;
 
-  index = 1;			/* $$$ fixme, figure out how many bit to really skip */
-
   /*
    * Scan the virtual space allocation bitmap, looking for a large
    * enough chunk
    */
-  do
+  index = 0;
+  for (;;)
     {
-      if (clib_bitmap_get_no_check (root_rp->bitmap, index) == 0)
+      index = clib_bitmap_next_clear (root_rp->bitmap, index);
+      uword n = clib_bitmap_next_set (root_rp->bitmap, index + 1);
+      /* if we reach the end of the bitmap, clib_bitmap_next_set() returns ~0
+       * in that case, check the remaining is enough */
+      if (~0 == n &&
+	  vec_len (root_rp->bitmap) * BITS (root_rp->bitmap[0]) - index <
+	    need_nbits)
 	{
-	  for (i = 0; i < (need_nbits - 1); i++)
-	    {
-	      if (clib_bitmap_get_no_check (root_rp->bitmap, index + i) == 1)
-		{
-		  index = index + i;
-		  goto next;
-		}
-	    }
-	  break;
+	  clib_warning ("region %s: not enough VM to allocate 0x%llx (%lld)",
+			root_rp->region_name, a->size, a->size);
+	  svm_pop_heap (oldheap);
+	  region_unlock (root_rp);
+	  return 0;
 	}
-      index++;
-    next:;
-    }
-  while (index < root_rp->bitmap_size);
-
-  /* Completely out of VM? */
-  if (index >= root_rp->bitmap_size)
-    {
-      clib_warning ("region %s: not enough VM to allocate 0x%llx (%lld)",
-		    root_rp->region_name, a->size, a->size);
-      svm_pop_heap (oldheap);
-      region_unlock (root_rp);
-      return 0;
+      if (n - index >= need_nbits)
+	break; /* found */
+      /* continue looking for next */
+      index = n + 1;
     }
 
   /*
@@ -965,11 +955,7 @@ svm_region_find_or_create (svm_map_region_args_t * a)
 #if CLIB_DEBUG > 1
   clib_warning ("set %d bits at index %d", need_nbits, index);
 #endif
-
-  for (i = 0; i < need_nbits; i++)
-    {
-      clib_bitmap_set_no_check (root_rp->bitmap, index + i, 1);
-    }
+  clib_bitmap_set_region (root_rp->bitmap, index, 1, need_nbits);
 
   /* Place this region where it goes... */
   a->baseva = root_rp->virtual_base + index * MMAP_PAGESIZE;
@@ -1291,12 +1277,10 @@ svm_client_scan (const char *root_path)
    * Snapshoot names, can't hold root rp mutex across
    * find_or_create.
    */
-  /* *INDENT-OFF* */
   pool_foreach (subp, mp->subregions)  {
         name = vec_dup (subp->subregion_name);
         vec_add1(svm_names, name);
       }
-  /* *INDENT-ON* */
 
   pthread_mutex_unlock (&root_rp->mutex);
 
@@ -1324,11 +1308,3 @@ svm_client_scan (const char *root_path)
 
   vec_free (a);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

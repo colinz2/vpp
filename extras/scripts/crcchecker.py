@@ -40,10 +40,13 @@ def crc_from_apigen(revision, filename):
     if returncode.returncode != 0:
         print(
             f"vppapigen failed for {revision}:{filename} with "
-            "command\n {apigen}\n error: {rv}",
-            returncode.stderr.decode("ascii"),
+            f"command:\n {apigen}\n error: {returncode.returncode}",
             file=sys.stderr,
         )
+        if returncode.stderr:
+            print(f"stderr: {returncode.stderr.decode('ascii')}", file=sys.stderr)
+        if returncode.stdout:
+            print(f"stdout: {returncode.stdout.decode('ascii')}", file=sys.stderr)
         sys.exit(-2)
 
     return json.loads(returncode.stdout)
@@ -82,13 +85,15 @@ def filelist_from_git_ls():
 
 def is_uncommitted_changes():
     """Returns true if there are uncommitted changes in the repo"""
-    git_status = "git status --porcelain -uno"
-    returncode = run(git_status.split(), stdout=PIPE, stderr=PIPE)
-    if returncode.returncode != 0:
-        sys.exit(returncode.returncode)
+    # Don't run this check in the Jenkins CI
+    if os.getenv("FDIOTOOLS_IMAGE") is None:
+        git_status = "git status --porcelain -uno"
+        returncode = run(git_status.split(), stdout=PIPE, stderr=PIPE)
+        if returncode.returncode != 0:
+            sys.exit(returncode.returncode)
 
-    if returncode.stdout:
-        return True
+        if returncode.stdout:
+            return True
     return False
 
 

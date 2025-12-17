@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /**
  * @file
  * @brief NAT66 CLI
@@ -330,16 +321,16 @@ nat66_show_static_mappings_command_fn (vlib_main_t * vm,
  * @cliexpar
  * @cliexstart{nat66}
  * To enable NAT66 plugin
- *  vpp# nat66 enable
+ *  vpp# nat66 plugin enable
  * To disable NAT66 plugin
- *  vpp# nat66 disable
+ *  vpp# nat66 plugin disable
  * To enable NAT66 plugin with outside-vrf id 10
- *  vpp# nat66 enable outside-vrf 10
+ *  vpp# nat66 plugin enable outside-vrf 10
  * @cliexend
 ?*/
 VLIB_CLI_COMMAND (nat66_enable_disable_command, static) = {
-  .path = "nat66",
-  .short_help = "nat66 <enable [outside-vrf <vrf-id>]>|disable",
+  .path = "nat66 plugin",
+  .short_help = "nat66 plugin <enable [outside-vrf <vrf-id>]>|disable",
   .function = nat66_enable_disable_command_fn,
 };
 
@@ -408,11 +399,3 @@ VLIB_CLI_COMMAND (show_nat66_static_mappings_command, static) = {
   .short_help = "show nat66 static mappings",
   .function = nat66_show_static_mappings_command_fn,
 };
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

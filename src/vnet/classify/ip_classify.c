@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vnet/ip/ip.h>
 #include <vnet/ethernet/ethernet.h>	/* for ethernet_header_t */
 #include <vnet/classify/vnet_classify.h>
@@ -309,7 +300,6 @@ VLIB_NODE_FN (ip4_classify_node) (vlib_main_t * vm,
 }
 
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip4_classify_node) = {
   .name = "ip4-classify",
   .vector_size = sizeof (u32),
@@ -320,7 +310,6 @@ VLIB_REGISTER_NODE (ip4_classify_node) = {
 
   .n_next_nodes = 0,
 };
-/* *INDENT-ON* */
 
 VLIB_NODE_FN (ip6_classify_node) (vlib_main_t * vm,
 				  vlib_node_runtime_t * node,
@@ -330,7 +319,6 @@ VLIB_NODE_FN (ip6_classify_node) (vlib_main_t * vm,
 }
 
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_classify_node) = {
   .name = "ip6-classify",
   .vector_size = sizeof (u32),
@@ -341,7 +329,6 @@ VLIB_REGISTER_NODE (ip6_classify_node) = {
 
   .n_next_nodes = 0,
 };
-/* *INDENT-ON* */
 
 #ifndef CLIB_MARCH_VARIANT
 static clib_error_t *
@@ -352,11 +339,3 @@ ip_classify_init (vlib_main_t * vm)
 
 VLIB_INIT_FUNCTION (ip_classify_init);
 #endif /* CLIB_MARCH_VARIANT */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -466,6 +466,24 @@ CPU cores while skipping "skip-cores" CPU core(s) and main thread's CPU core
 
    workers 2
 
+relative
+^^^^^^^^^
+
+Apply thread pinning configuration with respect to the logical cores available
+to the VPP process, rather than all logical cores present on the host machine.
+
+By default, VPP applies the thread pinning configuration with respect to the
+available logical cores on host (e.g. '/sys/devices/system/cpu/online'), but with
+the 'relative' keyword, we apply the thread pinning configuration with respect
+to logical cores available to the VPP process (obtained with sched_getaffinity).
+
+This parameter can be useful when running VPP in an environment with restricted access
+to host CPU resources (e.g. running in a container, or using taskset).
+
+.. code-block:: console
+
+   relative
+
 scheduler-policy other | batch | idle | fifo | rr
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -497,6 +515,9 @@ The buffers Section
       buffers-per-numa 128000
       default data-size 2048
       page-size default-hugepage
+      numa 1 {
+         buffers 64000
+      }
    }
 
 buffers-per-numa number
@@ -531,6 +552,33 @@ Set the page size for buffer allocation
    page-size 1G
    page-size default
    page-size default-hugepage
+
+numa <numa index> { .. }
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Settings specific to a single NUMA domain.
+
+.. code-block:: console
+
+   buffers {
+      numa 0 {
+         buffers 32768
+      }
+   }
+
+buffers <n>
+^^^^^^^^^^^^^^^
+
+The number of buffers allocated for this specific NUMA domain.
+If this is set to zero, no buffers are allocated for this domain.
+
+By default, the value configured in **buffers-per-numa** is used.
+
+.. code-block:: console
+
+   numa 0 {
+      buffers 32768
+   }
 
 
 The dpdk Section
@@ -642,19 +690,6 @@ can impact performance. Default is 1024.
       num-rx-desc <n>
    }
 
-vlan-strip-offload on | off
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-VLAN strip offload mode for interface. VLAN stripping is off by default
-for all NICs except VICs, using ENIC driver, which has VLAN stripping on
-by default.
-
-.. code-block:: console
-
-   dev 000:02:00.1 {
-      vlan-strip-offload on|off
-   }
-
 uio-driver driver-name
 ^^^^^^^^^^^^^^^^^^^^^^
 
@@ -756,8 +791,8 @@ Enable all plugins by default and then selectively disable specific plugins
    plugin dpdk_plugin.so disable
    plugin acl_plugin.so disable
 
-Th statseg Section
-^^^^^^^^^^^^^^^^^^
+The statseg Section
+-------------------
 
 .. code-block:: console
 
@@ -1211,142 +1246,6 @@ as a CE router.
 .. code-block:: console
 
    customer edge
-
-nat Section
------------
-
-These parameters change the configuration of the NAT (Network address translation)
-plugin, such as how the NAT & NAT64 bi-hash tables are initialized, if the NAT is
-endpoint dependent, or if the NAT is deterministic.
-
-For each NAT per thread data, the following 4 parameters change how certain
-bi-hash tables are initialized.
-
-translation hash buckets <n>
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Sets the number of hash buckets in each of the two in/out NAT bi-hash lookup
-tables. Defaults to 1024 buckets.
-
-If the NAT is indicated to be endpoint dependent, which can be set with the
-:ref:`endpoint-dependent parameter <endpointLabel>`, then this parameter sets
-the number of hash buckets in each of the two endpoint dependent sessions
-NAT bi-hash lookup tables.
-
-.. code-block:: console
-
-   translation hash buckets 1024
-
-translation hash memory <n>
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Sets the allocated memory size (in bytes) for each of the two in/out NAT
-bi-hash tables. Defaults to 134217728 (128 << 20) bytes, which is roughly 128 MB.
-
-If the NAT is indicated to be endpoint dependent, which can be set with the
-:ref:`endpoint-dependent parameter <endpointLabel>`, then this parameter sets the
-allocated memory size for each of the two endpoint dependent sessions NAT bi-hash
-lookup tables.
-
-.. code-block:: console
-
-   translation hash memory 134217728
-
-user hash buckets <n>
-^^^^^^^^^^^^^^^^^^^^^
-
-Sets the number of hash buckets in the user bi-hash lookup table
-(src address lookup for a user.) Defaults to 128 buckets.
-
-.. code-block:: console
-
-   user hash buckets 128
-
-user hash memory <n>
-^^^^^^^^^^^^^^^^^^^^
-
-Sets the allocated memory size (in bytes) for the user bi-hash lookup table
-(src address lookup for a user.) Defaults to 67108864 (64 << 20) bytes,
-which is roughly 64 MB.
-
-.. code-block:: console
-
-   user hash memory 67108864
-
-max translations per user <n>
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Sets the maximum amount of dynamic and/or static NAT sessions each user can have.
-Defaults to 100. When this limit is reached, the least recently used translation
-is recycled.
-
-.. code-block:: console
-
-   max translations per user 50
-
-deterministic
-^^^^^^^^^^^^^
-
-Sets a boolean value to 1 indicating that the NAT is deterministic. Defaults to 0,
-meaning the NAT is not deterministic.
-
-.. code-block:: console
-
-   deterministic
-
-nat64 bib hash buckets <n>
-^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Sets the number of hash buckets in each of the two in/out NAT64 BIB bi-hash
-tables. Defaults to 1024 buckets.
-
-.. code-block:: console
-
-   nat64 bib hash buckets 1024
-
-nat64 bib hash memory <n>
-^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Sets the allocated memory size (in bytes) for each of the two in/out NAT64
-BIB bi-hash tables. Defaults to 134217728 (128 << 20) bytes,
-which is roughly 128 MB.
-
-.. code-block:: console
-
-   nat64 bib hash memory 134217728
-
-nat64 st hash buckets <n>
-^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Sets the number of hash buckets in each of the two in/out NAT64 session table
-bi-hash tables. Defaults to 2048 buckets.
-
-.. code-block:: console
-
-   nat64 st hash buckets 2048
-
-nat64 st hash memory <n>
-^^^^^^^^^^^^^^^^^^^^^^^^
-
-Sets the allocated memory size (in bytes) for each of the two in/out NAT64 session
-table bi-hash tables. Defaults to 268435456 (256 << 20) bytes, which is roughly
-256 MB.
-
-.. code-block:: console
-
-   nat64 st hash memory 268435456
-
-.. _endpointLabel:
-
-endpoint-dependent
-^^^^^^^^^^^^^^^^^^
-
-Sets a boolean value to 1, indicating that the NAT is endpoint dependent.
-Defaults to 0, meaning the NAT is not endpoint dependent.
-
-.. code-block:: console
-
-   endpoint-dependent
 
 oam Section
 -----------

@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vlib/vlib.h>
@@ -80,113 +70,108 @@ format_gso_trace (u8 * s, va_list * args)
   return s;
 }
 
-static_always_inline u16
-tso_segment_ipip_tunnel_fixup (vlib_main_t * vm,
-			       vnet_interface_per_thread_data_t * ptd,
-			       vlib_buffer_t * sb0,
-			       generic_header_offset_t * gho)
+static_always_inline void
+tso_segment_ipip_tunnel_fixup (vlib_main_t *vm,
+			       vnet_interface_per_thread_data_t *ptd,
+			       vlib_buffer_t *sb0)
 {
   u16 n_tx_bufs = vec_len (ptd->split_buffers);
-  u16 i = 0, n_tx_bytes = 0;
+  u16 i = 0;
 
   while (i < n_tx_bufs)
     {
       vlib_buffer_t *b0 = vlib_get_buffer (vm, ptd->split_buffers[i]);
+      i16 outer_l3_hdr_offset = vnet_buffer2 (b0)->outer_l3_hdr_offset;
+      i16 l3_hdr_offset = vnet_buffer (b0)->l3_hdr_offset;
 
-      ip4_header_t *ip4 =
-	(ip4_header_t *) (vlib_buffer_get_current (b0) +
-			  gho->outer_l3_hdr_offset);
-      ip6_header_t *ip6 =
-	(ip6_header_t *) (vlib_buffer_get_current (b0) +
-			  gho->outer_l3_hdr_offset);
+      ip4_header_t *ip4 = (ip4_header_t *) (b0->data + outer_l3_hdr_offset);
+      ip6_header_t *ip6 = (ip6_header_t *) (b0->data + outer_l3_hdr_offset);
 
-      if (gho->gho_flags & GHO_F_OUTER_IP4)
+      if (vnet_buffer (b0)->oflags & VNET_BUFFER_OFFLOAD_F_OUTER_IP_CKSUM)
 	{
-	  ip4->length =
-	    clib_host_to_net_u16 (b0->current_length -
-				  gho->outer_l3_hdr_offset);
+	  ip4->length = clib_host_to_net_u16 (
+	    b0->current_length - (outer_l3_hdr_offset - b0->current_data));
 	  ip4->checksum = ip4_header_checksum (ip4);
+	  vnet_buffer_offload_flags_clear (
+	    b0, VNET_BUFFER_OFFLOAD_F_OUTER_IP_CKSUM |
+		  VNET_BUFFER_OFFLOAD_F_TNL_IPIP);
 	}
-      else if (gho->gho_flags & GHO_F_OUTER_IP6)
+      else
 	{
-	  ip6->payload_length =
-	    clib_host_to_net_u16 (b0->current_length -
-				  gho->outer_l4_hdr_offset);
+	  ip6->payload_length = clib_host_to_net_u16 (
+	    b0->current_length - (l3_hdr_offset - b0->current_data));
+	  vnet_buffer_offload_flags_clear (b0, VNET_BUFFER_OFFLOAD_F_TNL_IPIP);
 	}
 
-      n_tx_bytes += gho->outer_hdr_sz;
       i++;
     }
-  return n_tx_bytes;
 }
 
 static_always_inline void
-tso_segment_vxlan_tunnel_headers_fixup (vlib_main_t * vm, vlib_buffer_t * b,
-					generic_header_offset_t * gho)
+tso_segment_vxlan_tunnel_headers_fixup (vlib_main_t *vm, vlib_buffer_t *b)
 {
-  u8 proto = 0;
   ip4_header_t *ip4 = 0;
   ip6_header_t *ip6 = 0;
   udp_header_t *udp = 0;
+  i16 outer_l3_hdr_offset = vnet_buffer2 (b)->outer_l3_hdr_offset;
+  i16 outer_l4_hdr_offset = vnet_buffer2 (b)->outer_l4_hdr_offset;
 
-  ip4 =
-    (ip4_header_t *) (vlib_buffer_get_current (b) + gho->outer_l3_hdr_offset);
-  ip6 =
-    (ip6_header_t *) (vlib_buffer_get_current (b) + gho->outer_l3_hdr_offset);
-  udp =
-    (udp_header_t *) (vlib_buffer_get_current (b) + gho->outer_l4_hdr_offset);
+  ip4 = (ip4_header_t *) (b->data + outer_l3_hdr_offset);
+  ip6 = (ip6_header_t *) (b->data + outer_l3_hdr_offset);
+  udp = (udp_header_t *) (b->data + outer_l4_hdr_offset);
 
-  if (gho->gho_flags & GHO_F_OUTER_IP4)
+  if (vnet_buffer (b)->oflags & VNET_BUFFER_OFFLOAD_F_OUTER_IP_CKSUM)
     {
-      proto = ip4->protocol;
-      ip4->length =
-	clib_host_to_net_u16 (b->current_length - gho->outer_l3_hdr_offset);
+      ip4->length = clib_host_to_net_u16 (
+	b->current_length - (outer_l3_hdr_offset - b->current_data));
       ip4->checksum = ip4_header_checksum (ip4);
-    }
-  else if (gho->gho_flags & GHO_F_OUTER_IP6)
-    {
-      proto = ip6->protocol;
-      ip6->payload_length =
-	clib_host_to_net_u16 (b->current_length - gho->outer_l4_hdr_offset);
-    }
-  if (proto == IP_PROTOCOL_UDP)
-    {
-      int bogus;
-      udp->length =
-	clib_host_to_net_u16 (b->current_length - gho->outer_l4_hdr_offset);
-      udp->checksum = 0;
-      if (gho->gho_flags & GHO_F_OUTER_IP6)
+      udp->length = clib_host_to_net_u16 (
+	b->current_length - (outer_l4_hdr_offset - b->current_data));
+      if (vnet_buffer (b)->oflags & VNET_BUFFER_OFFLOAD_F_OUTER_UDP_CKSUM)
 	{
+	  // udp checksum is 0, in udp tunnel
+	  udp->checksum = 0;
+	}
+      vnet_buffer_offload_flags_clear (
+	b, VNET_BUFFER_OFFLOAD_F_OUTER_IP_CKSUM |
+	     VNET_BUFFER_OFFLOAD_F_OUTER_UDP_CKSUM |
+	     VNET_BUFFER_OFFLOAD_F_TNL_VXLAN);
+    }
+  else
+    {
+      ip6->payload_length = clib_host_to_net_u16 (
+	b->current_length - (outer_l4_hdr_offset - b->current_data));
+      udp->length = ip6->payload_length;
+
+      if (vnet_buffer (b)->oflags & VNET_BUFFER_OFFLOAD_F_OUTER_UDP_CKSUM)
+	{
+	  int bogus;
+	  // udp checksum is 0, in udp tunnel
+	  udp->checksum = 0;
 	  udp->checksum =
 	    ip6_tcp_udp_icmp_compute_checksum (vm, b, ip6, &bogus);
+	  vnet_buffer_offload_flags_clear (
+	    b, VNET_BUFFER_OFFLOAD_F_OUTER_UDP_CKSUM |
+		 VNET_BUFFER_OFFLOAD_F_TNL_VXLAN);
 	}
-      else if (gho->gho_flags & GHO_F_OUTER_IP4)
-	{
-	  udp->checksum = ip4_tcp_udp_compute_checksum (vm, b, ip4);
-	}
-      /* FIXME: it should be OUTER_UDP_CKSUM */
-      vnet_buffer_offload_flags_clear (b, VNET_BUFFER_OFFLOAD_F_UDP_CKSUM);
     }
 }
 
-static_always_inline u16
-tso_segment_vxlan_tunnel_fixup (vlib_main_t * vm,
-				vnet_interface_per_thread_data_t * ptd,
-				vlib_buffer_t * sb0,
-				generic_header_offset_t * gho)
+static_always_inline void
+tso_segment_vxlan_tunnel_fixup (vlib_main_t *vm,
+				vnet_interface_per_thread_data_t *ptd,
+				vlib_buffer_t *sb0)
 {
   u16 n_tx_bufs = vec_len (ptd->split_buffers);
-  u16 i = 0, n_tx_bytes = 0;
+  u16 i = 0;
 
   while (i < n_tx_bufs)
     {
       vlib_buffer_t *b0 = vlib_get_buffer (vm, ptd->split_buffers[i]);
 
-      tso_segment_vxlan_tunnel_headers_fixup (vm, b0, gho);
-      n_tx_bytes += gho->outer_hdr_sz;
+      tso_segment_vxlan_tunnel_headers_fixup (vm, b0);
       i++;
     }
-  return n_tx_bytes;
 }
 
 static_always_inline u16
@@ -476,7 +461,7 @@ drop_one_buffer_and_count (vlib_main_t * vm, vnet_main_t * vnm,
 			   vlib_node_runtime_t * node, u32 * pbi0,
 			   u32 sw_if_index, u32 drop_error_code)
 {
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
 
   vlib_simple_counter_main_t *cm;
   cm =
@@ -491,19 +476,17 @@ drop_one_buffer_and_count (vlib_main_t * vm, vnet_main_t * vnm,
 }
 
 static_always_inline uword
-vnet_gso_node_inline (vlib_main_t * vm,
-		      vlib_node_runtime_t * node,
-		      vlib_frame_t * frame,
-		      vnet_main_t * vnm,
-		      vnet_hw_interface_t * hi,
-		      int is_l2, int is_ip4, int is_ip6, int do_segmentation)
+vnet_gso_node_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
+		      vlib_frame_t *frame, vnet_main_t *vnm,
+		      vnet_hw_interface_t *hi, u32 supported_caps, int is_l2,
+		      int is_ip4, int is_ip6, int do_segmentation)
 {
   u32 *to_next;
   u32 next_index = node->cached_next_index;
   u32 *from = vlib_frame_vector_args (frame);
   u32 n_left_from = frame->n_vectors;
   u32 *from_end = from + n_left_from;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   vnet_interface_main_t *im = &vnm->interface_main;
   vnet_interface_per_thread_data_t *ptd =
     vec_elt_at_index (im->per_thread_data, thread_index);
@@ -549,29 +532,25 @@ vnet_gso_node_inline (vlib_main_t * vm,
 	    if (PREDICT_FALSE (hi->sw_if_index != swif0))
 	      {
 		hi0 = vnet_get_sup_hw_interface (vnm, swif0);
-		if ((hi0->caps & VNET_HW_IF_CAP_TCP_GSO) == 0 &&
-		    (b[0]->flags & VNET_BUFFER_F_GSO))
+		if ((hi0->caps & supported_caps) != supported_caps)
 		  break;
 	      }
 	    if (PREDICT_FALSE (hi->sw_if_index != swif1))
 	      {
 		hi1 = vnet_get_sup_hw_interface (vnm, swif1);
-		if (!(hi1->caps & VNET_HW_IF_CAP_TCP_GSO) &&
-		    (b[1]->flags & VNET_BUFFER_F_GSO))
+		if ((hi1->caps & supported_caps) != supported_caps)
 		  break;
 	      }
 	    if (PREDICT_FALSE (hi->sw_if_index != swif2))
 	      {
 		hi2 = vnet_get_sup_hw_interface (vnm, swif2);
-		if ((hi2->caps & VNET_HW_IF_CAP_TCP_GSO) == 0 &&
-		    (b[2]->flags & VNET_BUFFER_F_GSO))
+		if ((hi2->caps & supported_caps) != supported_caps)
 		  break;
 	      }
 	    if (PREDICT_FALSE (hi->sw_if_index != swif3))
 	      {
 		hi3 = vnet_get_sup_hw_interface (vnm, swif3);
-		if (!(hi3->caps & VNET_HW_IF_CAP_TCP_GSO) &&
-		    (b[3]->flags & VNET_BUFFER_F_GSO))
+		if ((hi3->caps & supported_caps) != supported_caps)
 		  break;
 	      }
 
@@ -640,18 +619,31 @@ vnet_gso_node_inline (vlib_main_t * vm,
 	  vnet_hw_interface_t *hi0;
 	  u32 next0 = 0;
 	  u32 do_segmentation0 = 0;
+	  u32 caps = hi->caps;
 
 	  swif0 = vnet_buffer (b[0])->sw_if_index[VLIB_TX];
 	  if (PREDICT_FALSE (hi->sw_if_index != swif0))
 	    {
 	      hi0 = vnet_get_sup_hw_interface (vnm, swif0);
-	      if ((hi0->caps & VNET_HW_IF_CAP_TCP_GSO) == 0 &&
-		  (b[0]->flags & VNET_BUFFER_F_GSO))
+	      caps = hi0->caps;
+	      if ((hi0->caps & supported_caps) != supported_caps)
 		do_segmentation0 = 1;
 	    }
 	  else
 	    do_segmentation0 = do_segmentation;
 
+	  if (do_segmentation0)
+	    {
+	      u8 oflags = vnet_buffer (b[0])->oflags;
+	      if ((caps & VNET_HW_IF_CAP_TCP_GSO) == VNET_HW_IF_CAP_TCP_GSO)
+		{
+		  if (((oflags & VNET_BUFFER_OFFLOAD_F_TNL_VXLAN) !=
+		       VNET_BUFFER_OFFLOAD_F_TNL_VXLAN) &&
+		      ((oflags & VNET_BUFFER_OFFLOAD_F_TNL_IPIP) !=
+		       VNET_BUFFER_OFFLOAD_F_TNL_IPIP))
+		    do_segmentation0 = 0;
+		}
+	    }
 	  /* speculatively enqueue b0 to the current next frame */
 	  to_next[0] = bi0 = from[0];
 	  to_next += 1;
@@ -682,32 +674,10 @@ vnet_gso_node_inline (vlib_main_t * vm,
 		  to_next -= 1;
 		  n_left_to_next += 1;
 		  /* undo the counting. */
-		  generic_header_offset_t gho = { 0 };
 		  u32 n_tx_bytes = 0;
-		  u32 inner_is_ip6 = is_ip6;
 
-		  vnet_generic_header_offset_parser (b[0], &gho, is_l2,
-						     is_ip4, is_ip6);
-
-		  if (PREDICT_FALSE (gho.gho_flags & GHO_F_TUNNEL))
-		    {
-		      if (PREDICT_FALSE
-			  (gho.gho_flags & (GHO_F_GRE_TUNNEL |
-					    GHO_F_GENEVE_TUNNEL)))
-			{
-			  /* not supported yet */
-			  drop_one_buffer_and_count (vm, vnm, node, from - 1,
-						     hi->sw_if_index,
-						     GSO_ERROR_UNHANDLED_TYPE);
-			  b += 1;
-			  continue;
-			}
-
-		      inner_is_ip6 = (gho.gho_flags & GHO_F_IP6) != 0;
-		    }
-
-		  n_tx_bytes = gso_segment_buffer_inline (vm, ptd, b[0], &gho,
-							  is_l2, inner_is_ip6);
+		  n_tx_bytes =
+		    gso_segment_buffer_inline (vm, ptd, b[0], is_l2);
 
 		  if (PREDICT_FALSE (n_tx_bytes == 0))
 		    {
@@ -718,19 +688,15 @@ vnet_gso_node_inline (vlib_main_t * vm,
 		      continue;
 		    }
 
-
-		  if (PREDICT_FALSE (gho.gho_flags & GHO_F_VXLAN_TUNNEL))
+		  if (PREDICT_FALSE (vnet_buffer (b[0])->oflags &
+				     VNET_BUFFER_OFFLOAD_F_TNL_VXLAN))
 		    {
-		      n_tx_bytes +=
-			tso_segment_vxlan_tunnel_fixup (vm, ptd, b[0], &gho);
+		      tso_segment_vxlan_tunnel_fixup (vm, ptd, b[0]);
 		    }
-		  else
-		    if (PREDICT_FALSE
-			(gho.gho_flags & (GHO_F_IPIP_TUNNEL |
-					  GHO_F_IPIP6_TUNNEL)))
+		  else if (PREDICT_FALSE (vnet_buffer (b[0])->oflags &
+					  VNET_BUFFER_OFFLOAD_F_TNL_IPIP))
 		    {
-		      n_tx_bytes +=
-			tso_segment_ipip_tunnel_fixup (vm, ptd, b[0], &gho);
+		      tso_segment_ipip_tunnel_fixup (vm, ptd, b[0]);
 		    }
 
 		  u16 n_tx_bufs = vec_len (ptd->split_buffers);
@@ -744,7 +710,6 @@ vnet_gso_node_inline (vlib_main_t * vm,
 			{
 			  sbi0 = to_next[0] = from_seg[0];
 			  sb0 = vlib_get_buffer (vm, sbi0);
-			  vnet_buffer_offload_flags_clear (sb0, 0x7F);
 			  ASSERT (sb0->current_length > 0);
 			  to_next += 1;
 			  from_seg += 1;
@@ -796,15 +761,19 @@ vnet_gso_inline (vlib_main_t * vm,
     {
       u32 *from = vlib_frame_vector_args (frame);
       vlib_buffer_t *b = vlib_get_buffer (vm, from[0]);
+      u32 supported_caps =
+	(VNET_HW_IF_CAP_TCP_GSO | VNET_HW_IF_CAP_VXLAN_TNL_GSO |
+	 VNET_HW_IF_CAP_IPIP_TNL_GSO);
+
       hi = vnet_get_sup_hw_interface (vnm,
 				      vnet_buffer (b)->sw_if_index[VLIB_TX]);
 
-      if (hi->caps & (VNET_HW_IF_CAP_TCP_GSO | VNET_HW_IF_CAP_VXLAN_TNL_GSO))
-	return vnet_gso_node_inline (vm, node, frame, vnm, hi,
+      if ((hi->caps & supported_caps) == supported_caps)
+	return vnet_gso_node_inline (vm, node, frame, vnm, hi, supported_caps,
 				     is_l2, is_ip4, is_ip6,
 				     /* do_segmentation */ 0);
       else
-	return vnet_gso_node_inline (vm, node, frame, vnm, hi,
+	return vnet_gso_node_inline (vm, node, frame, vnm, hi, supported_caps,
 				     is_l2, is_ip4, is_ip6,
 				     /* do_segmentation */ 1);
     }
@@ -839,7 +808,6 @@ VLIB_NODE_FN (gso_ip6_node) (vlib_main_t * vm, vlib_node_runtime_t * node,
 			  1 /* ip6 */ );
 }
 
-/* *INDENT-OFF* */
 
 VLIB_REGISTER_NODE (gso_l2_ip4_node) = {
   .vector_size = sizeof (u32),
@@ -916,11 +884,3 @@ VNET_FEATURE_INIT (gso_ip6_node, static) = {
   .node_name = "gso-ip6",
   .runs_before = VNET_FEATURES ("ipsec6-output-feature"),
 };
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

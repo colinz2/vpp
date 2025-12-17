@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * map_api.c - vnet map api
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * map_api.c - vnet map api
  */
 
 #include <vnet/ip/ip_types_api.h>
@@ -50,13 +39,11 @@ vl_api_map_add_domain_t_handler (vl_api_map_add_domain_t * mp)
 		       mp->ip6_src.len, mp->ea_bits_len, mp->psid_offset,
 		       mp->psid_length, &index, mp->mtu, flags, mp->tag);
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2_END(VL_API_MAP_ADD_DOMAIN_REPLY,
   ({
     rmp->index = index;
   }));
 
-  /* *INDENT-ON* */
 }
 
 static void
@@ -94,11 +81,9 @@ send_domain_details (u32 map_domain_index, vl_api_registration_t * rp,
   map_domain_t *d = pool_elt_at_index (mm->domains, map_domain_index);
 
   /* Make sure every field is initiated (or don't skip the clib_memset()) */
-  map_domain_extra_t *de =
-    vec_elt_at_index (mm->domain_extras, map_domain_index);
-  int tag_len = clib_min (ARRAY_LEN (rmp->tag), vec_len (de->tag) + 1);
-
-  /* *INDENT-OFF* */
+  map_domain_extra_t *de = 0;
+  if (mm->domain_extras)
+    de = vec_elt_at_index (mm->domain_extras, map_domain_index);
   REPLY_MACRO_DETAILS4(VL_API_MAP_DOMAIN_DETAILS, rp, context,
   ({
     rmp->domain_index = htonl (map_domain_index);
@@ -116,10 +101,17 @@ send_domain_details (u32 map_domain_index, vl_api_registration_t * rp,
     rmp->psid_length = d->psid_length;
     rmp->flags = d->flags;
     rmp->mtu = htons (d->mtu);
-    memcpy (rmp->tag, de->tag, tag_len - 1);
-    rmp->tag[tag_len - 1] = '\0';
+    if (de)
+      {
+	int tag_len = clib_min (ARRAY_LEN (rmp->tag), vec_len (de->tag) + 1);
+	clib_memcpy (rmp->tag, de->tag, tag_len - 1);
+	rmp->tag[tag_len - 1] = '\0';
+      }
+    else
+      {
+	clib_memset (rmp->tag, 0, sizeof (rmp->tag));
+      }
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -136,12 +128,10 @@ vl_api_map_domain_dump_t_handler (vl_api_map_domain_dump_t * mp)
   if (!reg)
     return;
 
-  /* *INDENT-OFF* */
   pool_foreach_index (i, mm->domains)
    {
     send_domain_details(i, reg, mp->context);
   }
-  /* *INDENT-ON* */
 }
 
 static void
@@ -152,12 +142,10 @@ vl_api_map_domains_get_t_handler (vl_api_map_domains_get_t * mp)
 
   i32 rv = 0;
 
-  /* *INDENT-OFF* */
   REPLY_AND_DETAILS_MACRO (VL_API_MAP_DOMAINS_GET_REPLY, mm->domains,
   ({
     send_domain_details (cursor, rp, mp->context);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -556,11 +544,3 @@ map_plugin_api_hookup (vlib_main_t * vm)
 
   return 0;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

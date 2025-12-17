@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /**
  * @file
  * @brief IPv6 to IPv4 translation
@@ -31,7 +22,6 @@ typedef int (*ip6_to_ip4_tcp_udp_set_fn_t) (vlib_buffer_t * b,
 					    ip6_header_t * ip6,
 					    ip4_header_t * ip4, void *ctx);
 
-/* *INDENT-OFF* */
 static u8 icmp6_to_icmp_updater_pointer_table[] =
   { 0, 1, ~0, ~0,
     2, 2, 9, 8,
@@ -44,7 +34,6 @@ static u8 icmp6_to_icmp_updater_pointer_table[] =
     24, 24, 24, 24,
     24, 24, 24, 24
   };
-/* *INDENT-ON* */
 
 #define frag_id_6to4(id) ((id) ^ ((id) >> 16))
 
@@ -98,10 +87,10 @@ ip6_parse (vlib_main_t *vm, vlib_buffer_t *b, ip6_header_t *ip6, u32 buff_len,
  * @returns 1 on success, 0 otherwise.
  */
 always_inline u16
-ip6_get_port (vlib_main_t * vm, vlib_buffer_t * b, ip6_header_t * ip6,
-	      u16 buffer_len, u8 * ip_protocol, u16 * src_port,
-	      u16 * dst_port, u8 * icmp_type_or_tcp_flags,
-	      u32 * tcp_ack_number, u32 * tcp_seq_number)
+ip6_get_port (vlib_main_t *vm, vlib_buffer_t *b, ip6_header_t *ip6,
+	      u16 buffer_len, u8 *ip_protocol, u16 *src_port, u16 *dst_port,
+	      u8 *icmp_type_or_tcp_flags, u32 *tcp_ack_number,
+	      u32 *tcp_seq_number, void **l4_hdr)
 {
   u8 l4_protocol;
   u16 l4_offset;
@@ -122,8 +111,19 @@ ip6_get_port (vlib_main_t * vm, vlib_buffer_t * b, ip6_header_t * ip6,
       *ip_protocol = l4_protocol;
     }
   l4 = u8_ptr_add (ip6, l4_offset);
+  if (l4_hdr)
+    *l4_hdr = l4;
   if (l4_protocol == IP_PROTOCOL_TCP || l4_protocol == IP_PROTOCOL_UDP)
     {
+      if ((IP_PROTOCOL_UDP == l4_protocol &&
+	   u8_ptr_add (l4, sizeof (udp_header_t)) >
+	     u8_ptr_add (vlib_buffer_get_current (b), b->current_length)) ||
+	  (IP_PROTOCOL_TCP == l4_protocol &&
+	   u8_ptr_add (l4, sizeof (tcp_header_t)) >
+	     u8_ptr_add (vlib_buffer_get_current (b), b->current_length)))
+	{
+	  return 0;
+	}
       if (src_port)
 	*src_port = ((udp_header_t *) (l4))->src_port;
       if (dst_port)
@@ -137,6 +137,11 @@ ip6_get_port (vlib_main_t * vm, vlib_buffer_t * b, ip6_header_t * ip6,
     }
   else if (l4_protocol == IP_PROTOCOL_ICMP6)
     {
+      if (u8_ptr_add (l4, sizeof (icmp46_header_t)) >
+	  u8_ptr_add (vlib_buffer_get_current (b), b->current_length))
+	{
+	  return 0;
+	}
       icmp46_header_t *icmp = (icmp46_header_t *) (l4);
       if (icmp_type_or_tcp_flags)
 	*icmp_type_or_tcp_flags = ((icmp46_header_t *) (l4))->type;
@@ -154,7 +159,19 @@ ip6_get_port (vlib_main_t * vm, vlib_buffer_t * b, ip6_header_t * ip6,
 	  if (dst_port)
 	    *dst_port = ((u16 *) (icmp))[2];
 	}
-      else if (clib_net_to_host_u16 (ip6->payload_length) >= 64)
+      /*
+       * if there is enough data and ICMP type indicates ICMP error, then parse
+       * inner packet
+       *
+       * ICMP6 errors are:
+       *   1 - destination_unreachable
+       *   2 - packet_too_big
+       *   3 - time_exceeded
+       *   4 - parameter_problem
+       */
+      else if (clib_net_to_host_u16 (ip6->payload_length) >= 64 &&
+	       icmp->type >= ICMP6_destination_unreachable &&
+	       icmp->type <= ICMP6_parameter_problem)
 	{
 	  u16 ip6_pay_len;
 	  ip6_header_t *inner_ip6;
@@ -501,11 +518,3 @@ icmp6_to_icmp (vlib_main_t * vm, vlib_buffer_t * p,
 }
 
 #endif /* __included_ip6_to_ip4_h__ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

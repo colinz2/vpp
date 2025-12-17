@@ -5,6 +5,8 @@
 import subprocess
 import os
 import sys
+import time
+import signal
 
 
 class VppIperf:
@@ -65,6 +67,7 @@ class VppIperf:
             sys.exit(1)
 
     def start_iperf_server(self):
+        """Starts the  iperf server and returns the process cmdline args."""
         args = [
             "ip",
             "netns",
@@ -75,11 +78,11 @@ class VppIperf:
             "-D",
         ]
         args.extend(self.server_args.split())
-        args = " ".join(args)
-        self.logger.debug(f"Starting iperf server: {args}")
+        cmd = " ".join(args)
+        self.logger.debug(f"Starting iperf server: {cmd}")
         try:
-            return subprocess.run(
-                args,
+            subprocess.run(
+                cmd,
                 timeout=self.duration + 5,
                 encoding="utf-8",
                 shell=True,
@@ -88,6 +91,7 @@ class VppIperf:
             )
         except subprocess.TimeoutExpired as e:
             raise Exception("Error: Timeout expired for iPerf", e.output)
+        return args[4:]
 
     def start_iperf_client(self):
         args = [
@@ -125,7 +129,7 @@ class VppIperf:
         """
         self.ensure_init()
         if not client_only:
-            self.start_iperf_server()
+            return self.start_iperf_server()
         if not server_only:
             result = self.start_iperf_client()
             self.logger.debug(f"Iperf client args: {result.args}")
@@ -192,17 +196,33 @@ def start_iperf(
     return iperf.start(server_only=server_only, client_only=client_only)
 
 
-def stop_iperf():
-    args = ["pkill", "iperf"]
-    args = " ".join(args)
+def stop_iperf(iperf_cmd):
+    """Stop the iperf process matching the iperf_cmd string."""
     try:
-        return subprocess.run(
-            args,
+        result = subprocess.run(
+            ["pgrep", "-x", "-f", iperf_cmd],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             encoding="utf-8",
-            shell=True,
         )
-    except Exception:
-        pass
+        pids = result.stdout.strip().split()
+        if not pids:
+            # No matching iperf3 processes found
+            return
+
+        for pid in pids:
+            try:
+                # First send SIGTERM to cleanup and notify the parent process
+                os.kill(int(pid), signal.SIGTERM)
+                time.sleep(2)
+                os.kill(int(pid), 0)  # Check if still alive
+                os.kill(int(pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass  # Process already exited
+            except Exception as e:
+                print(f"Error terminating iperf3 process {pid}: {e}")
+    except Exception as e:
+        print(f"Failed to run pgrep for '{iperf_cmd}': {e}")
 
 
 if __name__ == "__main__":

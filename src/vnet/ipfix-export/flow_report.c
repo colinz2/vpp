@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /*
  * flow_report.c
  */
@@ -312,7 +303,7 @@ vnet_flow_rewrite_generic_callback (ipfix_exporter_t *exp, flow_report_t *fr,
 
 vlib_buffer_t *
 vnet_ipfix_exp_get_buffer (vlib_main_t *vm, ipfix_exporter_t *exp,
-			   flow_report_t *fr, u32 thread_index)
+			   flow_report_t *fr, clib_thread_index_t thread_index)
 {
   u32 bi0;
   vlib_buffer_t *b0;
@@ -343,7 +334,8 @@ vnet_ipfix_exp_get_buffer (vlib_main_t *vm, ipfix_exporter_t *exp,
 void
 vnet_ipfix_exp_send_buffer (vlib_main_t *vm, ipfix_exporter_t *exp,
 			    flow_report_t *fr, flow_report_stream_t *stream,
-			    u32 thread_index, vlib_buffer_t *b0)
+			    clib_thread_index_t thread_index,
+			    vlib_buffer_t *b0)
 {
   flow_report_main_t *frm = &flow_report_main;
   vlib_frame_t *f;
@@ -579,13 +571,11 @@ flow_report_process (vlib_main_t * vm,
   return 0;			/* not so much */
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (flow_report_process_node) = {
     .function = flow_report_process,
     .type = VLIB_NODE_TYPE_PROCESS,
     .name = "flow-report-process",
 };
-/* *INDENT-ON* */
 
 int
 vnet_flow_report_add_del (ipfix_exporter_t *exp,
@@ -862,7 +852,6 @@ set_ipfix_exporter_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_ipfix_exporter_command, static) = {
     .path = "set ipfix exporter",
     .short_help = "set ipfix exporter "
@@ -873,7 +862,6 @@ VLIB_CLI_COMMAND (set_ipfix_exporter_command, static) = {
                   "[udp-checksum]",
     .function = set_ipfix_exporter_command_fn,
 };
-/* *INDENT-ON* */
 
 
 static clib_error_t *
@@ -885,13 +873,11 @@ ipfix_flush_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (ipfix_flush_command, static) = {
     .path = "ipfix flush",
     .short_help = "flush the current ipfix data [for make test]",
     .function = ipfix_flush_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 flow_report_init (vlib_main_t * vm)
@@ -916,10 +902,3 @@ flow_report_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (flow_report_init);
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

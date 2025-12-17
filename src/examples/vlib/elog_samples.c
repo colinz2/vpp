@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vlib/vlib.h>
@@ -27,7 +17,7 @@ elog_four_int_sample (u32 * data)
   {
     u32 data[4];
   } *ed;
-  ed = ELOG_DATA (&vlib_global_main.elog_main, e);
+  ed = ELOG_DATA (vlib_get_elog_main (), e);
   ed->data[0] = data[0];
   ed->data[1] = data[1];
   ed->data[2] = data[2];
@@ -47,7 +37,7 @@ elog_four_int_track_sample (u32 * data)
     u32 data[4];
   } *ed;
   ELOG_TRACK (sample_track);
-  ed = ELOG_TRACK_DATA (&vlib_global_main.elog_main, e, sample_track);
+  ed = ELOG_TRACK_DATA (vlib_get_elog_main (), e, sample_track);
   ed->data[0] = data[0];
   ed->data[1] = data[1];
   ed->data[2] = data[2];
@@ -67,7 +57,7 @@ elog_enum_sample (u8 which)
   {
     u8 which;
   } *ed;
-  ed = ELOG_DATA (&vlib_global_main.elog_main, e);
+  ed = ELOG_DATA (vlib_get_elog_main (), e);
   ed->which = which;
 }
 
@@ -78,7 +68,7 @@ elog_one_datum_sample (u32 data)
   {
   .format = "one datum: %d",.format_args = "i4",};
 
-  elog (&vlib_global_main.elog_main, &e, data);
+  elog (vlib_get_elog_main (), &e, data);
 }
 
 static clib_error_t *
@@ -105,18 +95,8 @@ test_elog_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (test_elog_command, static) = {
   .path = "test elog sample",
   .short_help = "test elog sample",
   .function = test_elog_command_fn,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

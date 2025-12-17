@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
 #include <vnet/ethernet/ethernet.h>
@@ -206,7 +197,6 @@ VLIB_NODE_FN (l2_patch_node) (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (l2_patch_node) = {
   .name = "l2-patch",
   .vector_size = sizeof (u32),
@@ -223,7 +213,6 @@ VLIB_REGISTER_NODE (l2_patch_node) = {
         [L2_PATCH_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 extern int
 vnet_l2_patch_add_del (u32 rx_sw_if_index, u32 tx_sw_if_index, int is_add);
@@ -270,6 +259,8 @@ vnet_l2_patch_add_del (u32 rx_sw_if_index, u32 tx_sw_if_index, int is_add)
 
       vnet_feature_enable_disable ("device-input", "l2-patch",
 				   rxhi->sw_if_index, 1, 0, 0);
+      vnet_feature_enable_disable ("port-rx-eth", "l2-patch",
+				   rxhi->sw_if_index, 1, 0, 0);
     }
   else
     {
@@ -277,6 +268,8 @@ vnet_l2_patch_add_del (u32 rx_sw_if_index, u32 tx_sw_if_index, int is_add)
 			  /*ETHERNET_INTERFACE_FLAG_DEFAULT_L3 */ 0);
 
       vnet_feature_enable_disable ("device-input", "l2-patch",
+				   rxhi->sw_if_index, 0, 0, 0);
+      vnet_feature_enable_disable ("port-rx-eth", "l2-patch",
 				   rxhi->sw_if_index, 0, 0, 0);
       if (vec_len (l2pm->tx_next_by_rx_sw_if_index) > rx_sw_if_index)
 	{
@@ -369,13 +362,11 @@ done:
  * @todo This is incomplete. This needs a detailed description and a
  * practical example.
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (test_patch_command, static) = {
     .path = "test l2patch",
     .short_help = "test l2patch rx <intfc> tx <intfc> [del]",
     .function = test_patch_command_fn,
 };
-/* *INDENT-ON* */
 
 /** Display the contents of the l2patch table. */
 static clib_error_t *
@@ -421,13 +412,11 @@ show_l2patch (vlib_main_t * vm,
  * @todo This is incomplete. This needs a detailed description and a
  * practical example.
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_l2patch_cli, static) = {
   .path = "show l2patch",
   .short_help = "Show l2 interface cross-connect entries",
   .function = show_l2patch,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 l2_patch_init (vlib_main_t * vm)
@@ -441,11 +430,3 @@ l2_patch_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (l2_patch_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

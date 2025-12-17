@@ -1,23 +1,14 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
 #include <vppinfra/error.h>
 #include <vnet/ip/ip.h>
-#include <vnet/vxlan-gpe/vxlan_gpe.h>
-#include <vnet/vxlan-gpe/vxlan_gpe_packet.h>
+#include <plugins/vxlan-gpe/vxlan_gpe.h>
+#include <plugins/vxlan-gpe/vxlan_gpe_packet.h>
 #include <ioam/export-common/ioam_export.h>
 
 typedef struct
@@ -144,9 +135,7 @@ vxlan_gpe_export_node_fn (vlib_main_t * vm,
 /*
  * Node for VXLAN-GPE export
  */
-/* *INDENT-OFF* */
-VLIB_REGISTER_NODE (vxlan_export_node) =
-{
+VLIB_REGISTER_NODE (vxlan_export_node) = {
   .function = vxlan_gpe_export_node_fn,
   .name = "vxlan-gpe-ioam-export",
   .vector_size = sizeof (u32),
@@ -155,16 +144,6 @@ VLIB_REGISTER_NODE (vxlan_export_node) =
   .n_errors = ARRAY_LEN (export_error_strings),
   .error_strings = export_error_strings,
   .n_next_nodes = EXPORT_N_NEXT,
-    /* edit / add dispositions here */
-    .next_nodes =
-  {[EXPORT_NEXT_VXLAN_GPE_INPUT] = "vxlan-gpe-pop-ioam-v4"},
+  /* edit / add dispositions here */
+  .next_nodes = { [EXPORT_NEXT_VXLAN_GPE_INPUT] = "vxlan-gpe-pop-ioam-v4" },
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

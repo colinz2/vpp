@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * buffer.h: VLIB buffers
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* buffer.h: VLIB buffers */
 
 #ifndef included_vlib_buffer_h
 #define included_vlib_buffer_h
@@ -47,8 +15,7 @@
 #include <vppinfra/lock.h>
 #include <vlib/error.h>		/* for vlib_error_t */
 
-#include <vlib/config.h>	/* for __PRE_DATA_SIZE */
-#define VLIB_BUFFER_PRE_DATA_SIZE	__PRE_DATA_SIZE
+#include <vlib/config.h> /* for VLIB_BUFFER_PRE_DATA_SIZE */
 
 #define VLIB_BUFFER_DEFAULT_DATA_SIZE (2048)
 
@@ -107,62 +74,78 @@ enum
 #define VLIB_BUFFER_TRACE_TRAJECTORY 0
 #endif /* VLIB_BUFFER_TRACE_TRAJECTORY */
 
+#define vlib_buffer_template_fields                                           \
+  /** signed offset in data[], pre_data[] that we are currently               \
+   * processing. If negative current header points into predata area.  */     \
+  i16 current_data;                                                           \
+                                                                              \
+  /** Nbytes between current data and the end of this buffer.  */             \
+  u16 current_length;                                                         \
+  /** buffer flags:                                                           \
+      <br> VLIB_BUFFER_FREE_LIST_INDEX_MASK: bits used to store free list     \
+     index, <br> VLIB_BUFFER_IS_TRACED: trace this buffer. <br>               \
+     VLIB_BUFFER_NEXT_PRESENT: this is a multi-chunk buffer. <br>             \
+     VLIB_BUFFER_TOTAL_LENGTH_VALID: as it says <br>                          \
+     VLIB_BUFFER_EXT_HDR_VALID: buffer contains valid external buffer manager \
+     header, set to avoid adding it to a flow report <br>                     \
+     VLIB_BUFFER_FLAG_USER(n): user-defined bit N                             \
+   */                                                                         \
+  u32 flags;                                                                  \
+                                                                              \
+  /** Generic flow identifier */                                              \
+  u32 flow_id;                                                                \
+                                                                              \
+  /** Reference count for this buffer. */                                     \
+  volatile u8 ref_count;                                                      \
+                                                                              \
+  /** index of buffer pool this buffer belongs. */                            \
+  u8 buffer_pool_index;                                                       \
+                                                                              \
+  /** Error code for buffers to be enqueued to error handler.  */             \
+  vlib_error_t error;                                                         \
+                                                                              \
+  /** Next buffer for this linked-list of buffers. Only valid if              \
+   * VLIB_BUFFER_NEXT_PRESENT flag is set. */                                 \
+  u32 next_buffer;                                                            \
+                                                                              \
+  /** The following fields can be in a union because once a packet enters     \
+   * the punt path, it is no longer on a feature arc */                       \
+  union                                                                       \
+  {                                                                           \
+    /** Used by feature subgraph arcs to visit enabled feature nodes */       \
+    u32 current_config_index;                                                 \
+    /* the reason the packet once punted */                                   \
+    u32 punt_reason;                                                          \
+  };                                                                          \
+                                                                              \
+  /** Opaque data used by sub-graphs for their own purposes. */               \
+  u32 opaque[10];
+
+typedef struct
+{
+  CLIB_ALIGN_MARK (align_mark, 64);
+  vlib_buffer_template_fields
+} vlib_buffer_template_t;
+
+STATIC_ASSERT_SIZEOF (vlib_buffer_template_t, 64);
+
 /** VLIB buffer representation. */
 typedef union
 {
+  CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
   struct
   {
-    CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
-
-    /** signed offset in data[], pre_data[] that we are currently
-      * processing. If negative current header points into predata area.  */
-    i16 current_data;
-
-    /** Nbytes between current data and the end of this buffer.  */
-    u16 current_length;
-
-    /** buffer flags:
-	<br> VLIB_BUFFER_FREE_LIST_INDEX_MASK: bits used to store free list index,
-	<br> VLIB_BUFFER_IS_TRACED: trace this buffer.
-	<br> VLIB_BUFFER_NEXT_PRESENT: this is a multi-chunk buffer.
-	<br> VLIB_BUFFER_TOTAL_LENGTH_VALID: as it says
-	<br> VLIB_BUFFER_EXT_HDR_VALID: buffer contains valid external buffer manager header,
-	set to avoid adding it to a flow report
-	<br> VLIB_BUFFER_FLAG_USER(n): user-defined bit N
-     */
-    u32 flags;
-
-    /** Generic flow identifier */
-    u32 flow_id;
-
-    /** Reference count for this buffer. */
-    volatile u8 ref_count;
-
-    /** index of buffer pool this buffer belongs. */
-    u8 buffer_pool_index;
-
-    /** Error code for buffers to be enqueued to error handler.  */
-    vlib_error_t error;
-
-    /** Next buffer for this linked-list of buffers. Only valid if
-      * VLIB_BUFFER_NEXT_PRESENT flag is set. */
-    u32 next_buffer;
-
-    /** The following fields can be in a union because once a packet enters
-     * the punt path, it is no longer on a feature arc */
     union
     {
-      /** Used by feature subgraph arcs to visit enabled feature nodes */
-      u32 current_config_index;
-      /* the reason the packet once punted */
-      u32 punt_reason;
+      struct
+      {
+	vlib_buffer_template_fields
+      };
+      vlib_buffer_template_t template;
     };
 
-    /** Opaque data used by sub-graphs for their own purposes. */
-    u32 opaque[10];
-
-    /** part of buffer metadata which is initialized on alloc ends here. */
-      STRUCT_MARK (template_end);
+    /* Data above is initialized or zeroed on alloc, data bellow is not
+     * and it is app responsibility to ensure data is valid */
 
     /** start of 2nd half (2nd cacheline on systems where cacheline size is 64) */
       CLIB_ALIGN_MARK (second_half, 64);
@@ -220,6 +203,7 @@ STATIC_ASSERT (VLIB_BUFFER_PRE_DATA_SIZE % CLIB_CACHE_LINE_BYTES == 0,
 	       "VLIB_BUFFER_PRE_DATA_SIZE must be divisible by cache line size");
 
 #define VLIB_BUFFER_HDR_SIZE  (sizeof(vlib_buffer_t) - VLIB_BUFFER_PRE_DATA_SIZE)
+#define VLIB_BUFFER_INVALID_INDEX 0xffffffff
 
 /** \brief Prefetch buffer metadata.
     The first 64 bytes of buffer contains most header information
@@ -452,11 +436,12 @@ typedef struct
   CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
   uword start;
   uword size;
-  uword log2_page_size;
+  u8 log2_page_size;
   u8 index;
-  u32 numa_node;
+  u8 numa_node;
   u32 physmem_map_index;
   u32 data_size;
+  u32 alloc_size;
   u32 n_buffers;
   u32 n_avail;
   u32 *buffers;
@@ -467,7 +452,7 @@ typedef struct
   vlib_buffer_pool_thread_t *threads;
 
   /* buffer metadata template */
-  vlib_buffer_t buffer_template;
+  vlib_buffer_template_t buffer_template;
 } vlib_buffer_pool_t;
 
 #define VLIB_BUFFER_MAX_NUMA_NODES 32
@@ -491,7 +476,8 @@ typedef struct
   u8 default_buffer_pool_index_for_numa[VLIB_BUFFER_MAX_NUMA_NODES];
 
   /* config */
-  u32 buffers_per_numa;
+  u32 default_buffers_per_numa;
+  u32 buffers_per_numa[VLIB_BUFFER_MAX_NUMA_NODES];
   u16 ext_hdr_size;
   u32 default_data_size;
   clib_mem_page_sz_t log2_page_size;
@@ -526,11 +512,3 @@ vnet_buffer_set_ext_hdr_size() \
 }
 
 #endif /* included_vlib_buffer_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

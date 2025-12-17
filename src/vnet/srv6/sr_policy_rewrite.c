@@ -1,19 +1,8 @@
-/*
- * sr_policy_rewrite.c: ipv6 sr policy creation
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* sr_policy_rewrite.c: ipv6 sr policy creation */
 
 /**
  * @file
@@ -142,13 +131,11 @@ set_sr_src_command_fn (vlib_main_t * vm, unformat_input_t * input,
   return clib_error_return (0, "No address specified");
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_sr_src_command, static) = {
   .path = "set sr encaps source",
   .short_help = "set sr encaps source addr <ip6_addr>",
   .function = set_sr_src_command_fn,
 };
-/* *INDENT-ON* */
 
 /******************** SR rewrite set encaps IPv6 hop-limit ********************/
 
@@ -180,13 +167,11 @@ set_sr_hop_limit_command_fn (vlib_main_t * vm, unformat_input_t * input,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_sr_hop_limit_command, static) = {
   .path = "set sr encaps hop-limit",
   .short_help = "set sr encaps hop-limit <value>",
   .function = set_sr_hop_limit_command_fn,
 };
-/* *INDENT-ON* */
 
 /*********************** SR rewrite string computation ************************/
 /**
@@ -422,7 +407,7 @@ create_sl (ip6_sr_policy_t *sr_policy, ip6_address_t *sl,
     {
       plugin =
 	pool_elt_at_index (sm->policy_plugin_functions,
-			   sr_policy->plugin - SR_BEHAVIOR_LAST);
+			   sr_policy->plugin - SR_BEHAVIOR_CURRENT_LAST);
 
       segment_list->plugin = sr_policy->plugin;
       segment_list->plugin_mem = sr_policy->plugin_mem;
@@ -507,8 +492,9 @@ update_lb (ip6_sr_policy_t * sr_policy)
       };
 
       /* Add FIB entry for BSID */
-      fhc = fib_table_get_flow_hash_config (sr_policy->fib_table,
-					    FIB_PROTOCOL_IP6);
+      fhc = fib_table_get_flow_hash_config (
+	fib_table_find (FIB_PROTOCOL_IP6, sr_policy->fib_table),
+	FIB_PROTOCOL_IP6);
 
       dpo_set (&sr_policy->bsid_dpo, DPO_LOAD_BALANCE, DPO_PROTO_IP6,
 	       load_balance_create (0, DPO_PROTO_IP6, fhc));
@@ -832,7 +818,7 @@ sr_policy_del (ip6_address_t * bsid, u32 index)
 
       plugin =
 	pool_elt_at_index (sm->policy_plugin_functions,
-			   sr_policy->plugin - SR_BEHAVIOR_LAST);
+			   sr_policy->plugin - SR_BEHAVIOR_CURRENT_LAST);
 
       plugin->removal (sr_policy);
       sr_policy->plugin = 0;
@@ -1033,12 +1019,10 @@ sr_policy_command_fn (vlib_main_t * vm, unformat_input_t * input,
 	  sr_policy_fn_registration_t *plugin = 0, **vec_plugins = 0;
 	  sr_policy_fn_registration_t **plugin_it = 0;
 
-	  /* *INDENT-OFF* */
 	  pool_foreach (plugin, sm->policy_plugin_functions)
 	    {
 	      vec_add1 (vec_plugins, plugin);
 	    }
-	  /* *INDENT-ON* */
 
 	  vec_foreach (plugin_it, vec_plugins)
 	  {
@@ -1133,7 +1117,6 @@ sr_policy_command_fn (vlib_main_t * vm, unformat_input_t * input,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (sr_policy_command, static) = {
   .path = "sr policy",
   .short_help = "sr policy [add||del||mod] [bsid 2001::1||index 5] "
@@ -1153,7 +1136,6 @@ VLIB_CLI_COMMAND (sr_policy_command, static) = {
     "SID lists.\n",
   .function = sr_policy_command_fn,
 };
-/* *INDENT-ON* */
 
 /**
  * @brief CLI to display onscreen all the SR policies
@@ -1173,10 +1155,8 @@ show_sr_policies_command_fn (vlib_main_t * vm, unformat_input_t * input,
 
   vlib_cli_output (vm, "SR policies:");
 
-  /* *INDENT-OFF* */
   pool_foreach (sr_policy, sm->sr_policies)
                 {vec_add1 (vec_policies, sr_policy); }
-  /* *INDENT-ON* */
 
   vec_foreach_index (i, vec_policies)
   {
@@ -1228,13 +1208,11 @@ show_sr_policies_command_fn (vlib_main_t * vm, unformat_input_t * input,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_sr_policies_command, static) = {
   .path = "show sr policies",
   .short_help = "show sr policies",
   .function = show_sr_policies_command_fn,
 };
-/* *INDENT-ON* */
 
 /**
  * @brief CLI to display onscreen the SR encaps source addr
@@ -1249,13 +1227,11 @@ show_sr_encaps_source_command_fn (vlib_main_t * vm, unformat_input_t * input,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_sr_encaps_source_command, static) = {
   .path = "show sr encaps source addr",
   .short_help = "show sr encaps source addr",
   .function = show_sr_encaps_source_command_fn,
 };
-/* *INDENT-ON* */
 
 /**
  * @brief CLI to display onscreen the hop-limit value used for SRv6 encapsulation
@@ -1270,13 +1246,11 @@ show_sr_encaps_hop_limit_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_sr_encaps_hop_limit_command, static) = {
   .path = "show sr encaps hop-limit",
   .short_help = "show sr encaps hop-limit",
   .function = show_sr_encaps_hop_limit_command_fn,
 };
-/* *INDENT-ON* */
 
 /*************************** SR rewrite graph node ****************************/
 /**
@@ -1594,7 +1568,6 @@ sr_policy_rewrite_encaps (vlib_main_t * vm, vlib_node_runtime_t * node,
   return from_frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (sr_policy_rewrite_encaps_node) = {
   .function = sr_policy_rewrite_encaps,
   .name = "sr-pl-rewrite-encaps",
@@ -1610,7 +1583,6 @@ VLIB_REGISTER_NODE (sr_policy_rewrite_encaps_node) = {
 #undef _
   },
 };
-/* *INDENT-ON* */
 
 /**
  * @brief IPv4 encapsulation processing as per RFC2473
@@ -1887,7 +1859,6 @@ sr_policy_rewrite_encaps_v4 (vlib_main_t * vm, vlib_node_runtime_t * node,
   return from_frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (sr_policy_rewrite_encaps_v4_node) = {
   .function = sr_policy_rewrite_encaps_v4,
   .name = "sr-pl-rewrite-encaps-v4",
@@ -1903,7 +1874,6 @@ VLIB_REGISTER_NODE (sr_policy_rewrite_encaps_v4_node) = {
 #undef _
   },
 };
-/* *INDENT-ON* */
 
 always_inline u32
 ip_flow_hash (void *data)
@@ -2329,7 +2299,6 @@ sr_policy_rewrite_encaps_l2 (vlib_main_t * vm, vlib_node_runtime_t * node,
   return from_frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (sr_policy_rewrite_encaps_l2_node) = {
   .function = sr_policy_rewrite_encaps_l2,
   .name = "sr-pl-rewrite-encaps-l2",
@@ -2345,7 +2314,6 @@ VLIB_REGISTER_NODE (sr_policy_rewrite_encaps_l2_node) = {
 #undef _
   },
 };
-/* *INDENT-ON* */
 
 /**
  * @brief Graph node for applying a SR policy into a packet. SRH insertion.
@@ -2751,7 +2719,6 @@ sr_policy_rewrite_insert (vlib_main_t * vm, vlib_node_runtime_t * node,
   return from_frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (sr_policy_rewrite_insert_node) = {
   .function = sr_policy_rewrite_insert,
   .name = "sr-pl-rewrite-insert",
@@ -2767,7 +2734,6 @@ VLIB_REGISTER_NODE (sr_policy_rewrite_insert_node) = {
 #undef _
   },
 };
-/* *INDENT-ON* */
 
 /**
  * @brief Graph node for applying a SR policy into a packet. BSID - SRH insertion.
@@ -3162,7 +3128,6 @@ sr_policy_rewrite_b_insert (vlib_main_t * vm, vlib_node_runtime_t * node,
   return from_frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (sr_policy_rewrite_b_insert_node) = {
   .function = sr_policy_rewrite_b_insert,
   .name = "sr-pl-rewrite-b-insert",
@@ -3178,7 +3143,6 @@ VLIB_REGISTER_NODE (sr_policy_rewrite_b_insert_node) = {
 #undef _
   },
 };
-/* *INDENT-ON* */
 
 /**
  * @brief Function BSID encapsulation
@@ -3473,7 +3437,6 @@ sr_policy_rewrite_b_encaps (vlib_main_t * vm, vlib_node_runtime_t * node,
   return from_frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (sr_policy_rewrite_b_encaps_node) = {
   .function = sr_policy_rewrite_b_encaps,
   .name = "sr-pl-rewrite-b-encaps",
@@ -3489,7 +3452,6 @@ VLIB_REGISTER_NODE (sr_policy_rewrite_b_encaps_node) = {
 #undef _
   },
 };
-/* *INDENT-ON* */
 
 /*************************** SR Policy plugins ******************************/
 /**
@@ -3527,7 +3489,7 @@ sr_policy_register_function (vlib_main_t * vm, u8 * fn_name,
   clib_memset (plugin, 0, sizeof (*plugin));
 
   plugin->sr_policy_function_number = (plugin - sm->policy_plugin_functions);
-  plugin->sr_policy_function_number += SR_BEHAVIOR_LAST;
+  plugin->sr_policy_function_number += SR_BEHAVIOR_CURRENT_LAST;
   plugin->prefix_length = prefix_length;
   plugin->ls_format = ls_format;
   plugin->ls_unformat = ls_unformat;
@@ -3557,10 +3519,8 @@ show_sr_policy_behaviors_command_fn (vlib_main_t * vm,
 
   vlib_cli_output (vm, "SR Policy behaviors:\n-----------------------\n\n");
 
-  /* *INDENT-OFF* */
   pool_foreach (plugin, sm->policy_plugin_functions)
      { vec_add1 (plugins_vec, plugin); }
-  /* *INDENT-ON* */
 
   vlib_cli_output (vm, "Plugin behaviors:\n");
   for (i = 0; i < vec_len (plugins_vec); i++)
@@ -3573,13 +3533,11 @@ show_sr_policy_behaviors_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_sr_policy_behaviors_command, static) = {
   .path = "show sr policy behaviors",
   .short_help = "show sr policy behaviors",
   .function = show_sr_policy_behaviors_command_fn,
 };
-/* *INDENT-ON* */
 
 /*************************** SR Segment Lists DPOs ****************************/
 static u8 *
@@ -3691,12 +3649,3 @@ sr_policy_rewrite_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (sr_policy_rewrite_init);
-
-
-/*
-* fd.io coding-style-patch-verification: ON
-*
-* Local Variables:
-* eval: (c-set-style "gnu")
-* End:
-*/

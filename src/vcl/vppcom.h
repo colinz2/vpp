@@ -1,21 +1,14 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017-2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef included_vppcom_h
 #define included_vppcom_h
 
+#ifdef __FreeBSD__
+#include <sys/types.h>
+#endif /* __FreeBSD__ */
 #include <netdb.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -55,6 +48,7 @@ typedef enum vppcom_proto_
   VPPCOM_PROTO_QUIC,
   VPPCOM_PROTO_DTLS,
   VPPCOM_PROTO_SRTP,
+  VPPCOM_PROTO_HTTP,
 } vppcom_proto_t;
 
 typedef enum
@@ -116,7 +110,11 @@ typedef enum
   VPPCOM_EFAULT = -EFAULT,
   VPPCOM_ENOMEM = -ENOMEM,
   VPPCOM_EINVAL = -EINVAL,
+#ifdef __linux__
   VPPCOM_EBADFD = -EBADFD,
+#else
+  VPPCOM_EBADFD = -EBADF,
+#endif /* __linux__ */
   VPPCOM_EAFNOSUPPORT = -EAFNOSUPPORT,
   VPPCOM_ECONNABORTED = -ECONNABORTED,
   VPPCOM_ECONNRESET = -ECONNRESET,
@@ -140,8 +138,8 @@ typedef enum
   VPPCOM_ATTR_GET_LCL_ADDR,
   VPPCOM_ATTR_SET_LCL_ADDR,
   VPPCOM_ATTR_GET_PEER_ADDR,
-  VPPCOM_ATTR_GET_LIBC_EPFD,
-  VPPCOM_ATTR_SET_LIBC_EPFD,
+  VPPCOM_ATTR_GET_UNUSED,
+  VPPCOM_ATTR_SET_UNUSED,
   VPPCOM_ATTR_GET_PROTOCOL,
   VPPCOM_ATTR_GET_LISTEN,
   VPPCOM_ATTR_GET_ERROR,
@@ -176,7 +174,18 @@ typedef enum
   VPPCOM_ATTR_SET_DSCP,
   VPPCOM_ATTR_SET_IP_PKTINFO,
   VPPCOM_ATTR_GET_IP_PKTINFO,
+  VPPCOM_ATTR_GET_ORIGINAL_DST,
+  VPPCOM_ATTR_GET_NWRITEQ,
+  VPPCOM_ATTR_GET_EXT_ENDPT,
+  VPPCOM_ATTR_GET_COOKIE,
+  VPPCOM_ATTR_SET_COOKIE,
+  VPPCOM_ATTR_GET_STREAM_FLAGS,
+  VPPCOM_ATTR_SET_STREAM_FLAGS,
 } vppcom_attr_op_t;
+
+typedef enum {
+  VPPCOM_STREAM_F_UNIDIRECTIONAL = 1 << 0,
+} vppcom_stream_flags_t;
 
 typedef struct _vcl_poll
 {
@@ -197,10 +206,45 @@ typedef vppcom_data_segment_t vppcom_data_segments_t[2];
 typedef unsigned long vcl_si_set;
 
 /*
+ * VCL Configuration Structure
+ */
+typedef struct vppcom_cfg_t_
+{
+  size_t heapsize;
+  uint32_t max_workers;
+  size_t segment_baseva;
+  size_t segment_size;
+  size_t add_segment_size;
+  uint32_t preallocated_fifo_pairs;
+  uint32_t rx_fifo_size;
+  uint32_t tx_fifo_size;
+  uint32_t event_queue_size;
+  uint8_t app_proxy_transport_tcp;
+  uint8_t app_proxy_transport_udp;
+  uint8_t app_scope_local;
+  uint8_t app_scope_global;
+  char *namespace_id;
+  uint64_t namespace_secret;
+  uint8_t use_mq_eventfd;
+  double app_timeout;
+  double session_timeout;
+  char *event_log_path;
+  char *vpp_app_socket_api;	/**< app socket api socket file name */
+  char *vpp_bapi_socket_name;	/**< bapi socket transport socket name */
+  char *app_name;
+  uint32_t tls_engine;
+  uint8_t mt_wrk_supported;
+  uint8_t huge_page;
+  uint8_t app_original_dst;
+  uint8_t debug_level;
+} vppcom_cfg_t;
+
+/*
  * VPPCOM Public API Functions
  */
 
 extern int vppcom_app_create (const char *app_name);
+extern int vppcom_app_create_with_config (vppcom_cfg_t *vcl_cfg);
 extern void vppcom_app_destroy (void);
 
 extern int vppcom_session_create (uint8_t proto, uint8_t is_nonblocking);
@@ -250,11 +294,15 @@ extern int vppcom_session_read_segments (uint32_t session_handle,
 					 vppcom_data_segment_t * ds,
 					 uint32_t n_segments,
 					 uint32_t max_bytes);
+extern int vppcom_session_write_segments (uint32_t session_handle,
+					 vppcom_data_segment_t * ds,
+					 uint32_t n_segments);
 extern void vppcom_session_free_segments (uint32_t session_handle,
 					  uint32_t n_bytes);
 extern int vppcom_add_cert_key_pair (vppcom_cert_key_pair_t *ckpair);
 extern int vppcom_del_cert_key_pair (uint32_t ckpair_index);
 extern int vppcom_unformat_proto (uint8_t * proto, char *proto_str);
+extern int vppcom_session_is_stream (uint32_t session_handle);
 extern int vppcom_session_is_connectable_listener (uint32_t session_handle);
 extern int vppcom_session_listener (uint32_t session_handle);
 extern int vppcom_session_n_accepted (uint32_t session_handle);
@@ -314,11 +362,3 @@ extern int vppcom_worker_is_detached (void);
 /* clang-format on */
 
 #endif /* included_vppcom_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

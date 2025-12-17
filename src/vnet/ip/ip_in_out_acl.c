@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vnet/ip/ip.h>
 #include <vnet/classify/vnet_classify.h>
 #include <vnet/classify/in_out_acl.h>
@@ -816,7 +807,6 @@ VLIB_NODE_FN (ip4_outacl_node)
     VLIB_TX, 1 /* is_output */);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip4_inacl_node) = {
   .name = "ip4-inacl",
   .vector_size = sizeof (u32),
@@ -855,7 +845,6 @@ VLIB_REGISTER_NODE (ip4_outacl_node) = {
     [ACL_NEXT_INDEX_DENY] = "ip4-drop",
   },
 };
-/* *INDENT-ON* */
 
 VNET_FEATURE_INIT (ip4_punt_acl_feature) = {
   .arc_name = "ip4-punt",
@@ -891,7 +880,6 @@ VLIB_NODE_FN (ip6_outacl_node) (vlib_main_t * vm, vlib_node_runtime_t * node,
     VLIB_TX, 1 /* is_output */);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_inacl_node) = {
   .name = "ip6-inacl",
   .vector_size = sizeof (u32),
@@ -930,7 +918,6 @@ VLIB_REGISTER_NODE (ip6_outacl_node) = {
     [ACL_NEXT_INDEX_DENY] = "ip6-drop",
   },
 };
-/* *INDENT-ON* */
 
 VNET_FEATURE_INIT (ip6_punt_acl_feature) = {
   .arc_name = "ip6-punt",
@@ -947,12 +934,3 @@ ip_in_out_acl_init (vlib_main_t * vm)
 
 VLIB_INIT_FUNCTION (ip_in_out_acl_init);
 #endif /* CLIB_MARCH_VARIANT */
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

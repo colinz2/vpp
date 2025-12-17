@@ -1,23 +1,15 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef __LCP_ITF_PAIR_H__
 #define __LCP_ITF_PAIR_H__
 
 #include <vnet/dpo/dpo.h>
 #include <vnet/adj/adj.h>
 #include <vnet/ip/ip_types.h>
+#include <vnet/ethernet/ethernet.h>
 
 #include <plugins/linux-cp/lcp.h>
 
@@ -198,12 +190,15 @@ void lcp_itf_pair_sync_state (lcp_itf_pair_t *lip);
 void lcp_itf_pair_sync_state_hw (vnet_hw_interface_t *hi);
 void lcp_itf_pair_sync_state_all ();
 
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
+/**
+ * Enable linux-cp-punt-xc for a given ethertype.
+ * @param ethertype - ethertype to enable
  */
+int lcp_ethertype_enable (ethernet_type_t ethertype);
 
+/**
+ * Get the list of ethertypes enabled for linux-cp-punt-xc.
+ * @param ethertypes_vec - pointer to a vector to store the list of ethertypes
+ */
+int lcp_ethertype_get_enabled (ethernet_type_t **ethertypes_vec);
 #endif

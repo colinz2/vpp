@@ -1,22 +1,13 @@
-/* Hey Emacs use -*- mode: C -*- */
-/*
- * Copyright 2020 Rubicon Communications, LLC.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+/* SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2020 Rubicon Communications, LLC.
  */
 
 #include <sys/socket.h>
+#ifdef __linux__
 #include <linux/if.h>
+#else
+#include <net/if.h>
+#endif /* __linux__ */
 
 #include <vnet/vnet.h>
 #include <vnet/plugin/plugin.h>
@@ -75,9 +66,9 @@ graph_node_show_cmd (vlib_main_t * vm,
   while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
     {
       if (unformat (input, "node %d", &index))
-	  n = vlib_get_node (vm, index);
-      else if (unformat (input, "node %v", &name))
-	  n = vlib_get_node_by_name (vm, name);
+	n = vlib_get_node (vm, index);
+      else if (unformat (input, "node %s", &name))
+	n = vlib_get_node_by_name (vm, name);
 
       else if (unformat (input, "want_arcs"))
 	want_arcs = true;
@@ -132,13 +123,11 @@ graph_node_show_cmd (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (graph_node_show_command, static) = {
   .path = "show graph",
   .short_help = "show graph [node <index>|<name>] [want_arcs] [input|trace_supported] [drop] [output] [punt] [handoff] [no_free] [polling] [interrupt]",
   .function = graph_node_show_cmd,
 };
-/* *INDENT-ON* */
 
 
 /*

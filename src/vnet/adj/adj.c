@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/adj/adj.h>
@@ -572,7 +562,7 @@ adj_get_rewrite (adj_index_t ai)
 
     ASSERT (rw->data_bytes != 0xfefe);
 
-    return (rw->data - rw->data_bytes);
+    return rw->data;
 }
 
 static fib_node_t *
@@ -704,7 +694,6 @@ adj_show (vlib_main_t * vm,
         }
         else
         {
-            /* *INDENT-OFF* */
             pool_foreach_index (ai, adj_pool)
              {
                 if (~0 != sw_if_index &&
@@ -719,7 +708,6 @@ adj_show (vlib_main_t * vm,
                                      FORMAT_IP_ADJACENCY_NONE);
                 }
             }
-            /* *INDENT-ON* */
         }
     }
     return 0;

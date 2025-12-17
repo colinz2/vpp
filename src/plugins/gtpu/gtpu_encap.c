@@ -1,17 +1,7 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Intel and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vppinfra/error.h>
 #include <vppinfra/hash.h>
 #include <vnet/vnet.h>
@@ -67,7 +57,7 @@ gtpu_encap_inline (vlib_main_t * vm,
   vnet_interface_main_t * im = &vnm->interface_main;
   u32 pkts_encapsulated = 0;
   u16 old_l0 = 0, old_l1 = 0, old_l2 = 0, old_l3 = 0;
-  u32 thread_index = vlib_get_thread_index();
+  clib_thread_index_t thread_index = vlib_get_thread_index ();
   u32 stats_sw_if_index, stats_n_packets, stats_n_bytes;
   u32 sw_if_index0 = 0, sw_if_index1 = 0, sw_if_index2 = 0, sw_if_index3 = 0;
   u32 next0 = 0, next1 = 0, next2 = 0, next3 = 0;
@@ -199,7 +189,8 @@ gtpu_encap_inline (vlib_main_t * vm,
 	      copy_dst3 = (u64 *) ip4_3;
 	      copy_src3 = (u64 *) t3->rewrite;
 
-	      /* Copy first 32 octets 8-bytes at a time */
+	      /* Copy first 32 octets 8-bytes at a time (minimum size)
+	       * TODO: check if clib_memcpy_fast is better */
 #define _(offs) copy_dst0[offs] = copy_src0[offs];
 	      foreach_fixed_header4_offset;
 #undef _
@@ -212,19 +203,83 @@ gtpu_encap_inline (vlib_main_t * vm,
 #define _(offs) copy_dst3[offs] = copy_src3[offs];
 	      foreach_fixed_header4_offset;
 #undef _
-	      /* Last 4 octets. Hopefully gcc will be our friend */
-              copy_dst_last0 = (u32 *)(&copy_dst0[4]);
-              copy_src_last0 = (u32 *)(&copy_src0[4]);
-              copy_dst_last0[0] = copy_src_last0[0];
-              copy_dst_last1 = (u32 *)(&copy_dst1[4]);
-              copy_src_last1 = (u32 *)(&copy_src1[4]);
-              copy_dst_last1[0] = copy_src_last1[0];
-              copy_dst_last2 = (u32 *)(&copy_dst2[4]);
-              copy_src_last2 = (u32 *)(&copy_src2[4]);
-              copy_dst_last2[0] = copy_src_last2[0];
-              copy_dst_last3 = (u32 *)(&copy_dst3[4]);
-              copy_src_last3 = (u32 *)(&copy_src3[4]);
-              copy_dst_last3[0] = copy_src_last3[0];
+
+	      /* Copy last octets */
+	      if (_vec_len (t0->rewrite) == 36)
+		{
+		  /* Last 4 octets. Hopefully gcc will be our friend */
+		  copy_dst_last0 = (u32 *) (&copy_dst0[4]);
+		  copy_src_last0 = (u32 *) (&copy_src0[4]);
+		  copy_dst_last0[0] = copy_src_last0[0];
+		}
+	      else
+		{
+		  /* Near last 8 octets. */
+#define _(offs) copy_dst0[offs] = copy_src0[offs];
+		  _ (4);
+#undef _
+		  /* Last 4 octets. Hopefully gcc will be our friend */
+		  copy_dst_last0 = (u32 *) (&copy_dst0[5]);
+		  copy_src_last0 = (u32 *) (&copy_src0[5]);
+		  copy_dst_last0[0] = copy_src_last0[0];
+		}
+
+	      if (_vec_len (t1->rewrite) == 36)
+		{
+		  /* Last 4 octets. Hopefully gcc will be our friend */
+		  copy_dst_last1 = (u32 *) (&copy_dst1[4]);
+		  copy_src_last1 = (u32 *) (&copy_src1[4]);
+		  copy_dst_last1[0] = copy_src_last1[0];
+		}
+	      else
+		{
+		  /* Near last 8 octets. */
+#define _(offs) copy_dst1[offs] = copy_src1[offs];
+		  _ (4);
+#undef _
+		  /* Last 4 octets. Hopefully gcc will be our friend */
+		  copy_dst_last1 = (u32 *) (&copy_dst1[5]);
+		  copy_src_last1 = (u32 *) (&copy_src1[5]);
+		  copy_dst_last1[0] = copy_src_last1[0];
+		}
+
+	      if (_vec_len (t2->rewrite) == 36)
+		{
+		  /* Last 4 octets. Hopefully gcc will be our friend */
+		  copy_dst_last2 = (u32 *) (&copy_dst2[4]);
+		  copy_src_last2 = (u32 *) (&copy_src2[4]);
+		  copy_dst_last2[0] = copy_src_last2[0];
+		}
+	      else
+		{
+		  /* Near last 8 octets. */
+#define _(offs) copy_dst2[offs] = copy_src2[offs];
+		  _ (4);
+#undef _
+		  /* Last 4 octets. Hopefully gcc will be our friend */
+		  copy_dst_last2 = (u32 *) (&copy_dst2[5]);
+		  copy_src_last2 = (u32 *) (&copy_src2[5]);
+		  copy_dst_last2[0] = copy_src_last2[0];
+		}
+
+	      if (_vec_len (t3->rewrite) == 36)
+		{
+		  /* Last 4 octets. Hopefully gcc will be our friend */
+		  copy_dst_last3 = (u32 *) (&copy_dst3[4]);
+		  copy_src_last3 = (u32 *) (&copy_src3[4]);
+		  copy_dst_last3[0] = copy_src_last3[0];
+		}
+	      else
+		{
+		  /* Near last 8 octets. */
+#define _(offs) copy_dst3[offs] = copy_src3[offs];
+		  _ (4);
+#undef _
+		  /* Last 4 octets. Hopefully gcc will be our friend */
+		  copy_dst_last3 = (u32 *) (&copy_dst3[5]);
+		  copy_src_last3 = (u32 *) (&copy_src3[5]);
+		  copy_dst_last3[0] = copy_src_last3[0];
+		}
 
 	      /* Fix the IP4 checksum and length */
 	      sum0 = ip4_0->checksum;
@@ -318,7 +373,7 @@ gtpu_encap_inline (vlib_main_t * vm,
 	      copy_src2 = (u64 *) t2->rewrite;
 	      copy_dst3 = (u64 *) ip6_3;
 	      copy_src3 = (u64 *) t3->rewrite;
-	      /* Copy first 56 (ip6) octets 8-bytes at a time */
+	      /* Copy first 56 (ip6) octets 8-bytes at a time (minimum size) */
 #define _(offs) copy_dst0[offs] = copy_src0[offs];
 	      foreach_fixed_header6_offset;
 #undef _
@@ -331,6 +386,40 @@ gtpu_encap_inline (vlib_main_t * vm,
 #define _(offs) copy_dst3[offs] = copy_src3[offs];
 	      foreach_fixed_header6_offset;
 #undef _
+
+	      /* Copy last octets */
+	      if (_vec_len (t0->rewrite) == 64)
+		{
+		  /* Last 8 octets.  */
+#define _(offs) copy_dst0[offs] = copy_src0[offs];
+		  _ (7);
+#undef _
+		}
+
+	      if (_vec_len (t1->rewrite) == 64)
+		{
+		  /* Last 8 octets.  */
+#define _(offs) copy_dst1[offs] = copy_src1[offs];
+		  _ (7);
+#undef _
+		}
+
+	      if (_vec_len (t2->rewrite) == 64)
+		{
+		  /* Last 8 octets.  */
+#define _(offs) copy_dst2[offs] = copy_src2[offs];
+		  _ (7);
+#undef _
+		}
+
+	      if (_vec_len (t3->rewrite) == 64)
+		{
+		  /* Last 8 octets.  */
+#define _(offs) copy_dst3[offs] = copy_src3[offs];
+		  _ (7);
+#undef _
+		}
+
 	      /* Fix IP6 payload length */
 	      new_l0 =
                 clib_host_to_net_u16 (vlib_buffer_length_in_chain (vm, b0)
@@ -466,15 +555,19 @@ gtpu_encap_inline (vlib_main_t * vm,
                 vlib_add_trace (vm, node, b0, sizeof (*tr));
               tr->tunnel_index = t0 - gtm->tunnels;
               tr->tteid = t0->tteid;
-           }
+	      tr->pdu_extension = t0->pdu_extension;
+	      tr->qfi = t0->qfi;
+	    }
 
-          if (PREDICT_FALSE(b1->flags & VLIB_BUFFER_IS_TRACED))
-            {
-              gtpu_encap_trace_t *tr =
-                vlib_add_trace (vm, node, b1, sizeof (*tr));
-              tr->tunnel_index = t1 - gtm->tunnels;
-              tr->tteid = t1->tteid;
-            }
+	  if (PREDICT_FALSE (b1->flags & VLIB_BUFFER_IS_TRACED))
+	    {
+	      gtpu_encap_trace_t *tr =
+		vlib_add_trace (vm, node, b1, sizeof (*tr));
+	      tr->tunnel_index = t1 - gtm->tunnels;
+	      tr->tteid = t1->tteid;
+	      tr->pdu_extension = t1->pdu_extension;
+	      tr->qfi = t1->qfi;
+	    }
 
 	  if (PREDICT_FALSE(b2->flags & VLIB_BUFFER_IS_TRACED))
             {
@@ -482,15 +575,19 @@ gtpu_encap_inline (vlib_main_t * vm,
                 vlib_add_trace (vm, node, b2, sizeof (*tr));
               tr->tunnel_index = t2 - gtm->tunnels;
               tr->tteid = t2->tteid;
-           }
+	      tr->pdu_extension = t2->pdu_extension;
+	      tr->qfi = t2->qfi;
+	    }
 
-          if (PREDICT_FALSE(b3->flags & VLIB_BUFFER_IS_TRACED))
-            {
-              gtpu_encap_trace_t *tr =
-                vlib_add_trace (vm, node, b3, sizeof (*tr));
-              tr->tunnel_index = t3 - gtm->tunnels;
-              tr->tteid = t3->tteid;
-            }
+	  if (PREDICT_FALSE (b3->flags & VLIB_BUFFER_IS_TRACED))
+	    {
+	      gtpu_encap_trace_t *tr =
+		vlib_add_trace (vm, node, b3, sizeof (*tr));
+	      tr->tunnel_index = t3 - gtm->tunnels;
+	      tr->tteid = t3->tteid;
+	      tr->pdu_extension = t3->pdu_extension;
+	      tr->qfi = t3->qfi;
+	    }
 
 	  vlib_validate_buffer_enqueue_x4 (vm, node, next_index,
 					   to_next, n_left_to_next,
@@ -532,8 +629,9 @@ gtpu_encap_inline (vlib_main_t * vm,
 	  next0 = t0->next_dpo.dpoi_next_node;
 	  vnet_buffer(b0)->ip.adj_index[VLIB_TX] = t0->next_dpo.dpoi_index;
 
-          /* Apply the rewrite string. $$$$ vnet_rewrite? */
-          vlib_buffer_advance (b0, -(word)_vec_len(t0->rewrite));
+	  /* Apply the rewrite string. $$$$ vnet_rewrite.
+	   * The correct total size is set in ip_udp_gtpu_rewrite() */
+	  vlib_buffer_advance (b0, -(word) _vec_len (t0->rewrite));
 
 	  if (is_ip4)
 	    {
@@ -546,10 +644,26 @@ gtpu_encap_inline (vlib_main_t * vm,
 #define _(offs) copy_dst0[offs] = copy_src0[offs];
 	      foreach_fixed_header4_offset;
 #undef _
-	      /* Last 4 octets. Hopefully gcc will be our friend */
-              copy_dst_last0 = (u32 *)(&copy_dst0[4]);
-              copy_src_last0 = (u32 *)(&copy_src0[4]);
-              copy_dst_last0[0] = copy_src_last0[0];
+
+	      /* Copy last octets */
+	      if (_vec_len (t0->rewrite) == 36)
+		{
+		  /* Last 4 octets. Hopefully gcc will be our friend */
+		  copy_dst_last0 = (u32 *) (&copy_dst0[4]);
+		  copy_src_last0 = (u32 *) (&copy_src0[4]);
+		  copy_dst_last0[0] = copy_src_last0[0];
+		}
+	      else
+		{
+		  /* Near last 8 octets. */
+#define _(offs) copy_dst0[offs] = copy_src0[offs];
+		  _ (4);
+#undef _
+		  /* Last 4 octets. Hopefully gcc will be our friend */
+		  copy_dst_last0 = (u32 *) (&copy_dst0[5]);
+		  copy_src_last0 = (u32 *) (&copy_src0[5]);
+		  copy_dst_last0[0] = copy_src_last0[0];
+		}
 
 	      /* Fix the IP4 checksum and length */
 	      sum0 = ip4_0->checksum;
@@ -587,6 +701,16 @@ gtpu_encap_inline (vlib_main_t * vm,
 #define _(offs) copy_dst0[offs] = copy_src0[offs];
 	      foreach_fixed_header6_offset;
 #undef _
+
+	      /* Copy last octets */
+	      if (_vec_len (t0->rewrite) == 64)
+		{
+		  /* Last 8 octets.  */
+#define _(offs) copy_dst0[offs] = copy_src0[offs];
+		  _ (7);
+#undef _
+		}
+
 	      /* Fix IP6 payload length */
 	      new_l0 =
                 clib_host_to_net_u16 (vlib_buffer_length_in_chain (vm, b0)
@@ -600,9 +724,9 @@ gtpu_encap_inline (vlib_main_t * vm,
 
 	      /* Fix GTPU length */
 	      gtpu0 = (gtpu_header_t *)(udp0+1);
-	      new_l0 = clib_host_to_net_u16 (vlib_buffer_length_in_chain(vm, b0)
-					     - sizeof (*ip4_0) - sizeof(*udp0)
-					     - GTPU_V1_HDR_LEN);
+	      new_l0 = clib_host_to_net_u16 (
+		vlib_buffer_length_in_chain (vm, b0) - sizeof (*ip6_0) -
+		sizeof (*udp0) - GTPU_V1_HDR_LEN);
 	      gtpu0->length = new_l0;
 
 	      /* IPv6 UDP checksum is mandatory */
@@ -644,7 +768,9 @@ gtpu_encap_inline (vlib_main_t * vm,
                 vlib_add_trace (vm, node, b0, sizeof (*tr));
               tr->tunnel_index = t0 - gtm->tunnels;
               tr->tteid = t0->tteid;
-            }
+	      tr->pdu_extension = t0->pdu_extension;
+	      tr->qfi = t0->qfi;
+	    }
 	  vlib_validate_buffer_enqueue_x1 (vm, node, next_index,
 					   to_next, n_left_to_next,
 					   bi0, next0);

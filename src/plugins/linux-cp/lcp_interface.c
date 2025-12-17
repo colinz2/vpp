@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #define _GNU_SOURCE
@@ -33,8 +23,7 @@
 #include <vnet/adj/adj_mcast.h>
 #include <vnet/udp/udp.h>
 #include <vnet/tcp/tcp.h>
-#include <vnet/devices/tap/tap.h>
-#include <vnet/devices/virtio/virtio.h>
+#include <tap/tap.h>
 #include <vnet/devices/netlink.h>
 #include <vlibapi/api_helper_macros.h>
 #include <vnet/ipsec/ipsec_punt.h>
@@ -162,6 +151,22 @@ lcp_itf_pair_get (u32 index)
   return pool_elt_at_index (lcp_itf_pair_pool, index);
 }
 
+/* binary-direct API: for access from other plugins, bypassing VAPI.
+ * Important for parameters and return types to be simple C types, rather
+ * than structures. See src/plugins/sflow/sflow_dlapi.h for an example.
+ */
+u32
+lcp_itf_pair_get_vif_index_by_phy (u32 phy_sw_if_index)
+{
+  if (phy_sw_if_index < vec_len (lip_db_by_phy))
+    {
+      lcp_itf_pair_t *lip = lcp_itf_pair_get (lip_db_by_phy[phy_sw_if_index]);
+      if (lip)
+	return lip->lip_vif_index;
+    }
+  return INDEX_INVALID;
+}
+
 index_t
 lcp_itf_pair_find_by_vif (u32 vif_index)
 {
@@ -258,7 +263,11 @@ lcp_itf_pair_add (u32 host_sw_if_index, u32 phy_sw_if_index, u8 *host_name,
   vec_validate_init_empty (lip_db_by_host, host_sw_if_index, INDEX_INVALID);
   lip_db_by_phy[phy_sw_if_index] = lipi;
   lip_db_by_host[host_sw_if_index] = lipi;
-  hash_set (lip_db_by_vif, host_index, lipi);
+
+  if (clib_strcmp ((char *) ns, (char *) lcp_get_default_ns ()) == 0)
+    {
+      hash_set (lip_db_by_vif, host_index, lipi);
+    }
 
   lip->lip_host_sw_if_index = host_sw_if_index;
   lip->lip_phy_sw_if_index = phy_sw_if_index;
@@ -555,6 +564,7 @@ static clib_error_t *
 lcp_itf_pair_config (vlib_main_t *vm, unformat_input_t *input)
 {
   u8 *default_ns;
+  u32 tmp;
 
   default_ns = NULL;
 
@@ -579,6 +589,10 @@ lcp_itf_pair_config (vlib_main_t *vm, unformat_input_t *input)
 	lcp_set_del_static_on_link_down (1 /* is_del */);
       else if (unformat (input, "del-dynamic-on-link-down"))
 	lcp_set_del_dynamic_on_link_down (1 /* is_del */);
+      else if (unformat (input, "num-rx-queues %d", &tmp))
+	lcp_set_default_num_queues (tmp, 0 /* is_tx */);
+      else if (unformat (input, "num-tx-queues %d", &tmp))
+	lcp_set_default_num_queues (tmp, 1 /* is_tx */);
       else
 	return clib_error_return (0, "interfaces not found");
     }
@@ -782,6 +796,15 @@ lcp_itf_pair_create (u32 phy_sw_if_index, u8 *host_if_name,
   const vnet_sw_interface_t *sw;
   const vnet_hw_interface_t *hw;
   const lcp_itf_pair_t *lip;
+  index_t lipi;
+
+  lipi = lcp_itf_pair_find_by_phy (phy_sw_if_index);
+
+  if (lipi != INDEX_INVALID)
+    {
+      LCP_ITF_PAIR_ERR ("pair_create: already created");
+      return VNET_API_ERROR_VALUE_EXIST;
+    }
 
   if (!vnet_sw_if_index_is_api_valid (phy_sw_if_index))
     {
@@ -979,23 +1002,23 @@ lcp_itf_pair_create (u32 phy_sw_if_index, u8 *host_if_name,
   else
     {
       tap_create_if_args_t args = {
-	.num_rx_queues = clib_max (1, vlib_num_workers ()),
-	.num_tx_queues = 1,
-	.id = hw->hw_if_index,
+	.num_rx_queues =
+	  clib_max (1, lcp_get_default_num_queues (0 /* is_tx */)),
+	.num_tx_queues =
+	  clib_max (1, lcp_get_default_num_queues (1 /* is_tx */)),
+	.id = ~0,
+	.auto_id_offset = 4096,
 	.sw_if_index = ~0,
 	.rx_ring_sz = 256,
 	.tx_ring_sz = 256,
 	.host_if_name = host_if_name,
-	.host_namespace = 0,
-	.rv = 0,
-	.error = NULL,
+	.tap_flags = host_if_type == LCP_ITF_HOST_TUN ? TAP_FLAG_TUN : 0,
       };
       ethernet_interface_t *ei;
       u32 host_sw_mtu_size;
 
-      if (host_if_type == LCP_ITF_HOST_TUN)
-	args.tap_flags |= TAP_FLAG_TUN;
-      else
+      /* align with public TAP flag bit for TUN */
+      if (host_if_type != LCP_ITF_HOST_TUN)
 	{
 	  ei = pool_elt_at_index (ethernet_main.interfaces, hw->hw_instance);
 	  mac_address_copy (&args.host_mac_addr, &ei->address.mac);
@@ -1034,13 +1057,6 @@ lcp_itf_pair_create (u32 phy_sw_if_index, u8 *host_if_name,
       vnet_sw_interface_set_mtu (vnm, args.sw_if_index, host_sw_mtu_size);
 
       /*
-       * get the hw and ethernet of the tap
-       */
-      hw = vnet_get_sup_hw_interface (vnm, args.sw_if_index);
-      virtio_main_t *mm = &virtio_main;
-      virtio_if_t *vif = pool_elt_at_index (mm->interfaces, hw->dev_instance);
-
-      /*
        * Leave the TAP permanently up on the VPP side.
        * This TAP will be shared by many sub-interface.
        * Therefore we can't use it to manage admin state.
@@ -1052,7 +1068,7 @@ lcp_itf_pair_create (u32 phy_sw_if_index, u8 *host_if_name,
 	  ei->flags |= ETHERNET_INTERFACE_FLAG_STATUS_L3;
 	}
 
-      vif_index = vif->ifindex;
+      vif_index = tap_get_ifindex (vm, args.sw_if_index);
       host_sw_if_index = args.sw_if_index;
     }
 
@@ -1078,7 +1094,7 @@ lcp_itf_pair_create (u32 phy_sw_if_index, u8 *host_if_name,
    * This controls whether the host can RX/TX.
    */
   sw = vnet_get_sw_interface (vnm, phy_sw_if_index);
-  lip = lcp_itf_pair_get (lcp_itf_pair_find_by_vif (vif_index));
+  lip = lcp_itf_pair_get (lcp_itf_pair_find_by_phy (phy_sw_if_index));
   LCP_ITF_PAIR_INFO ("pair create: %U sw-flags %u hw-flags %u",
 		     format_lcp_itf_pair, lip, sw->flags, hw->flags);
   vnet_sw_interface_admin_up (vnm, host_sw_if_index);
@@ -1193,6 +1209,53 @@ lcp_itf_pair_link_up_down (vnet_main_t *vnm, u32 hw_if_index, u32 flags)
   return 0;
 }
 
+int
+lcp_ethertype_enable (ethernet_type_t ethertype)
+{
+  ethernet_main_t *em = &ethernet_main;
+  ethernet_type_info_t *eti;
+  vlib_main_t *vm = vlib_get_main ();
+  vlib_node_t *node = vlib_get_node_by_name (vm, (u8 *) "linux-cp-punt-xc");
+
+  if (!node)
+    return VNET_API_ERROR_UNIMPLEMENTED;
+
+  eti = ethernet_get_type_info (em, ethertype);
+  if (!eti)
+    return VNET_API_ERROR_INVALID_VALUE;
+
+  if (eti->node_index != ~0 && eti->node_index != node->index)
+    return VNET_API_ERROR_INVALID_REGISTRATION;
+
+  ethernet_register_input_type (vm, ethertype, node->index);
+  return 0;
+}
+
+int
+lcp_ethertype_get_enabled (ethernet_type_t **ethertypes_vec)
+{
+  ethernet_main_t *em = &ethernet_main;
+  ethernet_type_info_t *eti;
+  vlib_main_t *vm = vlib_get_main ();
+  vlib_node_t *node = vlib_get_node_by_name (vm, (u8 *) "linux-cp-punt-xc");
+
+  if (!ethertypes_vec)
+    return VNET_API_ERROR_INVALID_ARGUMENT;
+
+  if (!node)
+    return VNET_API_ERROR_UNIMPLEMENTED;
+
+  vec_foreach (eti, em->type_infos)
+    {
+      if (eti->node_index == node->index)
+	{
+	  vec_add1 (*ethertypes_vec, eti->type);
+	}
+    }
+
+  return 0;
+}
+
 VNET_HW_INTERFACE_LINK_UP_DOWN_FUNCTION (lcp_itf_pair_link_up_down);
 
 static clib_error_t *
@@ -1220,11 +1283,3 @@ lcp_interface_init (vlib_main_t *vm)
 VLIB_INIT_FUNCTION (lcp_interface_init) = {
   .runs_after = VLIB_INITS ("vnet_interface_init", "tcp_init", "udp_init"),
 };
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

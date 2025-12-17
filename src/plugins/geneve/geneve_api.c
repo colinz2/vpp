@@ -1,17 +1,5 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 SUSE LLC.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <vnet/vnet.h>
@@ -97,12 +85,10 @@ static void vl_api_geneve_add_del_tunnel_t_handler
   rv = vnet_geneve_add_del_tunnel (&a, &sw_if_index);
 
 out:
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_GENEVE_ADD_DEL_TUNNEL_REPLY,
   ({
     rmp->sw_if_index = ntohl (sw_if_index);
   }));
-  /* *INDENT-ON* */
 }
 
 static void vl_api_geneve_add_del_tunnel2_t_handler
@@ -149,12 +135,10 @@ static void vl_api_geneve_add_del_tunnel2_t_handler
   rv = vnet_geneve_add_del_tunnel (&a, &sw_if_index);
 
 out:
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_GENEVE_ADD_DEL_TUNNEL2_REPLY,
   ({
     rmp->sw_if_index = ntohl (sw_if_index);
   }));
-  /* *INDENT-ON* */
 }
 
 static void send_geneve_tunnel_details
@@ -201,12 +185,10 @@ static void vl_api_geneve_tunnel_dump_t_handler
 
   if (~0 == sw_if_index)
     {
-      /* *INDENT-OFF* */
       pool_foreach (t, vxm->tunnels)
        {
         send_geneve_tunnel_details(t, reg, mp->context);
       }
-      /* *INDENT-ON* */
     }
   else
     {
@@ -249,17 +231,7 @@ VLIB_API_INIT_FUNCTION (geneve_api_hookup);
 #include <vlib/unix/plugin.h>
 #include <vpp/app/version.h>
 
-/* *INDENT-OFF* */
 VLIB_PLUGIN_REGISTER () = {
-    .version = VPP_BUILD_VER,
-    .description = "GENEVE Tunnels",
+  .version = VPP_BUILD_VER,
+  .description = "GENEVE Tunnels",
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

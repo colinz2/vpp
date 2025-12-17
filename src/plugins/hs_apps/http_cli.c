@@ -1,28 +1,34 @@
-/*
-* Copyright (c) 2017-2019 Cisco and/or its affiliates.
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at:
-*
-*     http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
+/* SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2017-2019 Cisco and/or its affiliates.
+ */
 
 #include <vnet/session/application.h>
 #include <vnet/session/application_interface.h>
 #include <vnet/session/session.h>
 #include <http/http.h>
+#include <http/http_header_names.h>
+#include <http/http_content_types.h>
+
+#define HCS_DEBUG 0
+
+#if HCS_DEBUG
+#define HCS_DBG(_fmt, _args...) clib_warning (_fmt, ##_args)
+#else
+#define HCS_DBG(_fmt, _args...)
+#endif
+
+typedef struct
+{
+  u32 handle;
+  u8 *uri;
+} hcs_uri_map_t;
 
 typedef struct
 {
   u32 hs_index;
-  u32 thread_index;
+  clib_thread_index_t thread_index;
   u64 node_index;
+  u8 plain_text;
   u8 *buf;
 } hcs_cli_args_t;
 
@@ -30,11 +36,32 @@ typedef struct
 {
   CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
   u32 session_index;
-  u32 thread_index;
+  clib_thread_index_t thread_index;
   u8 *tx_buf;
   u32 tx_offset;
   u32 vpp_session_index;
+  http_header_table_t req_headers;
+  http_headers_ctx_t resp_headers;
+  u8 *resp_headers_buf;
 } hcs_session_t;
+
+#define foreach_hcs_listener_flags                                            \
+  _ (HTTP1_ONLY)                                                              \
+  _ (HTTP3_ENABLED)
+
+typedef enum hcs_listener_flags_bit_
+{
+#define _(sym) HCS_LISTENER_F_BIT_##sym,
+  foreach_hcs_listener_flags
+#undef _
+} hcs_listener_flags_bit_t;
+
+typedef enum hcs_listener_flags_
+{
+#define _(sym) HCS_LISTENER_F_##sym = 1 << HCS_LISTENER_F_BIT_##sym,
+  foreach_hcs_listener_flags
+#undef _
+} __clib_packed hcs_listener_flags_t;
 
 typedef struct
 {
@@ -50,12 +77,23 @@ typedef struct
   u32 fifo_size;
   u8 *uri;
   vlib_main_t *vlib_main;
+  u8 flags;
+
+  /* hash table to store uri -> uri map pool index */
+  uword *index_by_uri;
+
+  /* pool of uri maps */
+  hcs_uri_map_t *uri_map_pool;
+
+  /* for appns */
+  u8 *appns_id;
+  u64 appns_secret;
 } hcs_main_t;
 
 static hcs_main_t hcs_main;
 
 static hcs_session_t *
-hcs_session_alloc (u32 thread_index)
+hcs_session_alloc (clib_thread_index_t thread_index)
 {
   hcs_main_t *hcm = &hcs_main;
   hcs_session_t *hs;
@@ -63,11 +101,12 @@ hcs_session_alloc (u32 thread_index)
   memset (hs, 0, sizeof (*hs));
   hs->session_index = hs - hcm->sessions[thread_index];
   hs->thread_index = thread_index;
+  vec_validate (hs->resp_headers_buf, 255);
   return hs;
 }
 
 static hcs_session_t *
-hcs_session_get (u32 thread_index, u32 hs_index)
+hcs_session_get (clib_thread_index_t thread_index, u32 hs_index)
 {
   hcs_main_t *hcm = &hcs_main;
   if (pool_is_free_index (hcm->sessions[thread_index], hs_index))
@@ -145,24 +184,35 @@ start_send_data (hcs_session_t *hs, http_status_code_t status)
   session_t *ts;
   int rv;
 
+  msg.data.headers_offset = 0;
+  msg.data.headers_len = hs->resp_headers.tail_offset;
+
   msg.type = HTTP_MSG_REPLY;
   msg.code = status;
-  msg.content_type = HTTP_CONTENT_TEXT_HTML;
   msg.data.type = HTTP_MSG_DATA_INLINE;
-  msg.data.len = vec_len (hs->tx_buf);
+  msg.data.body_len = vec_len (hs->tx_buf);
+  msg.data.body_offset = msg.data.headers_len;
+  msg.data.len = msg.data.body_len + msg.data.headers_len;
 
   ts = session_get (hs->vpp_session_index, hs->thread_index);
   rv = svm_fifo_enqueue (ts->tx_fifo, sizeof (msg), (u8 *) &msg);
   ASSERT (rv == sizeof (msg));
 
-  if (!msg.data.len)
+  if (msg.data.headers_len)
+    {
+      rv = svm_fifo_enqueue (ts->tx_fifo, msg.data.headers_len,
+			     hs->resp_headers.buf);
+      ASSERT (rv == msg.data.headers_len);
+    }
+
+  if (!msg.data.body_len)
     goto done;
 
   rv = svm_fifo_enqueue (ts->tx_fifo, vec_len (hs->tx_buf), hs->tx_buf);
 
   if (rv != vec_len (hs->tx_buf))
     {
-      hs->tx_offset = rv;
+      hs->tx_offset = (rv > 0) ? rv : 0;
       svm_fifo_add_want_deq_ntf (ts->tx_fifo, SVM_FIFO_WANT_DEQ_NOTIF);
     }
   else
@@ -173,7 +223,7 @@ start_send_data (hcs_session_t *hs, http_status_code_t status)
 done:
 
   if (svm_fifo_set_event (ts->tx_fifo))
-    session_send_io_evt_to_thread (ts->tx_fifo, SESSION_IO_EVT_TX);
+    session_program_tx_io_evt (ts->handle, SESSION_IO_EVT_TX);
 }
 
 static void
@@ -181,6 +231,7 @@ send_data_to_http (void *rpc_args)
 {
   hcs_cli_args_t *args = (hcs_cli_args_t *) rpc_args;
   hcs_session_t *hs;
+  http_content_type_t type = HTTP_CONTENT_TEXT_HTML;
 
   hs = hcs_session_get (args->thread_index, args->hs_index);
   if (!hs)
@@ -190,6 +241,12 @@ send_data_to_http (void *rpc_args)
     }
 
   hs->tx_buf = args->buf;
+  if (args->plain_text)
+    type = HTTP_CONTENT_TEXT_PLAIN;
+
+  http_add_header (&hs->resp_headers, HTTP_HEADER_CONTENT_TYPE,
+		   http_content_type_token (type));
+
   start_send_data (hs, HTTP_STATUS_OK);
 
 cleanup:
@@ -218,17 +275,9 @@ hcs_cli_process (vlib_main_t *vm, vlib_node_runtime_t *rt, vlib_frame_t *f)
     {
       if (request[i] == '/')
 	request[i] = ' ';
-      else if (request[i] == ' ')
-	{
-	  /* vlib_cli_input is vector-based, no need for a NULL */
-	  vec_set_len (request, i);
-	  break;
-	}
       i++;
     }
-
-  /* Generate the html header */
-  html = format (0, html_header_template, request /* title */ );
+  HCS_DBG ("%v", request);
 
   /* Run the command */
   unformat_init_vector (&input, vec_dup (request));
@@ -236,9 +285,17 @@ hcs_cli_process (vlib_main_t *vm, vlib_node_runtime_t *rt, vlib_frame_t *f)
   unformat_free (&input);
   request = 0;
 
-  /* Generate the html page */
-  html = format (html, "%v", reply);
-  html = format (html, html_footer);
+  if (args->plain_text)
+    {
+      html = format (0, "%v", reply);
+    }
+  else
+    {
+      /* Generate the html page */
+      html = format (0, html_header_template, request /* title */);
+      html = format (html, "%v", reply);
+      html = format (html, html_footer);
+    }
 
   /* Send it */
   rpc_args = clib_mem_alloc (sizeof (*args));
@@ -308,9 +365,13 @@ hcs_ts_rx_callback (session_t *ts)
   hcs_cli_args_t args = {};
   hcs_session_t *hs;
   http_msg_t msg;
-  int rv;
+  int rv, is_encoded = 0;
 
   hs = hcs_session_get (ts->thread_index, ts->opaque);
+  hs->tx_buf = 0;
+  http_init_headers_ctx (&hs->resp_headers, hs->resp_headers_buf,
+			 vec_len (hs->resp_headers_buf));
+  http_reset_header_table (&hs->req_headers);
 
   /* Read the http message header */
   rv = svm_fifo_dequeue (ts->rx_fifo, sizeof (msg), (u8 *) &msg);
@@ -318,16 +379,56 @@ hcs_ts_rx_callback (session_t *ts)
 
   if (msg.type != HTTP_MSG_REQUEST || msg.method_type != HTTP_REQ_GET)
     {
-      hs->tx_buf = 0;
+      http_add_header (&hs->resp_headers, HTTP_HEADER_ALLOW,
+		       http_token_lit ("GET"));
       start_send_data (hs, HTTP_STATUS_METHOD_NOT_ALLOWED);
-      return 0;
+      goto done;
+    }
+
+  if (msg.data.target_path_len == 0)
+    {
+      start_send_data (hs, HTTP_STATUS_BAD_REQUEST);
+      goto done;
     }
 
   /* send the command to a new/recycled vlib process */
-  vec_validate (args.buf, msg.data.len - 1);
-  rv = svm_fifo_dequeue (ts->rx_fifo, msg.data.len, args.buf);
-  ASSERT (rv == msg.data.len);
-  vec_set_len (args.buf, rv);
+  vec_validate (args.buf, msg.data.target_path_len - 1);
+  rv = svm_fifo_peek (ts->rx_fifo, msg.data.target_path_offset,
+		      msg.data.target_path_len, args.buf);
+  ASSERT (rv == msg.data.target_path_len);
+  HCS_DBG ("%v", args.buf);
+  if (http_validate_abs_path_syntax (args.buf, &is_encoded))
+    {
+      start_send_data (hs, HTTP_STATUS_BAD_REQUEST);
+      vec_free (args.buf);
+      goto done;
+    }
+  if (is_encoded)
+    {
+      u8 *decoded = http_percent_decode (args.buf, vec_len (args.buf));
+      vec_free (args.buf);
+      args.buf = decoded;
+    }
+
+  if (msg.data.headers_len)
+    {
+      http_init_header_table_buf (&hs->req_headers, msg);
+      rv = svm_fifo_peek (ts->rx_fifo, msg.data.headers_offset,
+			  msg.data.headers_len, hs->req_headers.buf);
+      ASSERT (rv == msg.data.headers_len);
+      http_build_header_table (&hs->req_headers, msg);
+      const http_token_t *accept_value = http_get_header (
+	&hs->req_headers, http_header_name_token (HTTP_HEADER_ACCEPT));
+      if (accept_value)
+	{
+	  HCS_DBG ("client accept: %U", format_http_bytes, accept_value->base,
+		   accept_value->len);
+	  /* just for testing purpose, we don't care about precedence */
+	  if (http_token_contains (accept_value->base, accept_value->len,
+				   http_token_lit ("text/plain")))
+	    args.plain_text = 1;
+	}
+    }
 
   args.hs_index = hs->session_index;
   args.thread_index = ts->thread_index;
@@ -338,6 +439,9 @@ hcs_ts_rx_callback (session_t *ts)
 			       sizeof (args));
   else
     alloc_cli_process (&args);
+
+done:
+  svm_fifo_dequeue_drop (ts->rx_fifo, msg.data.len);
   return 0;
 }
 
@@ -372,7 +476,7 @@ hcs_ts_tx_callback (session_t *ts)
     }
 
   if (svm_fifo_set_event (ts->tx_fifo))
-    session_send_io_evt_to_thread (ts->tx_fifo, SESSION_IO_EVT_TX);
+    session_program_tx_io_evt (ts->handle, SESSION_IO_EVT_TX);
 
   return 0;
 }
@@ -384,6 +488,7 @@ hcs_ts_accept_callback (session_t *ts)
 
   hs = hcs_session_alloc (ts->thread_index);
   hs->vpp_session_index = ts->session_index;
+  HCS_DBG ("accepted hs_index: %u", hs->session_index);
 
   ts->opaque = hs->session_index;
   ts->session_state = SESSION_STATE_READY;
@@ -405,6 +510,7 @@ hcs_ts_disconnect_callback (session_t *s)
   hcs_main_t *hcm = &hcs_main;
   vnet_disconnect_args_t _a = { 0 }, *a = &_a;
 
+  HCS_DBG ("hs_index: %u", s->opaque);
   a->handle = session_handle (s);
   a->app_index = hcm->app_index;
   vnet_disconnect_session (a);
@@ -416,6 +522,7 @@ hcs_ts_reset_callback (session_t *s)
   hcs_main_t *hcm = &hcs_main;
   vnet_disconnect_args_t _a = { 0 }, *a = &_a;
 
+  HCS_DBG ("hs_index: %u", s->opaque);
   a->handle = session_handle (s);
   a->app_index = hcm->app_index;
   vnet_disconnect_session (a);
@@ -429,11 +536,14 @@ hcs_ts_cleanup_callback (session_t *s, session_cleanup_ntf_t ntf)
   if (ntf == SESSION_CLEANUP_TRANSPORT)
     return;
 
+  HCS_DBG ("hs_index: %u", s->opaque);
   hs = hcs_session_get (s->thread_index, s->opaque);
   if (!hs)
     return;
 
   vec_free (hs->tx_buf);
+  vec_free (hs->resp_headers_buf);
+  http_free_header_table (&hs->req_headers);
   hcs_session_free (hs);
 }
 
@@ -488,6 +598,11 @@ hcs_attach ()
     hcm->fifo_size ? hcm->fifo_size : 32 << 10;
   a->options[APP_OPTIONS_FLAGS] = APP_OPTIONS_FLAGS_IS_BUILTIN;
   a->options[APP_OPTIONS_PREALLOC_FIFO_PAIRS] = hcm->prealloc_fifos;
+  if (hcm->appns_id)
+    {
+      a->namespace_id = hcm->appns_id;
+      a->options[APP_OPTIONS_NAMESPACE_SECRET] = hcm->appns_secret;
+    }
 
   if (vnet_application_attach (a))
     {
@@ -510,47 +625,54 @@ hcs_attach ()
 }
 
 static int
-hcs_transport_needs_crypto (transport_proto_t proto)
-{
-  return proto == TRANSPORT_PROTO_TLS || proto == TRANSPORT_PROTO_DTLS ||
-	 proto == TRANSPORT_PROTO_QUIC;
-}
-
-static int
 hcs_listen ()
 {
   session_endpoint_cfg_t sep = SESSION_ENDPOINT_CFG_NULL;
   hcs_main_t *hcm = &hcs_main;
   vnet_listen_args_t _a, *a = &_a;
-  char *uri = "tcp://0.0.0.0/80";
-  u8 need_crypto;
   int rv;
+  char *uri;
 
   clib_memset (a, 0, sizeof (*a));
   a->app_index = hcm->app_index;
 
-  if (hcm->uri)
-    uri = (char *) hcm->uri;
+  uri = (char *) hcm->uri;
+  ASSERT (uri);
 
   if (parse_uri (uri, &sep))
     return -1;
 
-  need_crypto = hcs_transport_needs_crypto (sep.transport_proto);
-
   sep.transport_proto = TRANSPORT_PROTO_HTTP;
   clib_memcpy (&a->sep_ext, &sep, sizeof (sep));
 
-  if (need_crypto)
+  if (sep.flags & SESSION_ENDPT_CFG_F_SECURE)
     {
-      session_endpoint_alloc_ext_cfg (&a->sep_ext,
-				      TRANSPORT_ENDPT_EXT_CFG_CRYPTO);
-      a->sep_ext.ext_cfg->crypto.ckpair_index = hcm->ckpair_index;
+      transport_endpt_ext_cfg_t *ext_cfg = session_endpoint_add_ext_cfg (
+	&a->sep_ext, TRANSPORT_ENDPT_EXT_CFG_CRYPTO,
+	sizeof (transport_endpt_crypto_cfg_t));
+      ext_cfg->crypto.ckpair_index = hcm->ckpair_index;
+      if (hcm->flags & HCS_LISTENER_F_HTTP1_ONLY)
+	ext_cfg->crypto.alpn_protos[0] = TLS_ALPN_PROTO_HTTP_1_1;
+      else if (hcm->flags & HCS_LISTENER_F_HTTP3_ENABLED)
+	{
+	  ext_cfg->crypto.alpn_protos[0] = TLS_ALPN_PROTO_HTTP_3;
+	  ext_cfg->crypto.alpn_protos[1] = TLS_ALPN_PROTO_HTTP_2;
+	  ext_cfg->crypto.alpn_protos[2] = TLS_ALPN_PROTO_HTTP_1_1;
+	}
     }
 
   rv = vnet_listen (a);
+  if (rv == 0)
+    {
+      hcs_uri_map_t *map;
+      pool_get_zero (hcm->uri_map_pool, map);
+      map->uri = vec_dup (uri);
+      map->handle = a->handle;
+      hash_set_mem (hcm->index_by_uri, map->uri, map - hcm->uri_map_pool);
+    }
 
-  if (need_crypto)
-    clib_mem_free (a->sep_ext.ext_cfg);
+  if (sep.flags & SESSION_ENDPT_CFG_F_SECURE)
+    session_endpoint_free_ext_cfgs (&a->sep_ext);
 
   return rv;
 }
@@ -564,6 +686,43 @@ hcs_detach ()
   a->api_client_index = APP_INVALID_INDEX;
   hcm->app_index = ~0;
   vnet_application_detach (a);
+}
+
+static int
+hcs_unlisten ()
+{
+  hcs_main_t *hcm = &hcs_main;
+  vnet_unlisten_args_t _a, *a = &_a;
+  char *uri;
+  int rv = 0;
+  uword *value;
+
+  clib_memset (a, 0, sizeof (*a));
+  a->app_index = hcm->app_index;
+
+  uri = (char *) hcm->uri;
+  ASSERT (uri);
+
+  value = hash_get_mem (hcm->index_by_uri, uri);
+  if (value)
+    {
+      hcs_uri_map_t *map = pool_elt_at_index (hcm->uri_map_pool, *value);
+
+      a->handle = map->handle;
+      rv = vnet_unlisten (a);
+      if (rv == 0)
+	{
+	  hash_unset_mem (hcm->index_by_uri, uri);
+	  vec_free (map->uri);
+	  pool_put (hcm->uri_map_pool, map);
+	  if (pool_elts (hcm->uri_map_pool) == 0)
+	    hcs_detach ();
+	}
+    }
+  else
+    return -1;
+
+  return rv;
 }
 
 static int
@@ -599,6 +758,8 @@ hcs_create_command_fn (vlib_main_t *vm, unformat_input_t *input,
   hcs_main_t *hcm = &hcs_main;
   u64 seg_size;
   int rv;
+  u32 listener_add = ~0;
+  clib_error_t *error = 0;
 
   hcm->prealloc_fifos = 0;
   hcm->private_segment_size = 0;
@@ -617,13 +778,36 @@ hcs_create_command_fn (vlib_main_t *vm, unformat_input_t *input,
 	hcm->private_segment_size = seg_size;
       else if (unformat (line_input, "fifo-size %d", &hcm->fifo_size))
 	hcm->fifo_size <<= 10;
-      else if (unformat (line_input, "uri %s", &hcm->uri))
+      else if (unformat (line_input, "uri %_%v%_", &hcm->uri))
 	;
+      else if (unformat (line_input, "appns %_%v%_", &hcm->appns_id))
+	;
+      else if (unformat (line_input, "secret %lu", &hcm->appns_secret))
+	;
+      else if (unformat (line_input, "http1-only"))
+	hcm->flags |= HCS_LISTENER_F_HTTP1_ONLY;
+      else if (unformat (line_input, "http3-enabled"))
+	hcm->flags |= HCS_LISTENER_F_HTTP3_ENABLED;
+      else if (unformat (line_input, "listener"))
+	{
+	  if (unformat (line_input, "add"))
+	    listener_add = 1;
+	  else if (unformat (line_input, "del"))
+	    listener_add = 0;
+	  else
+	    {
+	      unformat_free (line_input);
+	      error = clib_error_return (0, "unknown input `%U'",
+					 format_unformat_error, line_input);
+	      goto done;
+	    }
+	}
       else
 	{
 	  unformat_free (line_input);
-	  return clib_error_return (0, "unknown input `%U'",
-				    format_unformat_error, line_input);
+	  error = clib_error_return (0, "unknown input `%U'",
+				     format_unformat_error, line_input);
+	  goto done;
 	}
     }
 
@@ -631,10 +815,43 @@ hcs_create_command_fn (vlib_main_t *vm, unformat_input_t *input,
 
 start_server:
 
-  if (hcm->app_index != (u32) ~0)
-    return clib_error_return (0, "test http server is already running");
+  if (hcm->uri == 0)
+    hcm->uri = format (0, "http://0.0.0.0");
 
-  vnet_session_enable_disable (vm, 1 /* turn on TCP, etc. */ );
+  if (hcm->app_index != (u32) ~0)
+    {
+      if (hcm->appns_id && (listener_add != ~0))
+	{
+	  error = clib_error_return (
+	    0, "appns must not be specified for listener add/del");
+	  goto done;
+	}
+      if (listener_add == 1)
+	{
+	  if (hcs_listen ())
+	    error =
+	      clib_error_return (0, "failed to start listening %v", hcm->uri);
+	  goto done;
+	}
+      else if (listener_add == 0)
+	{
+	  rv = hcs_unlisten ();
+	  if (rv != 0)
+	    error = clib_error_return (
+	      0, "failed to stop listening %v, rv = %d", hcm->uri, rv);
+	  goto done;
+	}
+      else
+	{
+	  error = clib_error_return (0, "test http server is already running");
+	  goto done;
+	}
+    }
+
+  session_enable_disable_args_t args = { .is_en = 1,
+					 .rt_engine_type =
+					   RT_BACKEND_ENGINE_RULE_TABLE };
+  vnet_session_enable_disable (vm, &args);
 
   rv = hcs_create (vm);
   switch (rv)
@@ -642,16 +859,24 @@ start_server:
     case 0:
       break;
     default:
-      return clib_error_return (0, "server_create returned %d", rv);
+      {
+	error = clib_error_return (0, "server_create returned %d", rv);
+	goto done;
+      }
     }
 
-  return 0;
+done:
+  vec_free (hcm->appns_id);
+  vec_free (hcm->uri);
+  return error;
 }
 
 VLIB_CLI_COMMAND (hcs_create_command, static) = {
   .path = "http cli server",
   .short_help = "http cli server [uri <uri>] [fifo-size <nbytes>] "
-		"[private-segment-size <nMG>] [prealloc-fifos <n>]",
+		"[private-segment-size <nMG>] [prealloc-fifos <n>] "
+		"[listener <add|del>] [appns <app-ns> secret <appns-secret>] "
+		"[http1-only] [http3-enabled]",
   .function = hcs_create_command_fn,
 };
 
@@ -662,15 +887,8 @@ hcs_main_init (vlib_main_t *vm)
 
   hcs->app_index = ~0;
   hcs->vlib_main = vm;
+  hcs->index_by_uri = hash_create_vec (0, sizeof (u8), sizeof (uword));
   return 0;
 }
 
 VLIB_INIT_FUNCTION (hcs_main_init);
-
-/*
-* fd.io coding-style-patch-verification: ON
-*
-* Local Variables:
-* eval: (c-set-style "gnu")
-* End:
-*/

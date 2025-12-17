@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef SRC_VNET_TCP_TCP_DEBUG_H_
@@ -154,13 +144,12 @@ typedef enum tcp_evt_to_grp_
 void tcp_evt_track_register (elog_track_t * et);
 void tcp_debug_init (void);
 
-#define TCP_DECLARE_ETD(_tc, _e, _size)					\
-struct									\
-{									\
-  u32 data[_size];							\
-} * ed;									\
-ed = ELOG_TRACK_DATA (&vlib_global_main.elog_main, _e, 			\
-                      _tc->c_elog_track)				\
+#define TCP_DECLARE_ETD(_tc, _e, _size)                                       \
+  struct                                                                      \
+  {                                                                           \
+    u32 data[_size];                                                          \
+  } *ed;                                                                      \
+  ed = ELOG_TRACK_DATA (vlib_get_elog_main (), _e, _tc->c_elog_track)
 
 /*
  * Event handlers definitions
@@ -289,17 +278,17 @@ ed = ELOG_TRACK_DATA (&vlib_global_main.elog_main, _e, 			\
   TCP_EVT_STATE_CHANGE_HANDLER(_tc);					\
 }
 
-#define TCP_EVT_UNBIND_HANDLER(_tc, ...)				\
-{									\
-  TCP_EVT_DEALLOC_HANDLER(_tc);						\
-  ELOG_TYPE_DECLARE (_e) =						\
-  {									\
-    .format = "unbind: listener %d",					\
-  };									\
-  TCP_DECLARE_ETD(_tc, _e, 1);						\
-  ed->data[0] = _tc->c_c_index;						\
-  TCP_EVT_DEALLOC_HANDLER(_tc);						\
-}
+#define TCP_EVT_UNBIND_HANDLER(_tc, ...)                                      \
+  {                                                                           \
+    if (_tc->c_elog_track.name == 0)                                          \
+      TCP_EVT_INIT_HANDLER (_tc, 1);                                          \
+    ELOG_TYPE_DECLARE (_e) = {                                                \
+      .format = "unbind: listener %d",                                        \
+    };                                                                        \
+    TCP_DECLARE_ETD (_tc, _e, 1);                                             \
+    ed->data[0] = _tc->c_c_index;                                             \
+    TCP_EVT_DEALLOC_HANDLER (_tc);                                            \
+  }
 
 #define TCP_EVT_DELETE_HANDLER(_tc, ...)				\
 {									\
@@ -990,10 +979,3 @@ if (TCP_DEBUG_CC > 1)							\
 #endif
 
 #endif /* SRC_VNET_TCP_TCP_DEBUG_H_ */
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

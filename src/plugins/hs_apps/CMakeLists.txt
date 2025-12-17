@@ -11,18 +11,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+if(NOT VPP_BUILD_VCL)
+  return()
+endif()
+
 ##############################################################################
 # vpp builtin hs apps
 ##############################################################################
 add_vpp_plugin(hs_apps
   SOURCES
+  alpn_client.c
+  alpn_server.c
   echo_client.c
   echo_server.c
   hs_apps.c
   http_cli.c
   http_client_cli.c
+  http_client.c
   http_tps.c
   proxy.c
+  http_connect_proxy_client.c
+  test_builtins.c
 )
 
 ##############################################################################
@@ -55,7 +64,7 @@ if(VPP_BUILD_VCL_TESTS)
   )
     add_vpp_executable(${test}
       SOURCES "vcl/${test}.c"
-      LINK_LIBRARIES vppcom pthread
+      LINK_LIBRARIES vppcom pthread ${EPOLL_LIB}
       NO_INSTALL
     )
   endforeach()
@@ -68,8 +77,17 @@ if(VPP_BUILD_VCL_TESTS)
       SOURCES
       "vcl/${test}.c"
       vcl/vcl_test_protos.c
-      LINK_LIBRARIES vppcom pthread
-      NO_INSTALL
+      LINK_LIBRARIES vppcom pthread ${EPOLL_LIB}
     )
   endforeach()
+
+  add_vpp_executable(vcl_test_cl_udp SOURCES "vcl/vcl_test_cl_udp.c"
+    LINK_LIBRARIES vppcom pthread ${EPOLL_LIB}
+    NO_INSTALL
+  )
+
+  add_vpp_executable(vcl_cfg_test SOURCES "vcl/vcl_cfg_test.c"
+    LINK_LIBRARIES vppcom pthread ${EPOLL_LIB}
+    NO_INSTALL
+  )
 endif(VPP_BUILD_VCL_TESTS)

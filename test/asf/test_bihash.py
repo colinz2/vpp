@@ -3,18 +3,17 @@
 import unittest
 
 from config import config
-from asfframework import VppTestCase, VppTestRunner
-from vpp_ip_route import VppIpTable, VppIpRoute, VppRoutePath
+from asfframework import VppAsfTestCase, VppTestRunner
 
 
-class TestBihash(VppTestCase):
+class TestBihash(VppAsfTestCase):
     """Bihash Test Cases"""
 
     @classmethod
     def setUpClass(cls):
         # increase vapi timeout, to avoid spurious "test bihash ..."
         # failures reported on aarch64 w/ test-debug
-        cls.vapi_response_timeout = 20
+        cls.vapi_response_timeout = 200
         super(TestBihash, cls).setUpClass()
 
     @classmethod
@@ -39,7 +38,9 @@ class TestBihash(VppTestCase):
         """Bihash Thread Test"""
 
         error = self.vapi.cli(
-            "test bihash threads 2 nbuckets" + " 64000 careful 0 verbose 0"
+            "test bihash threads 2"
+            " nitems 10000 ncycles 10000 nbuckets 64000"
+            " careful 0 verbose 0"
         )
 
         if error:

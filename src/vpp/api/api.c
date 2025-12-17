@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * api.c - message handler registration
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2010-2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * api.c - message handler registration
  */
 
 #include <stdio.h>
@@ -109,7 +98,6 @@ vl_api_show_version_t_handler (vl_api_show_version_t * mp)
   char *vpe_api_get_version (void);
   char *vpe_api_get_build_date (void);
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_SHOW_VERSION_REPLY,
   ({
     strncpy ((char *) rmp->program, "vpe", ARRAY_LEN(rmp->program)-1);
@@ -120,7 +108,6 @@ vl_api_show_version_t_handler (vl_api_show_version_t * mp)
     strncpy ((char *) rmp->build_date, vpe_api_get_build_date(),
              ARRAY_LEN(rmp->build_date)-1);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -128,11 +115,9 @@ vl_api_show_vpe_system_time_t_handler (vl_api_show_vpe_system_time_t *mp)
 {
   int rv = 0;
   vl_api_show_vpe_system_time_reply_t *rmp;
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (
     VL_API_SHOW_VPE_SYSTEM_TIME_REPLY,
     ({ rmp->vpe_system_time = clib_host_to_net_f64 (unix_time_now ()); }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -241,10 +226,17 @@ static void vl_api_##nn##_t_handler (                                   \
 static clib_error_t *
 vpe_api_hookup (vlib_main_t * vm)
 {
+  api_main_t *am = vlibapi_get_main ();
+
   /*
    * Set up the (msg_name, crc, message-id) table
    */
   msg_id_base = setup_message_id_table ();
+
+  /* Mark messages as mp safe */
+  vl_api_set_msg_thread_safe (am, msg_id_base + VL_API_SHOW_VERSION, 1);
+  vl_api_set_msg_thread_safe (am, msg_id_base + VL_API_SHOW_VPE_SYSTEM_TIME,
+			      1);
 
   return 0;
 }
@@ -393,11 +385,3 @@ get_unformat_vnet_sw_interface (void)
 {
   return (void *) &unformat_vnet_sw_interface;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/session/session_debug.h>
@@ -52,14 +42,12 @@ show_session_dbg_clock_cycles_fn (vlib_main_t * vm, unformat_input_t * input,
 }
 
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_session_dbg_clock_cycles_command, static) =
 {
   .path = "show session dbg clock_cycles",
   .short_help = "show session dbg clock_cycles",
   .function = show_session_dbg_clock_cycles_fn,
 };
-/* *INDENT-ON* */
 
 static_always_inline f64
 session_dbg_time_now (u32 thread)
@@ -92,14 +80,12 @@ clear_session_dbg_clock_cycles_fn (vlib_main_t * vm, unformat_input_t * input,
 }
 
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (clear_session_clock_cycles_command, static) =
 {
   .path = "clear session dbg clock_cycles",
   .short_help = "clear session dbg clock_cycles",
   .function = clear_session_dbg_clock_cycles_fn,
 };
-/* *INDENT-ON* */
 
 void
 session_debug_init (void)
@@ -282,7 +268,7 @@ session_node_cmp_event (session_event_t * e, svm_fifo_t * f)
     case SESSION_IO_EVT_BUILTIN_RX:
     case SESSION_IO_EVT_TX_MAIN:
     case SESSION_IO_EVT_TX_FLUSH:
-      if (e->session_index == f->shr->master_session_index)
+      if (e->session_index == f->vpp_session_index)
 	return 1;
       break;
     case SESSION_CTRL_EVT_CLOSE:
@@ -328,7 +314,6 @@ session_node_lookup_fifo_event (svm_fifo_t * f, session_event_t * e)
    * Search pending events vector
    */
 
-  /* *INDENT-OFF* */
   clib_llist_foreach (wrk->event_elts, evt_list,
                       pool_elt_at_index (wrk->event_elts, wrk->new_head),
                       elt, ({
@@ -339,9 +324,7 @@ session_node_lookup_fifo_event (svm_fifo_t * f, session_event_t * e)
 	goto done;
       }
   }));
-  /* *INDENT-ON* */
 
-  /* *INDENT-OFF* */
   clib_llist_foreach (wrk->event_elts, evt_list,
                       pool_elt_at_index (wrk->event_elts, wrk->old_head),
                       elt, ({
@@ -352,16 +335,7 @@ session_node_lookup_fifo_event (svm_fifo_t * f, session_event_t * e)
 	goto done;
       }
   }));
-  /* *INDENT-ON* */
 
 done:
   return found;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

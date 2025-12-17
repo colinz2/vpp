@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * interface_funcs.h: VNET interfaces/sub-interfaces exported functions
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* interface_funcs.h: VNET interfaces/sub-interfaces exported functions */
 
 #ifndef included_vnet_interface_funcs_h
 #define included_vnet_interface_funcs_h
@@ -426,7 +394,8 @@ clib_error_t *set_hw_interface_change_rx_mode (vnet_main_t * vnm,
 
 /* Set rx-placement on the interface */
 clib_error_t *set_hw_interface_rx_placement (u32 hw_if_index, u32 queue_id,
-					     u32 thread_index, u8 is_main);
+					     clib_thread_index_t thread_index,
+					     u8 is_main);
 /* Set tx-queue placement on the interface */
 int set_hw_interface_tx_queue (u32 hw_if_index, u32 queue_id, uword *bitmap);
 
@@ -483,12 +452,14 @@ unformat_function_t unformat_vnet_sw_interface_flags;
 format_function_t format_vtr;
 
 /* Node runtime for interface output function. */
+struct vnet_dev_tx_queue;
 typedef struct
 {
   u32 hw_if_index;
   u32 sw_if_index;
   u32 dev_instance;
-  u32 is_deleted;
+  u8 is_deleted;
+  struct vnet_dev_tx_queue *tx_queue;
 } vnet_interface_output_runtime_t;
 
 /* Interface output function. */
@@ -589,11 +560,3 @@ vnet_hw_if_unset_caps (vnet_main_t *vnm, u32 hw_if_index,
 }
 
 #endif /* included_vnet_interface_funcs_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

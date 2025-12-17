@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/mfib/mfib_itf.h>
@@ -74,7 +64,7 @@ mfib_forward_lookup_trace (vlib_main_t * vm,
             t0 = vlib_add_trace (vm, node, b0, sizeof (t0[0]));
             t0->entry_index = vnet_buffer (b0)->ip.adj_index[VLIB_TX];
             t0->fib_index = vec_elt (im->mfib_index_by_sw_if_index,
-                                     vnet_buffer(b1)->sw_if_index[VLIB_RX]);
+                                     vnet_buffer(b0)->sw_if_index[VLIB_RX]);
         }
         if (b1->flags & VLIB_BUFFER_IS_TRACED)
         {

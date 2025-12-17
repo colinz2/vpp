@@ -1,19 +1,8 @@
-/*
- * det44.h - deterministic NAT definitions
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* det44.h - deterministic NAT definitions */
 
 /**
  * @file
@@ -38,7 +27,6 @@
 #include <vnet/ip/reass/ip4_sv_reass.h>
 
 #include <nat/lib/lib.h>
-#include <nat/lib/inlines.h>
 #include <nat/lib/ipfix_logging.h>
 #include <nat/lib/nat_proto.h>
 
@@ -63,12 +51,6 @@ typedef enum
 } det44_session_state_t;
 
 #define DET44_SES_PER_USER 1000
-
-typedef struct
-{
-  u16 identifier;
-  u16 sequence;
-} icmp_echo_header_t;
 
 typedef struct
 {
@@ -279,13 +261,11 @@ snat_det_map_by_user (ip4_address_t * user_addr)
 {
   det44_main_t *dm = &det44_main;
   snat_det_map_t *mp;
-  /* *INDENT-OFF* */
   pool_foreach (mp, dm->det_maps)
    {
     if (is_addr_in_net(user_addr, &mp->in_addr, mp->in_plen))
       return mp;
   }
-  /* *INDENT-ON* */
   return 0;
 }
 
@@ -294,13 +274,11 @@ snat_det_map_by_out (ip4_address_t * out_addr)
 {
   det44_main_t *dm = &det44_main;
   snat_det_map_t *mp;
-  /* *INDENT-OFF* */
   pool_foreach (mp, dm->det_maps)
    {
     if (is_addr_in_net(out_addr, &mp->out_addr, mp->out_plen))
       return mp;
   }
-  /* *INDENT-ON* */
   return 0;
 }
 
@@ -424,11 +402,3 @@ snat_det_ses_close (snat_det_map_t * dm, snat_det_session_t * ses)
 clib_error_t *det44_api_hookup (vlib_main_t * vm);
 
 #endif /* __included_det44_h__ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

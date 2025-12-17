@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /**
  * @file
  * @brief Host utility functions
@@ -238,44 +229,44 @@ gdb_show_traces ()
 
   /* Get active traces from pool. */
 
-  foreach_vlib_main ()
-    {
-      fmt = "------------------- Start of thread %d %s -------------------\n";
-      s = format (s, fmt, index, vlib_worker_threads[index].name);
+  foreach_vlib_main__ (0 /* no checks */)
+  {
+    fmt = "------------------- Start of thread %d %s -------------------\n";
+    s = format (s, fmt, index, vlib_worker_threads[index].name);
 
-      tm = &this_vlib_main->trace_main;
+    tm = &this_vlib_main->trace_main;
 
-      trace_apply_filter (this_vlib_main);
+    trace_apply_filter (this_vlib_main);
 
-      traces = 0;
-      pool_foreach (h, tm->trace_buffer_pool)
-	{
-	  vec_add1 (traces, h[0]);
-	}
+    traces = 0;
+    pool_foreach (h, tm->trace_buffer_pool)
+      {
+	vec_add1 (traces, h[0]);
+      }
 
-      if (vec_len (traces) == 0)
-	{
-	  s = format (s, "No packets in trace buffer\n");
-	  goto done;
-	}
+    if (vec_len (traces) == 0)
+      {
+	s = format (s, "No packets in trace buffer\n");
+	goto done;
+      }
 
-      /* Sort them by increasing time. */
-      vec_sort_with_function (traces, trace_cmp);
+    /* Sort them by increasing time. */
+    vec_sort_with_function (traces, trace_cmp);
 
-      for (i = 0; i < vec_len (traces); i++)
-	{
-	  if (i == max)
-	    {
-	      fformat (stderr,
-		       "Limiting display to %d packets."
-		       " To display more specify max.",
-		       max);
-	      goto done;
-	    }
+    for (i = 0; i < vec_len (traces); i++)
+      {
+	if (i == max)
+	  {
+	    fformat (stderr,
+		     "Limiting display to %d packets."
+		     " To display more specify max.",
+		     max);
+	    goto done;
+	  }
 
-	  s = format (s, "Packet %d\n%U\n\n", i + 1, format_vlib_trace,
-		      vlib_get_first_main (), traces[i]);
-	}
+	s = format (s, "Packet %d\n%U\n\n", i + 1, format_vlib_trace,
+		    vlib_get_first_main (), traces[i]);
+      }
 
     done:
       vec_free (traces);
@@ -318,13 +309,11 @@ show_gdb_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_gdb_funcs_command, static) = {
   .path = "show gdb",
   .short_help = "Describe functions which can be called from gdb",
   .function = show_gdb_command_fn,
 };
-/* *INDENT-ON* */
 
 vlib_buffer_t *
 vgb (u32 bi)
@@ -435,11 +424,3 @@ gdb_func_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (gdb_func_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

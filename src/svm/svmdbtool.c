@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <stdio.h>
@@ -248,11 +238,16 @@ static void
 sigaction_handler (int signum, siginfo_t * i, void *notused)
 {
   u32 action, opaque;
+#ifdef __linux__
 
   action = (u32) (uword) i->si_ptr;
   action >>= 28;
   opaque = (u32) (uword) i->si_ptr;
   opaque &= ~(0xF0000000);
+#elif __FreeBSD__
+  action = i->si_code;
+  opaque = 0;
+#endif /* __linux__ */
 
   clib_warning ("signal %d, action %d, opaque %x", signum, action, opaque);
 }
@@ -377,7 +372,7 @@ main (int argc, char **argv)
   struct group _grp, *grp;
   char *s, buf[128];
 
-  clib_mem_init_thread_safe (0, 128 << 20);
+  clib_mem_init (0, 128 << 20);
 
   svmdbtool_main.uid = geteuid ();
   svmdbtool_main.gid = getegid ();
@@ -528,11 +523,3 @@ main (int argc, char **argv)
 
   exit (0);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

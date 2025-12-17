@@ -13,13 +13,13 @@
 
 vpp_source = src
 
-ifneq ($(shell which cmake3),)
+ifneq ($(shell which cmake3 2>/dev/null),)
 CMAKE?=cmake3
 else
 CMAKE?=cmake
 endif
 
-vpp_cmake_prefix_path  = /opt/vpp/external/$(shell uname -m)
+vpp_cmake_prefix_path  = /opt/vpp/external/$(shell uname -m) /opt/vpp/optional/$(shell uname -m)
 vpp_cmake_prefix_path += $(PACKAGE_INSTALL_DIR)external
 vpp_cmake_prefix_path := $(subst $() $(),;,$(vpp_cmake_prefix_path))
 
@@ -29,6 +29,15 @@ vpp_cmake_args += -DCMAKE_BUILD_TYPE="$($(TAG)_TAG_BUILD_TYPE)"
 vpp_cmake_args += -DCMAKE_PREFIX_PATH:PATH="$(vpp_cmake_prefix_path)"
 ifeq ("$(V)","1")
 vpp_cmake_args += -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON
+endif
+ifneq ($(VPP_PLATFORM),)
+vpp_cmake_args += -DVPP_PLATFORM="$(VPP_PLATFORM)"
+endif
+ifneq ($(VPP_EXCLUDED_PLUGINS),)
+vpp_cmake_args += -DVPP_EXCLUDED_PLUGINS="$(VPP_EXCLUDED_PLUGINS)"
+endif
+ifneq (${SOURCE_DATE_EPOCH}),)
+vpp_cmake_args += -DVPP_SOURCE_DATE_EPOCH="$(SOURCE_DATE_EPOCH)"
 endif
 
 ifneq ($(VPP_EXTRA_CMAKE_ARGS),)

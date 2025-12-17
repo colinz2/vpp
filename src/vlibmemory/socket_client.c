@@ -1,26 +1,23 @@
-/*
- *------------------------------------------------------------------
- * socket_client.c - API message handling over sockets, client code.
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * socket_client.c - API message handling over sockets, client code.
  */
 
 #include <stdio.h>
 #define __USE_GNU
 #define _GNU_SOURCE
 #include <sys/socket.h>
+
+#ifdef __FreeBSD__
+#define _WANT_UCRED
+#include <sys/types.h>
+#include <sys/param.h>
+#include <sys/ucred.h>
+#include <sys/un.h>
+#endif /* __FreeBSD__ */
 
 #include <svm/ssvm.h>
 #include <vlibmemory/socket_client.h>
@@ -77,7 +74,7 @@ vl_socket_client_read_internal (socket_client_main_t * scm, int wait)
   u32 data_len = 0, msg_size;
   int n, current_rx_index;
   msgbuf_t *mbp = 0;
-  f64 timeout;
+  f64 timeout = 0;
 
   if (scm->socket_fd == 0)
     return -1;
@@ -278,7 +275,11 @@ vl_sock_api_recv_fd_msg_internal (socket_client_main_t * scm, int fds[],
   struct msghdr mh = { 0 };
   struct iovec iov[1];
   ssize_t size = 0;
+#ifdef __linux__
   struct ucred *cr = 0;
+#elif __FreeBSD__
+  struct cmsgcred *cr = 0;
+#endif /* __linux__ */
   struct cmsghdr *cmsg;
   pid_t pid __attribute__ ((unused));
   uid_t uid __attribute__ ((unused));
@@ -318,6 +319,7 @@ vl_sock_api_recv_fd_msg_internal (socket_client_main_t * scm, int fds[],
     {
       if (cmsg->cmsg_level == SOL_SOCKET)
 	{
+#ifdef __linux__
 	  if (cmsg->cmsg_type == SCM_CREDENTIALS)
 	    {
 	      cr = (struct ucred *) CMSG_DATA (cmsg);
@@ -325,6 +327,15 @@ vl_sock_api_recv_fd_msg_internal (socket_client_main_t * scm, int fds[],
 	      gid = cr->gid;
 	      pid = cr->pid;
 	    }
+#elif __FreeBSD__
+	  if (cmsg->cmsg_type == SCM_CREDS)
+	    {
+	      cr = (struct cmsgcred *) CMSG_DATA (cmsg);
+	      uid = cr->cmcred_uid;
+	      gid = cr->cmcred_gid;
+	      pid = cr->cmcred_pid;
+	    }
+#endif /* __linux__ */
 	  else if (cmsg->cmsg_type == SCM_RIGHTS)
 	    {
 	      clib_memcpy_fast (fds, CMSG_DATA (cmsg), sizeof (int) * n_fds);
@@ -602,11 +613,3 @@ vl_socket_client_recv_fd_msg (int fds[], int n_fds, u32 wait)
 {
   return vl_socket_client_recv_fd_msg2 (socket_client_ctx, fds, n_fds, wait);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

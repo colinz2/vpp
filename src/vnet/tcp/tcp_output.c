@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/tcp/tcp.h>
@@ -299,7 +289,7 @@ tcp_make_options (tcp_connection_t * tc, tcp_options_t * opts,
 void
 tcp_update_burst_snd_vars (tcp_connection_t * tc)
 {
-  tcp_main_t *tm = &tcp_main;
+  tcp_worker_ctx_t *wrk = tcp_get_worker (tc->c_thread_index);
 
   /* Compute options to be used for connection. These may be reused when
    * sending data or to compute the effective mss (snd_mss) */
@@ -310,8 +300,7 @@ tcp_update_burst_snd_vars (tcp_connection_t * tc)
   tc->snd_mss = clib_min (tc->mss, tc->rcv_opts.mss) - tc->snd_opts_len;
   ASSERT (tc->snd_mss > 0);
 
-  tcp_options_write (tm->wrk_ctx[tc->c_thread_index].cached_opts,
-		     &tc->snd_opts);
+  tcp_options_write (wrk->cached_opts, &tc->snd_opts);
 
   tcp_update_rcv_wnd (tc);
 
@@ -420,7 +409,7 @@ static inline void
 tcp_make_ack_i (tcp_connection_t * tc, vlib_buffer_t * b, tcp_state_t state,
 		u8 flags)
 {
-  tcp_options_t _snd_opts, *snd_opts = &_snd_opts;
+  tcp_options_t _snd_opts = {}, *snd_opts = &_snd_opts;
   u8 tcp_opts_len, tcp_hdr_opts_len;
   tcp_header_t *th;
   u16 wnd;
@@ -647,8 +636,8 @@ tcp_buffer_make_reset (vlib_main_t *vm, vlib_buffer_t *b, u8 is_ip4)
  *  It extracts connection info out of original packet
  */
 void
-tcp_send_reset_w_pkt (tcp_connection_t * tc, vlib_buffer_t * pkt,
-		      u32 thread_index, u8 is_ip4)
+tcp_send_reset_w_pkt (tcp_connection_t *tc, vlib_buffer_t *pkt,
+		      clib_thread_index_t thread_index, u8 is_ip4)
 {
   tcp_worker_ctx_t *wrk = tcp_get_worker (thread_index);
   vlib_main_t *vm = wrk->vm;
@@ -656,8 +645,8 @@ tcp_send_reset_w_pkt (tcp_connection_t * tc, vlib_buffer_t * pkt,
   u8 tcp_hdr_len, flags = 0;
   tcp_header_t *th, *pkt_th;
   u32 seq, ack, bi;
-  ip4_header_t *ih4, *pkt_ih4;
-  ip6_header_t *ih6, *pkt_ih6;
+  ip4_header_t *pkt_ih4;
+  ip6_header_t *pkt_ih6;
 
   if (PREDICT_FALSE (!vlib_buffer_alloc (vm, &bi, 1)))
     {
@@ -667,6 +656,7 @@ tcp_send_reset_w_pkt (tcp_connection_t * tc, vlib_buffer_t * pkt,
 
   b = vlib_get_buffer (vm, bi);
   tcp_init_buffer (vm, b);
+  vnet_buffer (b)->tcp.connection_index = tc->c_c_index;
 
   /* Make and write options */
   tcp_hdr_len = sizeof (tcp_header_t);
@@ -698,28 +688,7 @@ tcp_send_reset_w_pkt (tcp_connection_t * tc, vlib_buffer_t * pkt,
 
   th = vlib_buffer_push_tcp_net_order (b, pkt_th->dst_port, pkt_th->src_port,
 				       seq, ack, tcp_hdr_len, flags, 0);
-
-  /* Swap src and dst ip */
-  if (is_ip4)
-    {
-      ASSERT ((pkt_ih4->ip_version_and_header_length & 0xF0) == 0x40);
-      ih4 = vlib_buffer_push_ip4 (vm, b, &pkt_ih4->dst_address,
-				  &pkt_ih4->src_address, IP_PROTOCOL_TCP,
-				  tcp_csum_offload (tc));
-      th->checksum = ip4_tcp_udp_compute_checksum (vm, b, ih4);
-    }
-  else
-    {
-      int bogus = ~0;
-      ASSERT ((pkt_ih6->ip_version_traffic_class_and_flow_label & 0xF0) ==
-	      0x60);
-      ih6 = vlib_buffer_push_ip6_custom (vm, b, &pkt_ih6->dst_address,
-					 &pkt_ih6->src_address,
-					 IP_PROTOCOL_TCP,
-					 tc->ipv6_flow_label);
-      th->checksum = ip6_tcp_udp_icmp_compute_checksum (vm, b, ih6, &bogus);
-      ASSERT (!bogus);
-    }
+  th->checksum = tcp_compute_checksum (tc, b);
 
   tcp_enqueue_half_open (wrk, tc, b, bi);
   TCP_EVT (TCP_EVT_RST_SENT, tc);
@@ -858,10 +827,9 @@ tcp_send_fin (tcp_connection_t * tc)
       /* Out of buffers so program fin retransmit ASAP */
       tcp_timer_update (&wrk->timer_wheel, tc, TCP_TIMER_RETRANSMIT,
 			tcp_cfg.alloc_err_timeout);
-      if (fin_snt)
-	tc->snd_nxt += 1;
-      else
-	/* Make sure retransmit retries a fin not data */
+      tc->snd_nxt += 1;
+      /* Make sure retransmit retries a fin not data with right snd_nxt */
+      if (!fin_snt)
 	tc->flags |= TCP_CONN_FINSNT;
       tcp_worker_stats_inc (wrk, no_buffer, 1);
       return;
@@ -896,7 +864,6 @@ tcp_push_hdr_i (tcp_connection_t * tc, vlib_buffer_t * b, u32 snd_nxt,
 {
   u8 tcp_hdr_opts_len, flags = TCP_FLAG_ACK;
   u32 advertise_wnd, data_len;
-  tcp_main_t *tm = &tcp_main;
   tcp_header_t *th;
 
   data_len = b->current_length;
@@ -928,9 +895,8 @@ tcp_push_hdr_i (tcp_connection_t * tc, vlib_buffer_t * b, u32 snd_nxt,
 
   if (maybe_burst)
     {
-      clib_memcpy_fast ((u8 *) (th + 1),
-			tm->wrk_ctx[tc->c_thread_index].cached_opts,
-			tc->snd_opts_len);
+      tcp_worker_ctx_t *wrk = tcp_get_worker (tc->c_thread_index);
+      clib_memcpy_fast ((u8 *) (th + 1), wrk->cached_opts, tc->snd_opts_len);
     }
   else
     {
@@ -1137,7 +1103,7 @@ tcp_prepare_segment (tcp_worker_ctx_t * wrk, tcp_connection_t * tc,
       data = tcp_init_buffer (vm, *b);
       n_bytes = session_tx_fifo_peek_bytes (&tc->connection, data, offset,
 					    max_deq_bytes);
-      ASSERT (n_bytes == max_deq_bytes);
+      ASSERT (n_bytes > 0);
       b[0]->current_length = n_bytes;
       tcp_push_hdr_i (tc, *b, tc->snd_una + offset, /* compute opts */ 0,
 		      /* burst */ 0, /* update_snd_nxt */ 0);
@@ -1299,7 +1265,34 @@ tcp_cc_init_rxt_timeout (tcp_connection_t * tc)
   tc->cwnd_acc_bytes = 0;
   tc->tr_occurences += 1;
   tc->sack_sb.reorder = TCP_DUPACK_THRESHOLD;
+  tc->sack_sb.rescue_rxt = tc->snd_una - 1;
   tcp_recovery_on (tc);
+}
+
+static void
+tcp_check_syn_flood (tcp_connection_t *tc)
+{
+  tcp_main_t *tm = &tcp_main;
+  auto_sdl_track_prefix_args_t args = {};
+
+  if (tm->sdl_cb == 0)
+    return;
+
+  args.prefix.fp_addr = tc->c_rmt_ip;
+  if (tc->c_is_ip4)
+    {
+      args.prefix.fp_proto = FIB_PROTOCOL_IP4;
+      args.prefix.fp_len = 32;
+    }
+  else
+    {
+      args.prefix.fp_proto = FIB_PROTOCOL_IP6;
+      args.prefix.fp_len = 128;
+    }
+  args.fib_index = tc->c_fib_index;
+  args.action_index = 0;
+  args.tag = 0;
+  tm->sdl_cb (&args);
 }
 
 void
@@ -1356,7 +1349,7 @@ tcp_timer_retransmit_handler (tcp_connection_t * tc)
 	{
 	  tcp_send_reset (tc);
 	  tcp_connection_set_state (tc, TCP_STATE_CLOSED);
-	  session_transport_closing_notify (&tc->connection);
+	  session_transport_reset_notify (&tc->connection);
 	  session_transport_closed_notify (&tc->connection);
 	  tcp_connection_timers_reset (tc);
 	  tcp_program_cleanup (wrk, tc);
@@ -1411,12 +1404,14 @@ tcp_timer_retransmit_handler (tcp_connection_t * tc)
       tc->rtt_ts = 0;
 
       /* Passive open establish timeout */
-      if (tc->rto > TCP_ESTABLISH_TIME >> 1)
+      if (tc->rto > tcp_cfg.syn_rcvd_time >> 1)
 	{
 	  tcp_connection_set_state (tc, TCP_STATE_CLOSED);
 	  tcp_connection_timers_reset (tc);
 	  tcp_program_cleanup (wrk, tc);
 	  tcp_worker_stats_inc (wrk, tr_abort, 1);
+
+	  tcp_check_syn_flood (tc);
 	  return;
 	}
 
@@ -1478,6 +1473,8 @@ tcp_timer_retransmit_syn_handler (tcp_connection_t * tc)
   TCP_EVT (TCP_EVT_CC_EVT, tc, 2);
   tc->rtt_ts = 0;
 
+  tcp_worker_stats_inc (wrk, to_establish, 1);
+
   /* Active open establish timeout */
   if (tc->rto >= TCP_ESTABLISH_TIME >> 1)
     {
@@ -1527,9 +1524,13 @@ tcp_timer_persist_handler (tcp_connection_t * tc)
   int n_bytes = 0;
   u8 *data;
 
+  tcp_worker_stats_inc (wrk, to_persist, 1);
+
+  if (tc->state == TCP_STATE_CLOSED)
+    return;
+
   /* Problem already solved or worse */
-  if (tc->state == TCP_STATE_CLOSED || tc->snd_wnd > tc->snd_mss
-      || (tc->flags & TCP_CONN_FINSNT))
+  if (tc->snd_wnd > tc->snd_mss || (tc->flags & TCP_CONN_FINSNT))
     goto update_scheduler;
 
   available_bytes = transport_max_tx_dequeue (&tc->connection);
@@ -1781,7 +1782,7 @@ tcp_retransmit_sack (tcp_worker_ctx_t * wrk, tcp_connection_t * tc,
       if (!hole)
 	{
 	  /* We are out of lost holes to retransmit so send some new data. */
-	  if (max_deq > tc->snd_mss)
+	  if (max_deq)
 	    {
 	      u32 n_segs_new;
 	      int av_wnd;
@@ -1791,7 +1792,10 @@ tcp_retransmit_sack (tcp_worker_ctx_t * wrk, tcp_connection_t * tc,
 	      av_wnd = (int) tc->snd_wnd - (tc->snd_nxt - tc->snd_una);
 	      av_wnd = clib_max (av_wnd - tc->snd_mss, 0);
 	      snd_space = clib_min (snd_space, av_wnd);
-	      snd_space = clib_min (max_deq, snd_space);
+	      /* Low bound max_deq to mss to be able to send a segment even
+	       * when it is less than mss */
+	      snd_space =
+		clib_min (clib_max (max_deq, tc->snd_mss), snd_space);
 	      burst_size = clib_min (burst_size - n_segs,
 				     snd_space / tc->snd_mss);
 	      burst_size = clib_min (burst_size, TCP_RXT_MAX_BURST);
@@ -1803,8 +1807,7 @@ tcp_retransmit_sack (tcp_worker_ctx_t * wrk, tcp_connection_t * tc,
 	      goto done;
 	    }
 
-	  if (tcp_in_recovery (tc) || !can_rescue
-	      || scoreboard_rescue_rxt_valid (sb, tc))
+	  if (!can_rescue || scoreboard_rescue_rxt_valid (sb, tc))
 	    break;
 
 	  /* If rescue rxt undefined or less than snd_una then one segment of
@@ -1828,7 +1831,11 @@ tcp_retransmit_sack (tcp_worker_ctx_t * wrk, tcp_connection_t * tc,
 	  break;
 	}
 
-      max_bytes = clib_min (hole->end - sb->high_rxt, snd_space);
+      max_bytes = hole->end - sb->high_rxt;
+      /* Avoid retransmitting segment less than mss if possible */
+      if (snd_space < tc->snd_mss && max_bytes > snd_space)
+	break;
+      max_bytes = clib_min (max_bytes, snd_space);
       max_bytes = snd_limited ? clib_min (max_bytes, tc->snd_mss) : max_bytes;
       if (max_bytes == 0)
 	break;
@@ -2313,7 +2320,6 @@ VLIB_NODE_FN (tcp6_output_node) (vlib_main_t * vm, vlib_node_runtime_t * node,
   return tcp46_output_inline (vm, node, from_frame, 0 /* is_ip4 */ );
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (tcp4_output_node) =
 {
   .name = "tcp4-output",
@@ -2331,9 +2337,7 @@ VLIB_REGISTER_NODE (tcp4_output_node) =
   .format_buffer = format_tcp_header,
   .format_trace = format_tcp_tx_trace,
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (tcp6_output_node) =
 {
   .name = "tcp6-output",
@@ -2351,7 +2355,6 @@ VLIB_REGISTER_NODE (tcp6_output_node) =
   .format_buffer = format_tcp_header,
   .format_trace = format_tcp_tx_trace,
 };
-/* *INDENT-ON* */
 
 typedef enum _tcp_reset_next
 {
@@ -2427,9 +2430,14 @@ tcp46_reset_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
 
       /* IP lookup in fib where it was received. Previous value
        * was overwritten by tcp-input */
-      vnet_buffer (b[0])->sw_if_index[VLIB_TX] =
-	vec_elt (ip4_main.fib_index_by_sw_if_index,
-		 vnet_buffer (b[0])->sw_if_index[VLIB_RX]);
+      if (is_ip4)
+	vnet_buffer (b[0])->sw_if_index[VLIB_TX] =
+	  vec_elt (ip4_main.fib_index_by_sw_if_index,
+		   vnet_buffer (b[0])->sw_if_index[VLIB_RX]);
+      else
+	vnet_buffer (b[0])->sw_if_index[VLIB_TX] =
+	  vec_elt (ip6_main.fib_index_by_sw_if_index,
+		   vnet_buffer (b[0])->sw_if_index[VLIB_RX]);
 
       b[0]->flags |= VNET_BUFFER_F_LOCALLY_ORIGINATED;
       next[0] = TCP_RESET_NEXT_IP_LOOKUP;
@@ -2462,7 +2470,6 @@ VLIB_NODE_FN (tcp6_reset_node) (vlib_main_t * vm, vlib_node_runtime_t * node,
   return tcp46_reset_inline (vm, node, from_frame, 0);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (tcp4_reset_node) = {
   .name = "tcp4-reset",
   .vector_size = sizeof (u32),
@@ -2476,9 +2483,7 @@ VLIB_REGISTER_NODE (tcp4_reset_node) = {
   },
   .format_trace = format_tcp_tx_trace,
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (tcp6_reset_node) = {
   .name = "tcp6-reset",
   .vector_size = sizeof (u32),
@@ -2492,12 +2497,3 @@ VLIB_REGISTER_NODE (tcp6_reset_node) = {
   },
   .format_trace = format_tcp_tx_trace,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

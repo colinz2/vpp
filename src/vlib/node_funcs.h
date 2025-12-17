@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * node_funcs.h: processing nodes global functions/inlines
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* node_funcs.h: processing nodes global functions/inlines */
 
 /** \file
     vlib node functions
@@ -47,7 +15,6 @@
 
 #include <vppinfra/clib.h>
 #include <vppinfra/fifo.h>
-#include <vppinfra/tw_timer_1t_3w_1024sl_ov.h>
 #include <vppinfra/interrupt.h>
 
 #ifdef CLIB_SANITIZE_ADDR
@@ -60,7 +27,7 @@ vlib_process_start_switch_stack (vlib_main_t * vm, vlib_process_t * p)
 #ifdef CLIB_SANITIZE_ADDR
   void *stack = p ? (void *) p->stack : vlib_thread_stacks[vm->thread_index];
   u32 stack_bytes =
-    p ? (1ULL < p->log2_n_stack_bytes) : VLIB_THREAD_STACK_SIZE;
+    p ? (1ULL << p->log2_n_stack_bytes) : VLIB_THREAD_STACK_SIZE;
   __sanitizer_start_switch_fiber (&vm->asan_stack_save, stack, stack_bytes);
 #endif
 }
@@ -72,8 +39,9 @@ vlib_process_finish_switch_stack (vlib_main_t * vm)
   const void *bottom_old;
   size_t size_old;
 
-  __sanitizer_finish_switch_fiber (&vm->asan_stack_save, &bottom_old,
+  __sanitizer_finish_switch_fiber (vm->asan_stack_save, &bottom_old,
 				   &size_old);
+  vm->asan_stack_save = NULL;
 #endif
 }
 
@@ -187,10 +155,7 @@ vlib_node_set_state (vlib_main_t * vm, u32 node_index,
       vlib_process_t *p = vec_elt (nm->processes, n->runtime_index);
       r = &p->node_runtime;
 
-      /* When disabling make sure flags are cleared. */
-      p->flags &= ~(VLIB_PROCESS_RESUME_PENDING
-		    | VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_CLOCK
-		    | VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_EVENT);
+      p->event_resume_pending = 0;
     }
   else
     r = vec_elt_at_index (nm->nodes_by_type[n->type], n->runtime_index);
@@ -252,15 +217,56 @@ vlib_node_set_interrupt_pending (vlib_main_t *vm, u32 node_index)
 {
   vlib_node_main_t *nm = &vm->node_main;
   vlib_node_t *n = vec_elt (nm->nodes, node_index);
+  void *interrupts = nm->node_interrupts[n->type];
 
-  ASSERT (n->type == VLIB_NODE_TYPE_INPUT);
+  ASSERT (interrupts);
 
   if (vm != vlib_get_main ())
-    clib_interrupt_set_atomic (nm->interrupts, n->runtime_index);
+    {
+      clib_interrupt_set_atomic (interrupts, n->runtime_index);
+      vlib_thread_wakeup (vm->thread_index);
+    }
   else
-    clib_interrupt_set (nm->interrupts, n->runtime_index);
+    clib_interrupt_set (interrupts, n->runtime_index);
+}
 
-  __atomic_store_n (nm->pending_interrupts, 1, __ATOMIC_RELEASE);
+always_inline int
+vlib_node_is_scheduled (vlib_main_t *vm, u32 node_index)
+{
+  vlib_node_runtime_t *rt = vlib_node_get_runtime (vm, node_index);
+  return rt->stop_timer_handle_plus_1 ? 1 : 0;
+}
+
+always_inline void
+vlib_node_schedule (vlib_main_t *vm, u32 node_index, f64 dt)
+{
+  u64 ticks;
+
+  vlib_node_runtime_t *rt = vlib_node_get_runtime (vm, node_index);
+  vlib_tw_event_t e = {
+    .type = VLIB_TW_EVENT_T_SCHED_NODE,
+    .index = node_index,
+  };
+
+  ASSERT (vm == vlib_get_main ());
+  ASSERT (vlib_node_is_scheduled (vm, node_index) == 0);
+
+  dt = flt_round_nearest (dt * VLIB_TW_TICKS_PER_SECOND);
+  ticks = clib_max ((u64) dt, 1);
+
+  rt->stop_timer_handle_plus_1 = 1 + vlib_tw_timer_start (vm, e, ticks);
+}
+
+always_inline void
+vlib_node_unschedule (vlib_main_t *vm, u32 node_index)
+{
+  vlib_node_runtime_t *rt = vlib_node_get_runtime (vm, node_index);
+
+  ASSERT (vm == vlib_get_main ());
+  ASSERT (vlib_node_is_scheduled (vm, node_index) == 1);
+
+  vlib_tw_timer_stop (vm, rt->stop_timer_handle_plus_1 - 1);
+  rt->stop_timer_handle_plus_1 = 0;
 }
 
 always_inline vlib_process_t *
@@ -566,14 +572,14 @@ vlib_get_current_process_node_index (vlib_main_t * vm)
   return process->node_runtime.node_index;
 }
 
-/** Returns TRUE if a process suspend time is less than 10us
+/** Returns TRUE if a process suspend time is less than vlib timer wheel tick
     @param dt - remaining poll time in seconds
-    @returns 1 if dt < 10e-6, 0 otherwise
+    @returns 1 if dt < 1/VLIB_TW_TICKS_PER_SECOND, 0 otherwise
 */
 always_inline uword
 vlib_process_suspend_time_is_zero (f64 dt)
 {
-  return dt < 10e-6;
+  return dt < (1 / VLIB_TW_TICKS_PER_SECOND);
 }
 
 /** Suspend a vlib cooperative multi-tasking thread for a period of time
@@ -592,12 +598,44 @@ vlib_process_suspend (vlib_main_t * vm, f64 dt)
   if (vlib_process_suspend_time_is_zero (dt))
     return VLIB_PROCESS_RESUME_LONGJMP_RESUME;
 
-  p->flags |= VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_CLOCK;
+  p->state = VLIB_PROCESS_STATE_SUSPENDED;
   r = clib_setjmp (&p->resume_longjmp, VLIB_PROCESS_RESUME_LONGJMP_SUSPEND);
   if (r == VLIB_PROCESS_RESUME_LONGJMP_SUSPEND)
     {
       /* expiration time in 10us ticks */
-      p->resume_clock_interval = dt * 1e5;
+      p->resume_clock_interval = dt * VLIB_TW_TICKS_PER_SECOND;
+      vlib_process_start_switch_stack (vm, 0);
+      clib_longjmp (&p->return_longjmp, VLIB_PROCESS_RETURN_LONGJMP_SUSPEND);
+    }
+  else
+    vlib_process_finish_switch_stack (vm);
+
+  return r;
+}
+
+/** Suspend a vlib cooperative multi-tasking thread and put it at the end of
+ * resume queue
+    @param vm - vlib_main_t *
+    @returns VLIB_PROCESS_RESUME_LONGJMP_RESUME, routinely ignored
+*/
+
+always_inline uword
+vlib_process_yield (vlib_main_t *vm)
+{
+  uword r;
+  vlib_node_main_t *nm = &vm->node_main;
+  vlib_process_t *p = vec_elt (nm->processes, nm->current_process_index);
+
+  p->state = VLIB_PROCESS_STATE_YIELD;
+  r = clib_setjmp (&p->resume_longjmp, VLIB_PROCESS_RESUME_LONGJMP_SUSPEND);
+  if (r == VLIB_PROCESS_RESUME_LONGJMP_SUSPEND)
+    {
+      vlib_process_restore_t r = {
+	.reason = VLIB_PROCESS_RESTORE_REASON_YIELD,
+	.runtime_index = nm->current_process_index,
+      };
+      p->resume_clock_interval = 0;
+      vec_add1 (nm->process_restore_next, r);
       vlib_process_start_switch_stack (vm, 0);
       clib_longjmp (&p->return_longjmp, VLIB_PROCESS_RETURN_LONGJMP_SUSPEND);
     }
@@ -766,11 +804,12 @@ vlib_process_wait_for_event (vlib_main_t * vm)
   p = vec_elt (nm->processes, nm->current_process_index);
   if (clib_bitmap_is_zero (p->non_empty_event_type_bitmap))
     {
-      p->flags |= VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_EVENT;
+      p->state = VLIB_PROCESS_STATE_WAIT_FOR_EVENT;
       r =
 	clib_setjmp (&p->resume_longjmp, VLIB_PROCESS_RESUME_LONGJMP_SUSPEND);
       if (r == VLIB_PROCESS_RESUME_LONGJMP_SUSPEND)
 	{
+	  p->resume_clock_interval = 0;
 	  vlib_process_start_switch_stack (vm, 0);
 	  clib_longjmp (&p->return_longjmp,
 			VLIB_PROCESS_RETURN_LONGJMP_SUSPEND);
@@ -795,11 +834,12 @@ vlib_process_wait_for_one_time_event (vlib_main_t * vm,
   ASSERT (!pool_is_free_index (p->event_type_pool, with_type_index));
   while (!clib_bitmap_get (p->non_empty_event_type_bitmap, with_type_index))
     {
-      p->flags |= VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_EVENT;
+      p->state = VLIB_PROCESS_STATE_WAIT_FOR_ONE_TIME_EVENT;
       r =
 	clib_setjmp (&p->resume_longjmp, VLIB_PROCESS_RESUME_LONGJMP_SUSPEND);
       if (r == VLIB_PROCESS_RESUME_LONGJMP_SUSPEND)
 	{
+	  p->resume_clock_interval = 0;
 	  vlib_process_start_switch_stack (vm, 0);
 	  clib_longjmp (&p->return_longjmp,
 			VLIB_PROCESS_RETURN_LONGJMP_SUSPEND);
@@ -824,11 +864,12 @@ vlib_process_wait_for_event_with_type (vlib_main_t * vm,
   h = hash_get (p->event_type_index_by_type_opaque, with_type_opaque);
   while (!h || !clib_bitmap_get (p->non_empty_event_type_bitmap, h[0]))
     {
-      p->flags |= VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_EVENT;
+      p->state = VLIB_PROCESS_STATE_WAIT_FOR_EVENT;
       r =
 	clib_setjmp (&p->resume_longjmp, VLIB_PROCESS_RESUME_LONGJMP_SUSPEND);
       if (r == VLIB_PROCESS_RESUME_LONGJMP_SUSPEND)
 	{
+	  p->resume_clock_interval = 0;
 	  vlib_process_start_switch_stack (vm, 0);
 	  clib_longjmp (&p->return_longjmp,
 			VLIB_PROCESS_RETURN_LONGJMP_SUSPEND);
@@ -868,13 +909,12 @@ vlib_process_wait_for_event_or_clock (vlib_main_t * vm, f64 dt)
   wakeup_time = vlib_time_now (vm) + dt;
 
   /* Suspend waiting for both clock and event to occur. */
-  p->flags |= (VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_EVENT
-	       | VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_CLOCK);
+  p->state = VLIB_PROCESS_STATE_WAIT_FOR_EVENT_OR_CLOCK;
 
   r = clib_setjmp (&p->resume_longjmp, VLIB_PROCESS_RESUME_LONGJMP_SUSPEND);
   if (r == VLIB_PROCESS_RESUME_LONGJMP_SUSPEND)
     {
-      p->resume_clock_interval = dt * 1e5;
+      p->resume_clock_interval = dt * VLIB_TW_TICKS_PER_SECOND;
       vlib_process_start_switch_stack (vm, 0);
       clib_longjmp (&p->return_longjmp, VLIB_PROCESS_RETURN_LONGJMP_SUSPEND);
     }
@@ -925,13 +965,11 @@ vlib_process_delete_one_time_event (vlib_main_t * vm, uword node_index,
 }
 
 always_inline void *
-vlib_process_signal_event_helper (vlib_node_main_t * nm,
-				  vlib_node_t * n,
-				  vlib_process_t * p,
-				  uword t,
+vlib_process_signal_event_helper (vlib_main_t *vm, vlib_node_main_t *nm,
+				  vlib_node_t *n, vlib_process_t *p, uword t,
 				  uword n_data_elts, uword n_data_elt_bytes)
 {
-  uword p_flags, add_to_pending, delete_from_wheel;
+  uword add_to_pending = 0, delete_from_wheel = 0;
   u8 *data_to_be_written_by_caller;
   vec_attr_t va = { .elt_sz = n_data_elt_bytes };
 
@@ -963,47 +1001,42 @@ vlib_process_signal_event_helper (vlib_node_main_t * nm,
   p->non_empty_event_type_bitmap =
     clib_bitmap_ori (p->non_empty_event_type_bitmap, t);
 
-  p_flags = p->flags;
-
-  /* Event was already signalled? */
-  add_to_pending = (p_flags & VLIB_PROCESS_RESUME_PENDING) == 0;
-
-  /* Process will resume when suspend time elapses? */
-  delete_from_wheel = 0;
-  if (p_flags & VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_CLOCK)
+  switch (p->state)
     {
-      /* Waiting for both event and clock? */
-      if (p_flags & VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_EVENT)
-	{
-	  if (!TW (tw_timer_handle_is_free)
-	      ((TWT (tw_timer_wheel) *) nm->timing_wheel,
-	       p->stop_timer_handle))
-	    delete_from_wheel = 1;
-	  else
-	    /* timer just popped so process should already be on the list */
-	    add_to_pending = 0;
-	}
-      else
-	/* Waiting only for clock.  Event will be queue and may be
-	   handled when timer expires. */
-	add_to_pending = 0;
+    case VLIB_PROCESS_STATE_WAIT_FOR_EVENT:
+      add_to_pending = 1;
+      break;
+
+    case VLIB_PROCESS_STATE_WAIT_FOR_EVENT_OR_CLOCK:
+      add_to_pending = 1;
+      delete_from_wheel = 1;
+      break;
+
+    default:
+      break;
     }
+
+  if (vlib_tw_timer_handle_is_free (vm, p->stop_timer_handle))
+    delete_from_wheel = 0;
 
   /* Never add current process to pending vector since current process is
      already running. */
   add_to_pending &= nm->current_process_index != n->runtime_index;
 
-  if (add_to_pending)
+  if (add_to_pending && p->event_resume_pending == 0)
     {
-      u32 x = vlib_timing_wheel_data_set_suspended_process (n->runtime_index);
-      p->flags = p_flags | VLIB_PROCESS_RESUME_PENDING;
-      vec_add1 (nm->data_from_advancing_timing_wheel, x);
-      if (delete_from_wheel)
-	{
-	  TW (tw_timer_stop)
-	  ((TWT (tw_timer_wheel) *) nm->timing_wheel, p->stop_timer_handle);
-	  p->stop_timer_handle = ~0;
-	}
+      vlib_process_restore_t restore = {
+	.runtime_index = n->runtime_index,
+	.reason = VLIB_PROCESS_RESTORE_REASON_EVENT,
+      };
+      p->event_resume_pending = 1;
+      vec_add1 (nm->process_restore_current, restore);
+    }
+
+  if (delete_from_wheel)
+    {
+      vlib_tw_timer_stop (vm, p->stop_timer_handle);
+      p->stop_timer_handle = ~0;
     }
 
   return data_to_be_written_by_caller;
@@ -1034,7 +1067,7 @@ vlib_process_signal_event_data (vlib_main_t * vm,
   else
     t = h[0];
 
-  return vlib_process_signal_event_helper (nm, n, p, t, n_data_elts,
+  return vlib_process_signal_event_helper (vm, nm, n, p, t, n_data_elts,
 					   n_data_elt_bytes);
 }
 
@@ -1062,7 +1095,7 @@ vlib_process_signal_event_at_time (vlib_main_t * vm,
     t = h[0];
 
   if (vlib_process_suspend_time_is_zero (dt))
-    return vlib_process_signal_event_helper (nm, n, p, t, n_data_elts,
+    return vlib_process_signal_event_helper (vm, nm, n, p, t, n_data_elts,
 					     n_data_elt_bytes);
   else
     {
@@ -1083,11 +1116,12 @@ vlib_process_signal_event_at_time (vlib_main_t * vm,
       te->event_type_index = t;
 
       p->stop_timer_handle =
-	TW (tw_timer_start) ((TWT (tw_timer_wheel) *) nm->timing_wheel,
-			     vlib_timing_wheel_data_set_timed_event
-			     (te - nm->signal_timed_event_data_pool),
-			     0 /* timer_id */ ,
-			     (vlib_time_now (vm) + dt) * 1e5);
+	vlib_tw_timer_start (vm,
+			     (vlib_tw_event_t){
+			       .type = VLIB_TW_EVENT_T_TIMED_EVENT,
+			       .index = te - nm->signal_timed_event_data_pool,
+			     },
+			     dt * VLIB_TW_TICKS_PER_SECOND);
 
       /* Inline data big enough to hold event? */
       if (te->n_data_bytes < sizeof (te->inline_event_data))
@@ -1111,8 +1145,8 @@ vlib_process_signal_one_time_event_data (vlib_main_t * vm,
   vlib_node_main_t *nm = &vm->node_main;
   vlib_node_t *n = vlib_get_node (vm, node_index);
   vlib_process_t *p = vec_elt (nm->processes, n->runtime_index);
-  return vlib_process_signal_event_helper (nm, n, p, type_index, n_data_elts,
-					   n_data_elt_bytes);
+  return vlib_process_signal_event_helper (vm, nm, n, p, type_index,
+					   n_data_elts, n_data_elt_bytes);
 }
 
 always_inline void
@@ -1331,6 +1365,10 @@ void vlib_node_runtime_sync_stats_node (vlib_node_t *n, vlib_node_runtime_t *r,
 /* Node graph initialization function. */
 clib_error_t *vlib_node_main_init (vlib_main_t * vm);
 
+/* Refresh graph after the creation of a node that was potentially mentionned
+ * as a named next for a node with VLIB_NODE_FLAG_ALLOW_LAZY_NEXT_NODES */
+clib_error_t *vlib_node_main_lazy_next_update (vlib_main_t *vm);
+
 format_function_t format_vlib_node_graph;
 format_function_t format_vlib_node_name;
 format_function_t format_vlib_next_node_name;
@@ -1492,11 +1530,3 @@ vlib_frame_bitmap_find_first_set (uword *bmp)
 					 _tmp = clear_lowest_set_bit (_tmp)))
 
 #endif /* included_vlib_node_funcs_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

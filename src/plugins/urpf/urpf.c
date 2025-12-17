@@ -1,23 +1,12 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <urpf/urpf.h>
 
 #include <vnet/fib/fib_table.h>
 
-/* *INDENT-OFF* */
 static const char *urpf_feat_arcs[N_AF][VLIB_N_DIR] =
 {
   [AF_IP4] = {
@@ -53,7 +42,6 @@ static const char *urpf_feats[N_AF][VLIB_N_DIR][URPF_N_MODES] =
     },
   },
 };
-/* *INDENT-ON* */
 
 /**
  * Per-af, per-direction, per-interface uRPF configs
@@ -62,7 +50,17 @@ static const char *urpf_feats[N_AF][VLIB_N_DIR][URPF_N_MODES] =
 urpf_data_t *urpf_cfgs[N_AF][VLIB_N_DIR];
 
 u8 *
-format_urpf_mode (u8 * s, va_list * a)
+format_urpf_trace (u8 *s, va_list *va)
+{
+  CLIB_UNUSED (vlib_main_t * vm) = va_arg (*va, vlib_main_t *);
+  CLIB_UNUSED (vlib_node_t * node) = va_arg (*va, vlib_node_t *);
+  urpf_trace_t *t = va_arg (*va, urpf_trace_t *);
+
+  return format (s, "uRPF:%d fib:%d", t->urpf, t->fib_index);
+}
+
+__clib_export u8 *
+format_urpf_mode (u8 *s, va_list *a)
 {
   urpf_mode_t mode = va_arg (*a, int);
 
@@ -78,8 +76,8 @@ format_urpf_mode (u8 * s, va_list * a)
   return (format (s, "unknown"));
 }
 
-static uword
-unformat_urpf_mode (unformat_input_t * input, va_list * args)
+__clib_export uword
+unformat_urpf_mode (unformat_input_t *input, va_list *args)
 {
   urpf_mode_t *mode = va_arg (*args, urpf_mode_t *);
 
@@ -96,7 +94,16 @@ unformat_urpf_mode (unformat_input_t * input, va_list * args)
     return 0;
 }
 
-int
+__clib_export int
+urpf_feature_enable_disable (ip_address_family_t af, vlib_dir_t dir,
+			     urpf_mode_t mode, u32 sw_if_index, int enable)
+{
+  return vnet_feature_enable_disable (urpf_feat_arcs[af][dir],
+				      urpf_feats[af][dir][mode], sw_if_index,
+				      enable, 0, 0);
+}
+
+__clib_export int
 urpf_update (urpf_mode_t mode, u32 sw_if_index, ip_address_family_t af,
 	     vlib_dir_t dir, u32 table_id)
 {
@@ -311,14 +318,12 @@ done:
  * @cliexcmd{set urpf ip4 off GigabitEthernet2/0/0}
  * @endparblock
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_interface_ip_source_check_command, static) = {
   .path = "set urpf",
   .function = urpf_cli_update,
   .short_help = "set urpf [ip4|ip6] [rx|tx] [off|strict|loose] "
 		"<INTERFACE> [table <table>]",
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 urpf_cli_accept (vlib_main_t * vm,
@@ -389,18 +394,8 @@ done:
  * loose RPF tests:
  * @cliexcmd{set urpf-accept table 7 10.0.0.0/8 add}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (urpf_accept_command, static) = {
   .path = "set urpf-accept",
   .function = urpf_cli_accept,
   .short_help = "urpf-accept [table <table-id>] [add|del] <PREFIX>",
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

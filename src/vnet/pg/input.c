@@ -1,49 +1,17 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * pg_input.c: buffer generator input
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-  /*
-   * To be honest, the packet generator needs an extreme
-   * makeover. Two key assumptions which drove the current implementation
-   * are no longer true. First, buffer managers implement a
-   * post-TX recycle list. Second, that packet generator performance
-   * is first-order important.
-   */
+/* pg_input.c: buffer generator input */
+
+/*
+ * To be honest, the packet generator needs an extreme
+ * makeover. Two key assumptions which drove the current implementation
+ * are no longer true. First, buffer managers implement a
+ * post-TX recycle list. Second, that packet generator performance
+ * is first-order important.
+ */
 
 #include <vlib/vlib.h>
 #include <vnet/pg/pg.h>
@@ -1407,6 +1375,7 @@ typedef struct
 
   u32 packet_length;
   u32 sw_if_index;
+  u32 next_index;
 
   /* Use pre data for packet data. */
   vlib_buffer_t buffer;
@@ -1422,6 +1391,7 @@ format_pg_input_trace (u8 * s, va_list * va)
   pg_stream_t *stream;
   vlib_node_t *n;
   u32 indent = format_get_indent (s);
+  const char *next_nodes[] = VNET_DEVICE_INPUT_NEXT_NODES;
 
   stream = 0;
   if (!pool_is_free_index (pg->streams, t->stream_index))
@@ -1434,6 +1404,10 @@ format_pg_input_trace (u8 * s, va_list * va)
 
   s = format (s, ", %d bytes", t->packet_length);
   s = format (s, ", sw_if_index %d", t->sw_if_index);
+  if (t->next_index < VNET_DEVICE_INPUT_N_NEXT_NODES)
+    s = format (s, ", next_node %s", next_nodes[t->next_index]);
+  else
+    s = format (s, ", next_node %d", t->next_index);
 
   s = format (s, "\n%U%U", format_white_space, indent,
 	      format_vnet_buffer_no_chain, &t->buffer);
@@ -1497,6 +1471,9 @@ pg_input_trace (pg_main_t * pg,
       t0->sw_if_index = vnet_buffer (b0)->sw_if_index[VLIB_RX];
       t1->sw_if_index = vnet_buffer (b1)->sw_if_index[VLIB_RX];
 
+      t0->next_index = next_index;
+      t1->next_index = next_index;
+
       clib_memcpy_fast (&t0->buffer, b0,
 			sizeof (b0[0]) - sizeof (b0->pre_data));
       clib_memcpy_fast (&t1->buffer, b1,
@@ -1527,6 +1504,7 @@ pg_input_trace (pg_main_t * pg,
       t0->stream_index = stream_index;
       t0->packet_length = vlib_buffer_length_in_chain (vm, b0);
       t0->sw_if_index = vnet_buffer (b0)->sw_if_index[VLIB_RX];
+      t0->next_index = next_index;
       clib_memcpy_fast (&t0->buffer, b0,
 			sizeof (b0[0]) - sizeof (b0->pre_data));
       clib_memcpy_fast (t0->buffer.pre_data, b0->data,
@@ -1537,31 +1515,50 @@ pg_input_trace (pg_main_t * pg,
 }
 
 static_always_inline void
-fill_buffer_offload_flags (vlib_main_t *vm, u32 *buffers, u32 n_buffers,
-			   u32 buffer_oflags, int gso_enabled, u32 gso_size)
+fill_buffer_offload_flags (vlib_main_t *vm, u32 next_index, u32 *buffers,
+			   u32 n_buffers, u32 buffer_oflags,
+			   int csum_offload_enabled, int gso_enabled,
+			   u32 gso_size)
 {
   for (int i = 0; i < n_buffers; i++)
     {
       vlib_buffer_t *b0 = vlib_get_buffer (vm, buffers[i]);
       u8 l4_proto = 0;
       vnet_buffer_oflags_t oflags = 0;
+      u16 ethertype;
+      u16 l2hdr_sz;
 
-      ethernet_header_t *eh =
-	(ethernet_header_t *) vlib_buffer_get_current (b0);
-      u16 ethertype = clib_net_to_host_u16 (eh->type);
-      u16 l2hdr_sz = sizeof (ethernet_header_t);
-
-      if (ethernet_frame_is_tagged (ethertype))
+      /* pg can typically injects to ethernet-input or ip4/6-input */
+      if (VNET_DEVICE_INPUT_NEXT_IP4_INPUT == next_index)
 	{
-	  ethernet_vlan_header_t *vlan = (ethernet_vlan_header_t *) (eh + 1);
+	  ethertype = ETHERNET_TYPE_IP4;
+	  l2hdr_sz = 0;
+	}
+      else if (VNET_DEVICE_INPUT_NEXT_IP6_INPUT == next_index)
+	{
+	  ethertype = ETHERNET_TYPE_IP6;
+	  l2hdr_sz = 0;
+	}
+      else
+	{
+	  /* default to ethernet */
+	  ethernet_header_t *eh = (ethernet_header_t *) b0->data;
+	  ethertype = clib_net_to_host_u16 (eh->type);
+	  l2hdr_sz = sizeof (ethernet_header_t);
 
-	  ethertype = clib_net_to_host_u16 (vlan->type);
-	  l2hdr_sz += sizeof (*vlan);
-	  if (ethertype == ETHERNET_TYPE_VLAN)
+	  if (ethernet_frame_is_tagged (ethertype))
 	    {
-	      vlan++;
+	      ethernet_vlan_header_t *vlan =
+		(ethernet_vlan_header_t *) (eh + 1);
+
 	      ethertype = clib_net_to_host_u16 (vlan->type);
 	      l2hdr_sz += sizeof (*vlan);
+	      if (ethertype == ETHERNET_TYPE_VLAN)
+		{
+		  vlan++;
+		  ethertype = clib_net_to_host_u16 (vlan->type);
+		  l2hdr_sz += sizeof (*vlan);
+		}
 	    }
 	}
 
@@ -1570,21 +1567,20 @@ fill_buffer_offload_flags (vlib_main_t *vm, u32 *buffers, u32 n_buffers,
 
       if (PREDICT_TRUE (ethertype == ETHERNET_TYPE_IP4))
 	{
-	  ip4_header_t *ip4 =
-	    (ip4_header_t *) (vlib_buffer_get_current (b0) + l2hdr_sz);
+	  ip4_header_t *ip4 = (ip4_header_t *) (b0->data + l2hdr_sz);
 	  vnet_buffer (b0)->l4_hdr_offset = l2hdr_sz + ip4_header_bytes (ip4);
 	  l4_proto = ip4->protocol;
 	  b0->flags |=
 	    (VNET_BUFFER_F_IS_IP4 | VNET_BUFFER_F_L2_HDR_OFFSET_VALID |
 	     VNET_BUFFER_F_L3_HDR_OFFSET_VALID |
 	     VNET_BUFFER_F_L4_HDR_OFFSET_VALID);
-	  if (buffer_oflags & VNET_BUFFER_OFFLOAD_F_IP_CKSUM)
+	  if (buffer_oflags & VNET_BUFFER_OFFLOAD_F_IP_CKSUM || gso_enabled ||
+	      csum_offload_enabled)
 	    oflags |= VNET_BUFFER_OFFLOAD_F_IP_CKSUM;
 	}
       else if (PREDICT_TRUE (ethertype == ETHERNET_TYPE_IP6))
 	{
-	  ip6_header_t *ip6 =
-	    (ip6_header_t *) (vlib_buffer_get_current (b0) + l2hdr_sz);
+	  ip6_header_t *ip6 = (ip6_header_t *) (b0->data + l2hdr_sz);
 	  vnet_buffer (b0)->l4_hdr_offset = l2hdr_sz + sizeof (ip6_header_t);
 	  /* FIXME IPv6 EH traversal */
 	  l4_proto = ip6->protocol;
@@ -1596,7 +1592,8 @@ fill_buffer_offload_flags (vlib_main_t *vm, u32 *buffers, u32 n_buffers,
 
       if (l4_proto == IP_PROTOCOL_TCP)
 	{
-	  if (buffer_oflags & VNET_BUFFER_OFFLOAD_F_TCP_CKSUM)
+	  if (buffer_oflags & VNET_BUFFER_OFFLOAD_F_TCP_CKSUM || gso_enabled ||
+	      csum_offload_enabled)
 	    oflags |= VNET_BUFFER_OFFLOAD_F_TCP_CKSUM;
 
 	  /* only set GSO flag for chained buffers */
@@ -1604,15 +1601,15 @@ fill_buffer_offload_flags (vlib_main_t *vm, u32 *buffers, u32 n_buffers,
 	    {
 	      b0->flags |= VNET_BUFFER_F_GSO;
 	      tcp_header_t *tcp =
-		(tcp_header_t *) (vlib_buffer_get_current (b0) +
-				  vnet_buffer (b0)->l4_hdr_offset);
+		(tcp_header_t *) (b0->data + vnet_buffer (b0)->l4_hdr_offset);
 	      vnet_buffer2 (b0)->gso_l4_hdr_sz = tcp_header_bytes (tcp);
 	      vnet_buffer2 (b0)->gso_size = gso_size;
 	    }
 	}
       else if (l4_proto == IP_PROTOCOL_UDP)
 	{
-	  if (buffer_oflags & VNET_BUFFER_OFFLOAD_F_UDP_CKSUM)
+	  if (buffer_oflags & VNET_BUFFER_OFFLOAD_F_UDP_CKSUM ||
+	      csum_offload_enabled)
 	    oflags |= VNET_BUFFER_OFFLOAD_F_UDP_CKSUM;
 	}
 
@@ -1639,8 +1636,8 @@ pg_generate_packets (vlib_node_runtime_t * node,
   pg_interface_t *pi;
   int i;
 
-  pi = pool_elt_at_index (pg->interfaces,
-			  pg->if_id_by_sw_if_index[s->sw_if_index[VLIB_RX]]);
+  pi = pool_elt_at_index (
+    pg->interfaces, pg->if_index_by_sw_if_index[s->sw_if_index[VLIB_RX]]);
   bi0 = s->buffer_indices;
 
   n_packets_in_fifo = pg_stream_fill (pg, s, n_packets_to_generate);
@@ -1678,8 +1675,24 @@ pg_generate_packets (vlib_node_runtime_t * node,
 	  f->flags = ETH_INPUT_FRAME_F_SINGLE_SW_IF_IDX;
 
 	  ef = vlib_frame_scalar_args (f);
-	  ef->sw_if_index = pi->sw_if_index;
-	  ef->hw_if_index = pi->hw_if_index;
+	  if (s->sw_if_index[VLIB_RX] == ~0)
+	    {
+	      /* Mark (all) packets in frame as originating from pg-XXX */
+	      ef->sw_if_index = pi->sw_if_index;
+	      ef->hw_if_index = pi->hw_if_index;
+	    }
+	  else
+	    {
+	      vnet_main_t *vnm = vnet_get_main ();
+	      vnet_hw_interface_t *hw;
+
+	      /* Mark packets from the configured interface: see
+	       * cli.c:new_stream() */
+	      ef->sw_if_index = s->sw_if_index[VLIB_RX];
+	      hw = vnet_get_sup_hw_interface (vnm, ef->sw_if_index);
+	      ef->hw_if_index = hw->hw_if_index;
+	    }
+
 	  vlib_frame_no_append (f);
 	}
       else
@@ -1721,19 +1734,23 @@ pg_generate_packets (vlib_node_runtime_t * node,
 	    vnet_buffer (b)->feature_arc_index = feature_arc_index;
 	  }
 
-      if (pi->gso_enabled || (s->buffer_flags & VNET_BUFFER_F_OFFLOAD))
+      if (pi->gso_enabled || pi->csum_offload_enabled ||
+	  (s->buffer_flags & VNET_BUFFER_F_OFFLOAD))
 	{
-	  fill_buffer_offload_flags (vm, to_next, n_this_frame,
-				     s->buffer_oflags, pi->gso_enabled,
-				     pi->gso_size);
+	  /* we use s->next_index and not next_index on purpose here: we want
+	   * the original node set by the user (typically ethernet-input,
+	   * ip4-input or ip6-input) whereas next_index can be overwritten by
+	   * device-input features */
+	  fill_buffer_offload_flags (
+	    vm, s->next_index, to_next, n_this_frame, s->buffer_oflags,
+	    pi->csum_offload_enabled, pi->gso_enabled, pi->gso_size);
 	}
 
       n_trace = vlib_get_trace_count (vm, node);
       if (PREDICT_FALSE (n_trace > 0))
 	{
-	  n_trace =
-	    pg_input_trace (pg, node, s - pg->streams, next_index, to_next,
-			    n_this_frame, n_trace);
+	  n_trace = pg_input_trace (pg, node, s - pg->streams, next_index,
+				    to_next, n_this_frame, n_trace);
 	  vlib_set_trace_count (vm, node, n_trace);
 	}
       n_packets_to_generate -= n_this_frame;
@@ -1816,17 +1833,14 @@ pg_input (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
   if (vlib_num_workers ())
     worker_index = vlib_get_current_worker_index ();
 
-  /* *INDENT-OFF* */
   clib_bitmap_foreach (i, pg->enabled_streams[worker_index])  {
     pg_stream_t *s = vec_elt_at_index (pg->streams, i);
     n_packets += pg_input_stream (node, pg, s);
   }
-  /* *INDENT-ON* */
 
   return n_packets;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (pg_input_node) = {
   .function = pg_input,
   .flags = VLIB_NODE_FLAG_TRACE_SUPPORTED,
@@ -1839,7 +1853,6 @@ VLIB_REGISTER_NODE (pg_input_node) = {
   /* Input node will be left disabled until a stream is active. */
   .state = VLIB_NODE_STATE_DISABLED,
 };
-/* *INDENT-ON* */
 
 VLIB_NODE_FN (pg_input_mac_filter) (vlib_main_t * vm,
 				    vlib_node_runtime_t * node,
@@ -1864,9 +1877,9 @@ VLIB_NODE_FN (pg_input_mac_filter) (vlib_main_t * vm,
       pg_interface_t *pi;
       mac_address_t in;
 
-      pi = pool_elt_at_index
-	(pg->interfaces,
-	 pg->if_id_by_sw_if_index[vnet_buffer (b[0])->sw_if_index[VLIB_RX]]);
+      pi = pool_elt_at_index (
+	pg->interfaces,
+	pg->if_index_by_sw_if_index[vnet_buffer (b[0])->sw_if_index[VLIB_RX]]);
       eth = vlib_buffer_get_current (b[0]);
 
       mac_address_from_bytes (&in, eth->dst_address);
@@ -1898,7 +1911,6 @@ VLIB_NODE_FN (pg_input_mac_filter) (vlib_main_t * vm,
   return (frame->n_vectors);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (pg_input_mac_filter) = {
   .name = "pg-input-mac-filter",
   .vector_size = sizeof (u32),
@@ -1912,7 +1924,6 @@ VNET_FEATURE_INIT (pg_input_mac_filter_feat, static) = {
   .arc_name = "device-input",
   .node_name = "pg-input-mac-filter",
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 pg_input_mac_filter_cfg (vlib_main_t * vm,
@@ -1950,19 +1961,8 @@ pg_input_mac_filter_cfg (vlib_main_t * vm,
   return NULL;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (enable_streams_cli, static) = {
   .path = "packet-generator mac-filter",
   .short_help = "packet-generator mac-filter <INTERFACE> <on|off>",
   .function = pg_input_mac_filter_cfg,
 };
-/* *INDENT-ON* */
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

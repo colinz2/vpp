@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * ethernet_init.c: ethernet initialization
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* ethernet_init.c: ethernet initialization */
 
 #include <vlib/vlib.h>
 #include <vnet/ethernet/ethernet.h>
@@ -62,7 +30,6 @@ add_type (ethernet_main_t * em, ethernet_type_t type, char *type_name)
 }
 
 /* Built-in ip4 tx feature path definition */
-/* *INDENT-OFF* */
 VNET_FEATURE_ARC_INIT (ethernet_output, static) =
 {
   .arc_name  = "ethernet-output",
@@ -77,7 +44,6 @@ VNET_FEATURE_INIT (ethernet_tx_drop, static) =
   .node_name = "error-drop",
   .runs_before = 0,	/* not before any other features */
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 ethernet_init (vlib_main_t * vm)
@@ -107,7 +73,6 @@ ethernet_init (vlib_main_t * vm)
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_INIT_FUNCTION (ethernet_init) =
 {
   /*
@@ -119,18 +84,9 @@ VLIB_INIT_FUNCTION (ethernet_init) =
                            "llc_init",
                            "vnet_feature_init"),
 };
-/* *INDENT-ON* */
 
 ethernet_main_t *
 ethernet_get_main (vlib_main_t * vm)
 {
   return &ethernet_main;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

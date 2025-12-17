@@ -1,20 +1,11 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/session/session_table.h>
 #include <vnet/session/session.h>
+#include <vnet/session/session_rules_table.h>
 
 /**
  * Pool of session tables
@@ -64,12 +55,8 @@ void
 session_table_free (session_table_t *slt, u8 fib_proto)
 {
   u8 all = fib_proto > FIB_PROTOCOL_IP6 ? 1 : 0;
-  int i;
 
-  for (i = 0; i < TRANSPORT_N_PROTOS; i++)
-    session_rules_table_free (&slt->session_rules[i]);
-
-  vec_free (slt->session_rules);
+  session_rules_table_free (slt, fib_proto);
 
   if (fib_proto == FIB_PROTOCOL_IP4 || all)
     {
@@ -82,6 +69,7 @@ session_table_free (session_table_t *slt, u8 fib_proto)
       clib_bihash_free_48_8 (&slt->v6_half_open_hash);
     }
 
+  vec_free (slt->appns_index);
   pool_put (lookup_tables, slt);
 }
 
@@ -92,10 +80,9 @@ session_table_free (session_table_t *slt, u8 fib_proto)
  * otherwise it uses defaults above.
  */
 void
-session_table_init (session_table_t * slt, u8 fib_proto)
+session_table_init (session_table_t *slt, u8 fib_proto)
 {
   u8 all = fib_proto > FIB_PROTOCOL_IP6 ? 1 : 0;
-  int i;
 
 #define _(af,table,parm,value) 						\
   u32 configured_##af##_##table##_table_##parm = value;
@@ -109,6 +96,7 @@ session_table_init (session_table_t * slt, u8 fib_proto)
   foreach_hash_table_parameter;
 #undef _
 
+  slt->srtg_handle = SESSION_SRTG_HANDLE_INVALID;
   if (fib_proto == FIB_PROTOCOL_IP4 || all)
     {
       clib_bihash_init2_args_16_8_t _a, *a = &_a;
@@ -153,10 +141,6 @@ session_table_init (session_table_t * slt, u8 fib_proto)
       a->instantiate_immediately = 1;
       clib_bihash_init2_48_8 (a);
     }
-
-  vec_validate (slt->session_rules, TRANSPORT_N_PROTOS - 1);
-  for (i = 0; i < TRANSPORT_N_PROTOS; i++)
-    session_rules_table_init (&slt->session_rules[i]);
 }
 
 typedef struct _ip4_session_table_walk_ctx_t
@@ -185,11 +169,72 @@ ip4_session_table_walk (clib_bihash_16_8_t * hash,
 					   &ctx);
 }
 
-/* *INDENT-ON* */
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+u32
+session_table_memory_size (session_table_t *st)
+{
+  u64 total_size = 0;
+
+  if (clib_bihash_is_initialised_16_8 (&st->v4_session_hash))
+    {
+      clib_bihash_alloc_chunk_16_8_t *c = st->v4_session_hash.chunks;
+      while (c)
+	{
+	  total_size += c->size;
+	  c = c->next;
+	}
+      c = st->v4_half_open_hash.chunks;
+      while (c)
+	{
+	  total_size += c->size;
+	  c = c->next;
+	}
+    }
+
+  if (clib_bihash_is_initialised_48_8 (&st->v6_session_hash))
+    {
+      clib_bihash_alloc_chunk_48_8_t *c = st->v6_session_hash.chunks;
+      while (c)
+	{
+	  total_size += c->size;
+	  c = c->next;
+	}
+      c = st->v6_half_open_hash.chunks;
+      while (c)
+	{
+	  total_size += c->size;
+	  c = c->next;
+	}
+    }
+
+  return total_size;
+}
+
+u8 *
+format_session_table (u8 *s, va_list *args)
+{
+  session_table_t *st = va_arg (*args, session_table_t *);
+  u32 appns_index, i;
+
+  s = format (s, "appns index: ");
+  vec_foreach_index (i, st->appns_index)
+    {
+      appns_index = *vec_elt_at_index (st->appns_index, i);
+      if (i > 0)
+	s = format (s, ", ");
+      s = format (s, "%d", appns_index);
+    }
+  s = format (s, "\n");
+  if (clib_bihash_is_initialised_16_8 (&st->v4_session_hash))
+    {
+      s = format (s, "%U", format_bihash_16_8, &st->v4_session_hash, 0);
+      s = format (s, "%U", format_bihash_16_8, &st->v4_half_open_hash, 0);
+    }
+
+  if (clib_bihash_is_initialised_48_8 (&st->v6_session_hash))
+    {
+      s = format (s, "%U", format_bihash_48_8, &st->v6_session_hash, 0);
+      s = format (s, "%U", format_bihash_48_8, &st->v6_half_open_hash, 0);
+    }
+
+  return s;
+}

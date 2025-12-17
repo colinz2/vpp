@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <igmp/igmp_timer.h>
@@ -181,7 +168,6 @@ igmp_timer_process (vlib_main_t * vm, vlib_node_runtime_t * rt,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (igmp_timer_process_node) =
 {
   .function = igmp_timer_process,
@@ -189,7 +175,6 @@ VLIB_REGISTER_NODE (igmp_timer_process_node) =
   .name = "igmp-timer-process",
   .n_next_nodes = 0,
 };
-/* *INDENT-ON* */
 
 igmp_timer_id_t
 igmp_timer_schedule (f64 when, u32 obj, igmp_timer_function_t fn, void *data)
@@ -252,11 +237,3 @@ format_igmp_timer_id (u8 * s, va_list * args)
 
   return (s);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

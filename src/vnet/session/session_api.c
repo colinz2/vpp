@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/vnet.h>
@@ -18,9 +8,10 @@
 #include <vnet/session/application.h>
 #include <vnet/session/application_interface.h>
 #include <vnet/session/application_local.h>
-#include <vnet/session/session_rules_table.h>
-#include <vnet/session/session_table.h>
 #include <vnet/session/session.h>
+#include <vnet/session/session_table.h>
+#include <vnet/session/session_rules_table.h>
+#include <vnet/session/session_sdl.h>
 #include <vnet/ip/ip_types_api.h>
 
 #include <vnet/format_fns.h>
@@ -29,6 +20,171 @@
 
 #define REPLY_MSG_ID_BASE session_main.msg_id_base
 #include <vlibapi/api_helper_macros.h>
+
+VLIB_REGISTER_LOG_CLASS (session_api_log, static) = { .class_name = "session",
+						      .subclass_name = "api" };
+
+#define log_debug(fmt, ...)                                                   \
+  vlib_log_debug (session_api_log.class, "%s: " fmt, __func__, __VA_ARGS__)
+#define log_warn(fmt, ...)                                                    \
+  vlib_log_warn (session_api_log.class, fmt, __VA_ARGS__)
+#define log_err(fmt, ...)                                                     \
+  vlib_log_err (session_api_log.class, fmt, __VA_ARGS__)
+
+static int
+verify_message_len (void *mp, u64 expected_len, char *where)
+{
+  u32 supplied_len = vl_msg_api_get_msg_length (mp);
+
+  if (supplied_len < expected_len)
+    {
+      log_err ("%s: Supplied message length %d is less than expected %d",
+	       where, supplied_len, expected_len);
+      return 0;
+    }
+  else
+    {
+      return 1;
+    }
+}
+
+static void
+vl_api_session_sdl_add_del_v2_t_handler (vl_api_session_sdl_add_del_v2_t *mp)
+{
+  vl_api_session_sdl_add_del_v2_reply_t *rmp;
+  session_rule_add_del_args_t args;
+  session_rule_table_add_del_args_t *table_args = &args.table_args;
+  int rv = 0;
+  u32 count = clib_net_to_host_u32 (mp->count);
+  u64 expected_len = sizeof (*mp) + count * sizeof (mp->r[0]);
+
+  if ((session_main.is_enabled == 0) || (session_sdl_is_enabled () == 0))
+    {
+      rv = VNET_API_ERROR_FEATURE_DISABLED;
+      goto done;
+    }
+
+  if (!verify_message_len (mp, expected_len, "session_sdl_add_del_v2"))
+    {
+      rv = VNET_API_ERROR_INVALID_VALUE;
+      goto done;
+    }
+
+  clib_memset (&args, 0, sizeof (args));
+  table_args->is_add = mp->is_add;
+  args.scope = SESSION_RULE_SCOPE_GLOBAL;
+  args.appns_index = clib_net_to_host_u32 (mp->appns_index);
+  for (int i = 0; i < count; i++)
+    {
+      mp->r[i].tag[sizeof (mp->r[i].tag) - 1] = 0;
+      table_args->tag = format (0, "%s", mp->r[i].tag);
+      ip_prefix_decode (&mp->r[i].rmt, &table_args->rmt);
+      table_args->action_index = clib_net_to_host_u32 (mp->r[i].action_index);
+
+      rv = vnet_session_rule_add_del (&args);
+      vec_free (table_args->tag);
+      if (rv)
+	{
+	  log_err ("session_sdl add del returned on %U @index %d: %U",
+		   format_ip46_address, &table_args->rmt.fp_addr,
+		   IP46_TYPE_ANY, i, format_session_error, rv);
+
+	  /* roll back */
+	  table_args->is_add = !mp->is_add;
+	  for (int j = i - 1; j >= 0; j--)
+	    {
+	      mp->r[j].tag[sizeof (mp->r[j].tag) - 1] = 0;
+	      table_args->tag = format (0, "%s", mp->r[j].tag);
+	      ip_prefix_decode (&mp->r[j].rmt, &table_args->rmt);
+	      table_args->action_index =
+		clib_net_to_host_u32 (mp->r[j].action_index);
+	      int rv2 = vnet_session_rule_add_del (&args);
+	      vec_free (table_args->tag);
+	      if (rv2)
+		log_err ("rollback session_sdl add del returned on %U "
+			 "@index %d: %U",
+			 format_ip46_address, &table_args->rmt.fp_addr,
+			 IP46_TYPE_ANY, j, format_session_error, rv2);
+	    }
+	  break;
+	}
+    }
+
+done:
+  REPLY_MACRO (VL_API_SESSION_SDL_ADD_DEL_V2_REPLY);
+}
+
+static void
+vl_api_session_sdl_add_del_t_handler (vl_api_session_sdl_add_del_t *mp)
+{
+  vl_api_session_sdl_add_del_reply_t *rmp;
+  session_rule_add_del_args_t args;
+  session_rule_table_add_del_args_t *table_args = &args.table_args;
+  int rv = 0;
+  u32 count = clib_net_to_host_u32 (mp->count);
+  u64 expected_len = sizeof (*mp) + count * sizeof (mp->r[0]);
+
+  if ((session_main.is_enabled == 0) || (session_sdl_is_enabled () == 0))
+    {
+      rv = VNET_API_ERROR_FEATURE_DISABLED;
+      goto done;
+    }
+
+  if (!verify_message_len (mp, expected_len, "session_sdl_add_del"))
+    {
+      rv = VNET_API_ERROR_INVALID_VALUE;
+      goto done;
+    }
+
+  clib_memset (&args, 0, sizeof (args));
+  table_args->is_add = mp->is_add;
+  args.scope = SESSION_RULE_SCOPE_GLOBAL;
+  args.appns_index = clib_net_to_host_u32 (mp->appns_index);
+  for (int i = 0; i < count; i++)
+    {
+      mp->r[i].tag[sizeof (mp->r[i].tag) - 1] = 0;
+      table_args->tag = format (0, "%s", mp->r[i].tag);
+      ip_prefix_decode (&mp->r[i].lcl, &table_args->lcl);
+      /*
+       * Need to set fp_proto for vnet_session_rule_add_del to find the
+       * correct table
+       */
+      table_args->rmt.fp_proto = table_args->lcl.fp_proto;
+      table_args->action_index = clib_net_to_host_u32 (mp->r[i].action_index);
+
+      rv = vnet_session_rule_add_del (&args);
+      vec_free (table_args->tag);
+      if (rv)
+	{
+	  log_err ("session_sdl add del returned on %U @index %d: %U",
+		   format_ip46_address, &table_args->lcl.fp_addr,
+		   IP46_TYPE_ANY, i, format_session_error, rv);
+
+	  /* roll back */
+	  table_args->is_add = !mp->is_add;
+	  for (int j = i - 1; j >= 0; j--)
+	    {
+	      mp->r[j].tag[sizeof (mp->r[j].tag) - 1] = 0;
+	      table_args->tag = format (0, "%s", mp->r[j].tag);
+	      ip_prefix_decode (&mp->r[j].lcl, &table_args->lcl);
+	      table_args->rmt.fp_proto = table_args->lcl.fp_proto;
+	      table_args->action_index =
+		clib_net_to_host_u32 (mp->r[j].action_index);
+	      int rv2 = vnet_session_rule_add_del (&args);
+	      vec_free (table_args->tag);
+	      if (rv2)
+		log_err ("rollback session_sdl add del returned on %U "
+			 "@index %d: %U",
+			 format_ip46_address, &table_args->lcl.fp_addr,
+			 IP46_TYPE_ANY, j, format_session_error, rv2);
+	    }
+	  break;
+	}
+    }
+
+done:
+  REPLY_MACRO (VL_API_SESSION_SDL_ADD_DEL_REPLY);
+}
 
 static transport_proto_t
 api_session_transport_proto_decode (const vl_api_transport_proto_t * api_tp)
@@ -117,8 +273,7 @@ mq_send_session_accepted_cb (session_t * s)
       m.mq_index = s->thread_index;
       m.handle = session_handle (s);
 
-      session_get_endpoint (s, &m.rmt, 0 /* is_lcl */);
-      session_get_endpoint (s, &m.lcl, 1 /* is_lcl */);
+      session_get_endpoint (s, &m.rmt, &m.lcl);
     }
   else
     {
@@ -134,6 +289,13 @@ mq_send_session_accepted_cb (session_t * s)
       m.vpp_event_queue_address =
 	fifo_segment_msg_q_offset (eq_seg, s->thread_index);
       m.mq_index = s->thread_index;
+    }
+
+  if (application_original_dst_is_enabled (app))
+    {
+      session_get_original_dst (&m.lcl, &m.rmt,
+				session_get_transport_proto (s),
+				&m.original_dst_ip4, &m.original_dst_port);
     }
 
   app_wrk_send_ctrl_evt (app_wrk, SESSION_CTRL_EVT_ACCEPTED, &m, sizeof (m));
@@ -205,7 +367,6 @@ mq_send_session_connected_cb (u32 app_wrk_index, u32 api_context,
 			      session_t * s, session_error_t err)
 {
   session_connected_msg_t m = { 0 };
-  transport_connection_t *tc;
   fifo_segment_t *eq_seg;
   app_worker_t *app_wrk;
   application_t *app;
@@ -223,19 +384,11 @@ mq_send_session_connected_cb (u32 app_wrk_index, u32 api_context,
 
   if (session_has_transport (s))
     {
-      tc = session_get_transport (s);
-      if (!tc)
-	{
-	  clib_warning ("failed to retrieve transport!");
-	  m.retval = SESSION_E_REFUSED;
-	  goto snd_msg;
-	}
-
       m.handle = session_handle (s);
       m.vpp_event_queue_address =
 	fifo_segment_msg_q_offset (eq_seg, s->thread_index);
 
-      session_get_endpoint (s, &m.lcl, 1 /* is_lcl */);
+      session_get_endpoint (s, NULL, &m.lcl);
 
       m.server_rx_fifo = fifo_segment_fifo_offset (s->rx_fifo);
       m.server_tx_fifo = fifo_segment_fifo_offset (s->tx_fifo);
@@ -245,7 +398,6 @@ mq_send_session_connected_cb (u32 app_wrk_index, u32 api_context,
   else
     {
       ct_connection_t *cct;
-      session_t *ss;
 
       cct = (ct_connection_t *) session_get_transport (s);
       m.handle = session_handle (s);
@@ -256,17 +408,19 @@ mq_send_session_connected_cb (u32 app_wrk_index, u32 api_context,
       m.server_rx_fifo = fifo_segment_fifo_offset (s->rx_fifo);
       m.server_tx_fifo = fifo_segment_fifo_offset (s->tx_fifo);
       m.segment_handle = session_segment_handle (s);
-      ss = ct_session_get_peer (s);
-      m.ct_rx_fifo = fifo_segment_fifo_offset (ss->tx_fifo);
-      m.ct_tx_fifo = fifo_segment_fifo_offset (ss->rx_fifo);
-      m.ct_segment_handle = session_segment_handle (ss);
       m.mq_index = s->thread_index;
+      m.ct_rx_fifo = fifo_segment_fifo_offset (cct->client_rx_fifo);
+      m.ct_tx_fifo = fifo_segment_fifo_offset (cct->client_tx_fifo);
+      m.ct_segment_handle = cct->segment_handle;
     }
 
   /* Setup client session index in advance, in case data arrives
-   * before the app processes message and updates it */
+   * before the app processes message and updates it
+   * Maybe this needs to be done via a reply message from app */
   s->rx_fifo->shr->client_session_index = api_context;
   s->tx_fifo->shr->client_session_index = api_context;
+  s->rx_fifo->app_session_index = api_context;
+  s->tx_fifo->app_session_index = api_context;
 
 snd_msg:
 
@@ -275,12 +429,12 @@ snd_msg:
   return 0;
 }
 
-int
+static int
 mq_send_session_bound_cb (u32 app_wrk_index, u32 api_context,
 			  session_handle_t handle, int rv)
 {
   session_bound_msg_t m = { 0 };
-  transport_endpoint_t tep;
+  transport_connection_t *ltc;
   fifo_segment_t *eq_seg;
   app_worker_t *app_wrk;
   application_t *app;
@@ -302,23 +456,28 @@ mq_send_session_bound_cb (u32 app_wrk_index, u32 api_context,
   else
     ls = app_listener_get_local_session (al);
 
-  session_get_endpoint (ls, &tep, 1 /* is_lcl */);
-  m.lcl_port = tep.port;
-  m.lcl_is_ip4 = tep.is_ip4;
-  clib_memcpy_fast (m.lcl_ip, &tep.ip, sizeof (tep.ip));
+  ltc = session_get_transport (ls);
+  m.lcl_port = ltc->lcl_port;
+  m.lcl_is_ip4 = ltc->is_ip4;
+  clib_memcpy_fast (m.lcl_ip, &ltc->lcl_ip, sizeof (m.lcl_ip));
   app = application_get (app_wrk->app_index);
   eq_seg = application_get_rx_mqs_segment (app);
   m.vpp_evt_q = fifo_segment_msg_q_offset (eq_seg, ls->thread_index);
   m.mq_index = ls->thread_index;
 
-  if (session_transport_service_type (ls) == TRANSPORT_SERVICE_CL &&
-      ls->rx_fifo)
+  if (transport_connection_is_cless (ltc))
     {
+      session_t *wrk_ls;
       m.mq_index = transport_cl_thread ();
       m.vpp_evt_q = fifo_segment_msg_q_offset (eq_seg, m.mq_index);
-      m.rx_fifo = fifo_segment_fifo_offset (ls->rx_fifo);
-      m.tx_fifo = fifo_segment_fifo_offset (ls->tx_fifo);
-      m.segment_handle = session_segment_handle (ls);
+      wrk_ls = app_listener_get_wrk_cl_session (al, app_wrk->wrk_map_index);
+      m.rx_fifo = fifo_segment_fifo_offset (wrk_ls->rx_fifo);
+      m.tx_fifo = fifo_segment_fifo_offset (wrk_ls->tx_fifo);
+      m.segment_handle = session_segment_handle (wrk_ls);
+
+      /* Keep pointer to app session */
+      wrk_ls->rx_fifo->app_session_index = api_context;
+      wrk_ls->tx_fifo->app_session_index = api_context;
     }
 
 snd_msg:
@@ -328,11 +487,14 @@ snd_msg:
   return 0;
 }
 
-void
-mq_send_unlisten_reply (app_worker_t * app_wrk, session_handle_t sh,
-			u32 context, int rv)
+static void
+mq_send_unlisten_cb (u32 app_wrk_index, session_handle_t sh, u32 context,
+		     int rv)
 {
   session_unlisten_reply_msg_t m = { 0 };
+  app_worker_t *app_wrk;
+
+  app_wrk = app_worker_get (app_wrk_index);
 
   m.context = context;
   m.handle = sh;
@@ -348,7 +510,7 @@ mq_send_session_migrate_cb (session_t * s, session_handle_t new_sh)
   fifo_segment_t *eq_seg;
   app_worker_t *app_wrk;
   application_t *app;
-  u32 thread_index;
+  clib_thread_index_t thread_index;
 
   thread_index = session_thread_from_handle (new_sh);
   app_wrk = app_worker_get (s->app_wrk_index);
@@ -453,6 +615,52 @@ mq_send_session_cleanup_cb (session_t * s, session_cleanup_ntf_t ntf)
   app_wrk_send_ctrl_evt (app_wrk, SESSION_CTRL_EVT_CLEANUP, &m, sizeof (m));
 }
 
+static int
+mq_send_io_rx_event (session_t *s)
+{
+  session_event_t *mq_evt;
+  svm_msg_q_msg_t mq_msg;
+  app_worker_t *app_wrk;
+  svm_msg_q_t *mq;
+
+  if (svm_fifo_has_event (s->rx_fifo))
+    return 0;
+
+  app_wrk = app_worker_get (s->app_wrk_index);
+  mq = app_wrk->event_queue;
+
+  mq_msg = svm_msg_q_alloc_msg_w_ring (mq, SESSION_MQ_IO_EVT_RING);
+  mq_evt = svm_msg_q_msg_data (mq, &mq_msg);
+
+  mq_evt->event_type = SESSION_IO_EVT_RX;
+  mq_evt->session_index = s->rx_fifo->app_session_index;
+
+  (void) svm_fifo_set_event (s->rx_fifo);
+
+  svm_msg_q_add_raw (mq, &mq_msg);
+
+  return 0;
+}
+
+static int
+mq_send_io_tx_event (session_t *s)
+{
+  app_worker_t *app_wrk = app_worker_get (s->app_wrk_index);
+  svm_msg_q_t *mq = app_wrk->event_queue;
+  session_event_t *mq_evt;
+  svm_msg_q_msg_t mq_msg;
+
+  mq_msg = svm_msg_q_alloc_msg_w_ring (mq, SESSION_MQ_IO_EVT_RING);
+  mq_evt = svm_msg_q_msg_data (mq, &mq_msg);
+
+  mq_evt->event_type = SESSION_IO_EVT_TX;
+  mq_evt->session_index = s->tx_fifo->app_session_index;
+
+  svm_msg_q_add_raw (mq, &mq_msg);
+
+  return 0;
+}
+
 static session_cb_vft_t session_mq_cb_vft = {
   .session_accept_callback = mq_send_session_accepted_cb,
   .session_disconnect_callback = mq_send_session_disconnected_cb,
@@ -460,8 +668,12 @@ static session_cb_vft_t session_mq_cb_vft = {
   .session_reset_callback = mq_send_session_reset_cb,
   .session_migrate_callback = mq_send_session_migrate_cb,
   .session_cleanup_callback = mq_send_session_cleanup_cb,
+  .session_listened_callback = mq_send_session_bound_cb,
+  .session_unlistened_callback = mq_send_unlisten_cb,
   .add_segment_callback = mq_send_add_segment_cb,
   .del_segment_callback = mq_send_del_segment_cb,
+  .builtin_app_rx_callback = mq_send_io_rx_event,
+  .builtin_app_tx_callback = mq_send_io_tx_event,
 };
 
 static void
@@ -470,9 +682,51 @@ vl_api_session_enable_disable_t_handler (vl_api_session_enable_disable_t * mp)
   vl_api_session_enable_disable_reply_t *rmp;
   vlib_main_t *vm = vlib_get_main ();
   int rv = 0;
+  session_enable_disable_args_t args;
 
-  vnet_session_enable_disable (vm, mp->is_enable);
+  args.is_en = mp->is_enable;
+  if (mp->is_enable)
+    args.rt_engine_type = RT_BACKEND_ENGINE_RULE_TABLE;
+  else
+    args.rt_engine_type = RT_BACKEND_ENGINE_DISABLE;
+
+  if (vnet_session_enable_disable (vm, &args))
+    rv = VNET_API_ERROR_INVALID_ARGUMENT;
   REPLY_MACRO (VL_API_SESSION_ENABLE_DISABLE_REPLY);
+}
+
+static void
+vl_api_session_enable_disable_v2_t_handler (
+  vl_api_session_enable_disable_v2_t *mp)
+{
+  vl_api_session_enable_disable_v2_reply_t *rmp;
+  vlib_main_t *vm = vlib_get_main ();
+  int rv = 0;
+  session_enable_disable_args_t args;
+
+  STATIC_ASSERT ((session_rt_engine_type_t) RT_BACKEND_ENGINE_API_DISABLE ==
+		   RT_BACKEND_ENGINE_DISABLE,
+		 "API value mismatch");
+  STATIC_ASSERT ((session_rt_engine_type_t) RT_BACKEND_ENGINE_API_NONE ==
+		   RT_BACKEND_ENGINE_NONE,
+		 "API value mismatch");
+  STATIC_ASSERT ((session_rt_engine_type_t) RT_BACKEND_ENGINE_API_RULE_TABLE ==
+		   RT_BACKEND_ENGINE_RULE_TABLE,
+		 "API value mismatch");
+  STATIC_ASSERT ((session_rt_engine_type_t) RT_BACKEND_ENGINE_API_SDL ==
+		   RT_BACKEND_ENGINE_SDL,
+		 "API value mismatch");
+
+  args.rt_engine_type = (session_rt_engine_type_t) mp->rt_engine_type;
+  if (args.rt_engine_type == RT_BACKEND_ENGINE_DISABLE)
+    args.is_en = 0;
+  else
+    args.is_en = 1;
+
+  if (vnet_session_enable_disable (vm, &args))
+    rv = VNET_API_ERROR_INVALID_VALUE;
+
+  REPLY_MACRO (VL_API_SESSION_ENABLE_DISABLE_V2_REPLY);
 }
 
 static void
@@ -527,7 +781,8 @@ vl_api_app_attach_t_handler (vl_api_app_attach_t * mp)
 
   if ((rv = vnet_application_attach (a)))
     {
-      clib_warning ("attach returned: %d", rv);
+      clib_warning ("attach returned: %U", format_session_error, rv);
+      rv = VNET_API_ERROR_UNSPECIFIED;
       vec_free (a->namespace_id);
       goto done;
     }
@@ -569,7 +824,6 @@ vl_api_app_attach_t_handler (vl_api_app_attach_t * mp)
     }
 
 done:
-  /* *INDENT-OFF* */
   REPLY_MACRO3 (
     VL_API_APP_ATTACH_REPLY,
     ((!rv) ? vec_len (((fifo_segment_t *) a->segment)->ssvm.name) : 0), ({
@@ -592,7 +846,6 @@ done:
 	  rmp->segment_handle = clib_host_to_net_u64 (a->segment_handle);
 	}
     }));
-  /* *INDENT-ON* */
 
   if (n_fds)
     session_send_fds (reg, fds, n_fds);
@@ -634,7 +887,9 @@ vl_api_app_worker_add_del_t_handler (vl_api_app_worker_add_del_t * mp)
   rv = vnet_app_worker_add_del (&args);
   if (rv)
     {
-      clib_warning ("app worker add/del returned: %d", rv);
+      clib_warning ("app worker add/del returned: %U", format_session_error,
+		    rv);
+      rv = VNET_API_ERROR_UNSPECIFIED;
       goto done;
     }
 
@@ -655,16 +910,16 @@ vl_api_app_worker_add_del_t_handler (vl_api_app_worker_add_del_t * mp)
       n_fds += 1;
     }
 
-  /* *INDENT-OFF* */
 done:
   REPLY_MACRO3 (
     VL_API_APP_WORKER_ADD_DEL_REPLY,
     ((!rv && mp->is_add) ? vec_len (args.segment->name) : 0), ({
       rmp->is_add = mp->is_add;
-      rmp->wrk_index = clib_host_to_net_u32 (args.wrk_map_index);
-      rmp->segment_handle = clib_host_to_net_u64 (args.segment_handle);
+      rmp->wrk_index = mp->wrk_index;
       if (!rv && mp->is_add)
 	{
+	  rmp->wrk_index = clib_host_to_net_u32 (args.wrk_map_index);
+	  rmp->segment_handle = clib_host_to_net_u64 (args.segment_handle);
 	  rmp->app_event_queue_address =
 	    fifo_segment_msg_q_offset ((fifo_segment_t *) args.segment, 0);
 	  rmp->n_fds = n_fds;
@@ -676,7 +931,6 @@ done:
 	    }
 	}
     }));
-  /* *INDENT-ON* */
 
   if (n_fds)
     session_send_fds (reg, fds, n_fds);
@@ -702,6 +956,12 @@ vl_api_application_detach_t_handler (vl_api_application_detach_t * mp)
       a->app_index = app->app_index;
       a->api_client_index = mp->client_index;
       rv = vnet_application_detach (a);
+      if (rv)
+	{
+	  clib_warning ("vnet_application_detach: %U", format_session_error,
+			rv);
+	  rv = VNET_API_ERROR_UNSPECIFIED;
+	}
     }
 
 done:
@@ -744,13 +1004,11 @@ vl_api_app_namespace_add_del_t_handler (vl_api_app_namespace_add_del_t * mp)
     }
   vec_free (ns_id);
 
-  /* *INDENT-OFF* */
 done:
   REPLY_MACRO2 (VL_API_APP_NAMESPACE_ADD_DEL_REPLY, ({
     if (!rv)
       rmp->appns_index = clib_host_to_net_u32 (appns_index);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -908,13 +1166,19 @@ vl_api_session_rule_add_del_t_handler (vl_api_session_rule_add_del_t * mp)
   session_rule_table_add_del_args_t *table_args = &args.table_args;
   int rv = 0;
 
+  if (session_main_is_enabled () == 0)
+    {
+      rv = VNET_API_ERROR_FEATURE_DISABLED;
+      goto done;
+    }
+
   clib_memset (&args, 0, sizeof (args));
 
   ip_prefix_decode (&mp->lcl, &table_args->lcl);
   ip_prefix_decode (&mp->rmt, &table_args->rmt);
 
-  table_args->lcl_port = mp->lcl_port;
-  table_args->rmt_port = mp->rmt_port;
+  table_args->lcl_port = clib_net_to_host_u16 (mp->lcl_port);
+  table_args->rmt_port = clib_net_to_host_u16 (mp->rmt_port);
   table_args->action_index = clib_net_to_host_u32 (mp->action_index);
   table_args->is_add = mp->is_add;
   mp->tag[sizeof (mp->tag) - 1] = 0;
@@ -927,8 +1191,12 @@ vl_api_session_rule_add_del_t_handler (vl_api_session_rule_add_del_t * mp)
 
   rv = vnet_session_rule_add_del (&args);
   if (rv)
-    clib_warning ("rule add del returned: %d", rv);
+    {
+      clib_warning ("rule add del returned: %U", format_session_error, rv);
+      rv = VNET_API_ERROR_UNSPECIFIED;
+    }
   vec_free (table_args->tag);
+done:
   REPLY_MACRO (VL_API_SESSION_RULE_ADD_DEL_REPLY);
 }
 
@@ -955,11 +1223,13 @@ send_session_rule_details4 (mma_rule_16_t * rule, u8 is_local,
   ip_set (&rmt.fp_addr, &match->rmt_ip, 1);
   lcl.fp_len = ip4_mask_to_preflen (&mask->lcl_ip);
   rmt.fp_len = ip4_mask_to_preflen (&mask->rmt_ip);
+  lcl.fp_proto = FIB_PROTOCOL_IP4;
+  rmt.fp_proto = FIB_PROTOCOL_IP4;
 
   ip_prefix_encode (&lcl, &rmp->lcl);
   ip_prefix_encode (&rmt, &rmp->rmt);
-  rmp->lcl_port = match->lcl_port;
-  rmp->rmt_port = match->rmt_port;
+  rmp->lcl_port = clib_host_to_net_u16 (match->lcl_port);
+  rmp->rmt_port = clib_host_to_net_u16 (match->rmt_port);
   rmp->action_index = clib_host_to_net_u32 (rule->action_index);
   rmp->scope =
     is_local ? SESSION_RULE_SCOPE_API_LOCAL : SESSION_RULE_SCOPE_API_GLOBAL;
@@ -997,11 +1267,13 @@ send_session_rule_details6 (mma_rule_40_t * rule, u8 is_local,
   ip_set (&rmt.fp_addr, &match->rmt_ip, 0);
   lcl.fp_len = ip6_mask_to_preflen (&mask->lcl_ip);
   rmt.fp_len = ip6_mask_to_preflen (&mask->rmt_ip);
+  lcl.fp_proto = FIB_PROTOCOL_IP6;
+  rmt.fp_proto = FIB_PROTOCOL_IP6;
 
   ip_prefix_encode (&lcl, &rmp->lcl);
   ip_prefix_encode (&rmt, &rmp->rmt);
-  rmp->lcl_port = match->lcl_port;
-  rmp->rmt_port = match->rmt_port;
+  rmp->lcl_port = clib_host_to_net_u16 (match->lcl_port);
+  rmp->rmt_port = clib_host_to_net_u16 (match->rmt_port);
   rmp->action_index = clib_host_to_net_u32 (rule->action_index);
   rmp->scope =
     is_local ? SESSION_RULE_SCOPE_API_LOCAL : SESSION_RULE_SCOPE_API_GLOBAL;
@@ -1030,7 +1302,6 @@ send_session_rules_table_details (session_rules_table_t * srt, u8 fib_proto,
   if (is_local || fib_proto == FIB_PROTOCOL_IP4)
     {
       u8 *tag = 0;
-      /* *INDENT-OFF* */
       srt16 = &srt->session_rules_tables_16;
       pool_foreach (rule16, srt16->rules)  {
 	ri = mma_rules_table_rule_index_16 (srt16, rule16);
@@ -1038,12 +1309,10 @@ send_session_rules_table_details (session_rules_table_t * srt, u8 fib_proto,
         send_session_rule_details4 (rule16, is_local, tp, appns_index, tag,
                                     reg, context);
       }
-      /* *INDENT-ON* */
     }
   if (is_local || fib_proto == FIB_PROTOCOL_IP6)
     {
       u8 *tag = 0;
-      /* *INDENT-OFF* */
       srt40 = &srt->session_rules_tables_40;
       pool_foreach (rule40, srt40->rules)  {
 	ri = mma_rules_table_rule_index_40 (srt40, rule40);
@@ -1051,7 +1320,6 @@ send_session_rules_table_details (session_rules_table_t * srt, u8 fib_proto,
         send_session_rule_details6 (rule40, is_local, tp, appns_index, tag,
                                     reg, context);
       }
-      /* *INDENT-ON* */
     }
 }
 
@@ -1061,22 +1329,415 @@ vl_api_session_rules_dump_t_handler (vl_api_session_rules_dump_t * mp)
   vl_api_registration_t *reg;
   session_table_t *st;
   u8 tp;
+  u32 appns_index;
 
   reg = vl_api_client_index_to_registration (mp->client_index);
   if (!reg)
     return;
 
-  /* *INDENT-OFF* */
   session_table_foreach (st, ({
-    for (tp = 0; tp < TRANSPORT_N_PROTOS; tp++)
+			   if (st->srtg_handle != SESSION_SRTG_HANDLE_INVALID)
+			     for (tp = 0; tp < TRANSPORT_N_PROTOS; tp++)
+			       {
+				 session_rules_table_t *srt =
+				   srtg_handle_to_srt (st->srtg_handle, tp);
+				 appns_index = *vec_elt_at_index (
+				   st->appns_index,
+				   vec_len (st->appns_index) - 1);
+				 send_session_rules_table_details (
+				   srt, st->active_fib_proto, tp, st->is_local,
+				   appns_index, reg, mp->context);
+			       }
+			 }));
+}
+
+/*
+ * session_rules_v2_dunp handler
+ */
+static void
+send_session_rule_v2_details4 (mma_rule_16_t *rule, u8 is_local,
+			       u8 transport_proto, u32 *appns_index, u8 *tag,
+			       vl_api_registration_t *reg, u32 context)
+{
+  vl_api_session_rules_v2_details_t *rmp = 0;
+  session_mask_or_match_4_t *match =
+    (session_mask_or_match_4_t *) &rule->match;
+  session_mask_or_match_4_t *mask = (session_mask_or_match_4_t *) &rule->mask;
+  fib_prefix_t lcl, rmt;
+  u32 i, appns_index_count = vec_len (appns_index);
+
+  rmp = vl_msg_api_alloc (sizeof (*rmp) +
+			  appns_index_count * sizeof (*appns_index));
+  if (!rmp)
+    return;
+  clib_memset (rmp, 0, sizeof (*rmp));
+  rmp->_vl_msg_id =
+    ntohs (REPLY_MSG_ID_BASE + VL_API_SESSION_RULES_V2_DETAILS);
+  rmp->context = context;
+
+  rmp->count = clib_host_to_net_u32 (appns_index_count);
+  vec_foreach_index (i, appns_index)
+    {
+      u32 index = *vec_elt_at_index (appns_index, i);
+      rmp->appns_index[i] = clib_host_to_net_u32 (index);
+    }
+
+  clib_memset (&lcl, 0, sizeof (lcl));
+  clib_memset (&rmt, 0, sizeof (rmt));
+  ip_set (&lcl.fp_addr, &match->lcl_ip, 1);
+  ip_set (&rmt.fp_addr, &match->rmt_ip, 1);
+  lcl.fp_len = ip4_mask_to_preflen (&mask->lcl_ip);
+  rmt.fp_len = ip4_mask_to_preflen (&mask->rmt_ip);
+  lcl.fp_proto = FIB_PROTOCOL_IP4;
+  rmt.fp_proto = FIB_PROTOCOL_IP4;
+
+  ip_prefix_encode (&lcl, &rmp->lcl);
+  ip_prefix_encode (&rmt, &rmp->rmt);
+  rmp->lcl_port = clib_host_to_net_u16 (match->lcl_port);
+  rmp->rmt_port = clib_host_to_net_u16 (match->rmt_port);
+  rmp->action_index = clib_host_to_net_u32 (rule->action_index);
+  rmp->scope =
+    is_local ? SESSION_RULE_SCOPE_API_LOCAL : SESSION_RULE_SCOPE_API_GLOBAL;
+  rmp->transport_proto = api_session_transport_proto_encode (transport_proto);
+  if (tag)
+    {
+      clib_memcpy_fast (rmp->tag, tag, vec_len (tag));
+      rmp->tag[vec_len (tag)] = 0;
+    }
+
+  vl_api_send_msg (reg, (u8 *) rmp);
+}
+
+static void
+send_session_rule_v2_details6 (mma_rule_40_t *rule, u8 is_local,
+			       u8 transport_proto, u32 *appns_index, u8 *tag,
+			       vl_api_registration_t *reg, u32 context)
+{
+  vl_api_session_rules_v2_details_t *rmp = 0;
+  session_mask_or_match_6_t *match =
+    (session_mask_or_match_6_t *) &rule->match;
+  session_mask_or_match_6_t *mask = (session_mask_or_match_6_t *) &rule->mask;
+  fib_prefix_t lcl, rmt;
+  u32 i, appns_index_count = vec_len (appns_index);
+
+  rmp = vl_msg_api_alloc (sizeof (*rmp) +
+			  appns_index_count * sizeof (*appns_index));
+  if (!rmp)
+    return;
+  clib_memset (rmp, 0, sizeof (*rmp));
+  rmp->_vl_msg_id =
+    ntohs (REPLY_MSG_ID_BASE + VL_API_SESSION_RULES_V2_DETAILS);
+  rmp->context = context;
+
+  rmp->count = clib_host_to_net_u32 (appns_index_count);
+  vec_foreach_index (i, appns_index)
+    {
+      u32 index = *vec_elt_at_index (appns_index, i);
+      rmp->appns_index[i] = clib_host_to_net_u32 (index);
+    }
+
+  clib_memset (&lcl, 0, sizeof (lcl));
+  clib_memset (&rmt, 0, sizeof (rmt));
+  ip_set (&lcl.fp_addr, &match->lcl_ip, 0);
+  ip_set (&rmt.fp_addr, &match->rmt_ip, 0);
+  lcl.fp_len = ip6_mask_to_preflen (&mask->lcl_ip);
+  rmt.fp_len = ip6_mask_to_preflen (&mask->rmt_ip);
+  lcl.fp_proto = FIB_PROTOCOL_IP6;
+  rmt.fp_proto = FIB_PROTOCOL_IP6;
+
+  ip_prefix_encode (&lcl, &rmp->lcl);
+  ip_prefix_encode (&rmt, &rmp->rmt);
+  rmp->lcl_port = clib_host_to_net_u16 (match->lcl_port);
+  rmp->rmt_port = clib_host_to_net_u16 (match->rmt_port);
+  rmp->action_index = clib_host_to_net_u32 (rule->action_index);
+  rmp->scope =
+    is_local ? SESSION_RULE_SCOPE_API_LOCAL : SESSION_RULE_SCOPE_API_GLOBAL;
+  rmp->transport_proto = api_session_transport_proto_encode (transport_proto);
+  if (tag)
+    {
+      clib_memcpy_fast (rmp->tag, tag, vec_len (tag));
+      rmp->tag[vec_len (tag)] = 0;
+    }
+
+  vl_api_send_msg (reg, (u8 *) rmp);
+}
+
+static void
+send_session_rules_table_v2_details (session_rules_table_t *srt, u8 fib_proto,
+				     u8 tp, u8 is_local, u32 *appns_index,
+				     vl_api_registration_t *reg, u32 context)
+{
+  mma_rule_16_t *rule16;
+  mma_rule_40_t *rule40;
+  mma_rules_table_16_t *srt16;
+  mma_rules_table_40_t *srt40;
+  u32 ri;
+
+  if (is_local || fib_proto == FIB_PROTOCOL_IP4)
+    {
+      u8 *tag = 0;
+      srt16 = &srt->session_rules_tables_16;
+      pool_foreach (rule16, srt16->rules)
       {
-        send_session_rules_table_details (&st->session_rules[tp],
-                                          st->active_fib_proto, tp,
-                                          st->is_local, st->appns_index, reg,
-                                          mp->context);
+	ri = mma_rules_table_rule_index_16 (srt16, rule16);
+	tag = session_rules_table_rule_tag (srt, ri, 1);
+	send_session_rule_v2_details4 (rule16, is_local, tp, appns_index, tag,
+				       reg, context);
       }
-  }));
-  /* *INDENT-ON* */
+    }
+  if (is_local || fib_proto == FIB_PROTOCOL_IP6)
+    {
+      u8 *tag = 0;
+      srt40 = &srt->session_rules_tables_40;
+      pool_foreach (rule40, srt40->rules)
+      {
+	ri = mma_rules_table_rule_index_40 (srt40, rule40);
+	tag = session_rules_table_rule_tag (srt, ri, 1);
+	send_session_rule_v2_details6 (rule40, is_local, tp, appns_index, tag,
+				       reg, context);
+      }
+    }
+}
+
+static void
+vl_api_session_rules_v2_dump_t_handler (vl_api_session_rules_dump_t *mp)
+{
+  vl_api_registration_t *reg;
+  session_table_t *st;
+  u8 tp;
+
+  reg = vl_api_client_index_to_registration (mp->client_index);
+  if (!reg)
+    return;
+
+  session_table_foreach (st, ({
+			   if (st->srtg_handle != SESSION_SRTG_HANDLE_INVALID)
+			     for (tp = 0; tp < TRANSPORT_N_PROTOS; tp++)
+			       {
+				 session_rules_table_t *srt =
+				   srtg_handle_to_srt (st->srtg_handle, tp);
+				 send_session_rules_table_v2_details (
+				   srt, st->active_fib_proto, tp, st->is_local,
+				   st->appns_index, reg, mp->context);
+			       }
+			 }));
+}
+
+typedef struct session_sdl_table_walk_ctx_
+{
+  vl_api_registration_t *reg;
+  u32 mp_context;
+  u32 *appns_index;
+} session_sdl_table_walk_ctx;
+
+static void
+send_session_sdl_v2_details (u32 fei, ip46_address_t *rmt_ip, u16 fp_len,
+			     u32 action_index, u32 fp_proto, u8 *tag,
+			     void *args)
+{
+  session_sdl_table_walk_ctx *ctx = args;
+  vl_api_registration_t *reg = ctx->reg;
+  u32 appns_index =
+    *vec_elt_at_index (ctx->appns_index, vec_len (ctx->appns_index) - 1);
+  u32 context = ctx->mp_context;
+  vl_api_session_sdl_v2_details_t *rmp = 0;
+  fib_prefix_t rmt;
+
+  rmp = vl_msg_api_alloc (sizeof (*rmp));
+  clib_memset (rmp, 0, sizeof (*rmp));
+  rmp->_vl_msg_id = ntohs (REPLY_MSG_ID_BASE + VL_API_SESSION_SDL_V2_DETAILS);
+  rmp->context = context;
+
+  clib_memset (&rmt, 0, sizeof (rmt));
+  if (fp_proto == FIB_PROTOCOL_IP4)
+    ip_set (&rmt.fp_addr, &rmt_ip->ip4, 1);
+  else
+    ip_set (&rmt.fp_addr, &rmt_ip->ip6, 0);
+  rmt.fp_len = fp_len;
+  rmt.fp_proto = fp_proto,
+
+  ip_prefix_encode (&rmt, &rmp->rmt);
+  rmp->action_index = clib_host_to_net_u32 (action_index);
+  rmp->appns_index = clib_host_to_net_u32 (appns_index);
+  if (tag)
+    {
+      clib_memcpy_fast (rmp->tag, tag, vec_len (tag));
+      rmp->tag[vec_len (tag)] = 0;
+    }
+
+  vl_api_send_msg (reg, (u8 *) rmp);
+}
+
+static void
+vl_api_session_sdl_v2_dump_t_handler (vl_api_session_sdl_v2_dump_t *mp)
+{
+  vl_api_registration_t *reg;
+  session_table_t *st;
+  session_sdl_table_walk_ctx ctx;
+
+  reg = vl_api_client_index_to_registration (mp->client_index);
+  if (!reg)
+    return;
+
+  ctx.reg = reg;
+  ctx.mp_context = mp->context;
+
+  session_table_foreach (
+    st, ({
+      if (st->srtg_handle != SESSION_SRTG_HANDLE_INVALID)
+	{
+	  ctx.appns_index = st->appns_index;
+	  if (st->active_fib_proto == FIB_PROTOCOL_IP4)
+	    session_sdl_table_walk4 (st->srtg_handle,
+				     send_session_sdl_v2_details, &ctx);
+	  else
+	    session_sdl_table_walk6 (st->srtg_handle,
+				     send_session_sdl_v2_details, &ctx);
+	}
+    }));
+}
+
+static void
+send_session_sdl_v3_details (u32 fei, ip46_address_t *rmt_ip, u16 fp_len,
+			     u32 action_index, u32 fp_proto, u8 *tag,
+			     void *args)
+{
+  session_sdl_table_walk_ctx *ctx = args;
+  vl_api_registration_t *reg = ctx->reg;
+  u32 context = ctx->mp_context;
+  vl_api_session_sdl_v3_details_t *rmp = 0;
+  fib_prefix_t rmt;
+  u32 appns_index_count, appns_index, i;
+
+  appns_index_count = vec_len (ctx->appns_index);
+  rmp = vl_msg_api_alloc (sizeof (*rmp) +
+			  appns_index_count * sizeof (appns_index));
+  if (!rmp)
+    return;
+  clib_memset (rmp, 0, sizeof (*rmp));
+  rmp->_vl_msg_id = ntohs (REPLY_MSG_ID_BASE + VL_API_SESSION_SDL_V3_DETAILS);
+  rmp->context = context;
+
+  rmp->count = clib_host_to_net_u32 (appns_index_count);
+  vec_foreach_index (i, ctx->appns_index)
+    {
+      appns_index = *vec_elt_at_index (ctx->appns_index, i);
+      rmp->appns_index[i] = clib_host_to_net_u32 (appns_index);
+    }
+
+  clib_memset (&rmt, 0, sizeof (rmt));
+  if (fp_proto == FIB_PROTOCOL_IP4)
+    ip_set (&rmt.fp_addr, &rmt_ip->ip4, 1);
+  else
+    ip_set (&rmt.fp_addr, &rmt_ip->ip6, 0);
+  rmt.fp_len = fp_len;
+  rmt.fp_proto = fp_proto,
+
+  ip_prefix_encode (&rmt, &rmp->rmt);
+  rmp->action_index = clib_host_to_net_u32 (action_index);
+
+  if (tag)
+    {
+      clib_memcpy_fast (rmp->tag, tag, vec_len (tag));
+      rmp->tag[vec_len (tag)] = 0;
+    }
+
+  vl_api_send_msg (reg, (u8 *) rmp);
+}
+
+static void
+vl_api_session_sdl_v3_dump_t_handler (vl_api_session_sdl_v2_dump_t *mp)
+{
+  vl_api_registration_t *reg;
+  session_table_t *st;
+  session_sdl_table_walk_ctx ctx;
+
+  reg = vl_api_client_index_to_registration (mp->client_index);
+  if (!reg)
+    return;
+
+  ctx.reg = reg;
+  ctx.mp_context = mp->context;
+
+  session_table_foreach (
+    st, ({
+      if (st->srtg_handle != SESSION_SRTG_HANDLE_INVALID)
+	{
+	  ctx.appns_index = st->appns_index;
+	  if (st->active_fib_proto == FIB_PROTOCOL_IP4)
+	    session_sdl_table_walk4 (st->srtg_handle,
+				     send_session_sdl_v3_details, &ctx);
+	  else
+	    session_sdl_table_walk6 (st->srtg_handle,
+				     send_session_sdl_v3_details, &ctx);
+	}
+    }));
+}
+
+static void
+send_session_sdl_details (u32 fei, ip46_address_t *lcl_ip, u16 fp_len,
+			  u32 action_index, u32 fp_proto, u8 *tag, void *args)
+{
+  session_sdl_table_walk_ctx *ctx = args;
+  vl_api_registration_t *reg = ctx->reg;
+  u32 appns_index =
+    *vec_elt_at_index (ctx->appns_index, vec_len (ctx->appns_index) - 1);
+  u32 context = ctx->mp_context;
+  vl_api_session_sdl_details_t *rmp = 0;
+  fib_prefix_t lcl;
+
+  rmp = vl_msg_api_alloc (sizeof (*rmp));
+  clib_memset (rmp, 0, sizeof (*rmp));
+  rmp->_vl_msg_id = ntohs (REPLY_MSG_ID_BASE + VL_API_SESSION_SDL_DETAILS);
+  rmp->context = context;
+
+  clib_memset (&lcl, 0, sizeof (lcl));
+  if (fp_proto == FIB_PROTOCOL_IP4)
+    ip_set (&lcl.fp_addr, &lcl_ip->ip4, 1);
+  else
+    ip_set (&lcl.fp_addr, &lcl_ip->ip6, 0);
+  lcl.fp_len = fp_len;
+  lcl.fp_proto = fp_proto,
+
+  ip_prefix_encode (&lcl, &rmp->lcl);
+  rmp->action_index = clib_host_to_net_u32 (action_index);
+  rmp->appns_index = clib_host_to_net_u32 (appns_index);
+  if (tag)
+    {
+      clib_memcpy_fast (rmp->tag, tag, vec_len (tag));
+      rmp->tag[vec_len (tag)] = 0;
+    }
+
+  vl_api_send_msg (reg, (u8 *) rmp);
+}
+
+static void
+vl_api_session_sdl_dump_t_handler (vl_api_session_sdl_dump_t *mp)
+{
+  vl_api_registration_t *reg;
+  session_table_t *st;
+  session_sdl_table_walk_ctx ctx;
+
+  reg = vl_api_client_index_to_registration (mp->client_index);
+  if (!reg)
+    return;
+
+  ctx.reg = reg;
+  ctx.mp_context = mp->context;
+
+  session_table_foreach (
+    st, ({
+      if (st->srtg_handle != SESSION_SRTG_HANDLE_INVALID)
+	{
+	  ctx.appns_index = st->appns_index;
+	  if (st->active_fib_proto == FIB_PROTOCOL_IP4)
+	    session_sdl_table_walk4 (st->srtg_handle, send_session_sdl_details,
+				     &ctx);
+	  else
+	    session_sdl_table_walk6 (st->srtg_handle, send_session_sdl_details,
+				     &ctx);
+	}
+    }));
 }
 
 static void
@@ -1121,12 +1782,10 @@ vl_api_app_add_cert_key_pair_t_handler (vl_api_app_add_cert_key_pair_t * mp)
   rv = vnet_app_add_cert_key_pair (a);
 
 done:
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_APP_ADD_CERT_KEY_PAIR_REPLY, ({
     if (!rv)
       rmp->index = clib_host_to_net_u32 (a->index);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -1142,6 +1801,12 @@ vl_api_app_del_cert_key_pair_t_handler (vl_api_app_del_cert_key_pair_t * mp)
     }
   ckpair_index = clib_net_to_host_u32 (mp->index);
   rv = vnet_app_del_cert_key_pair (ckpair_index);
+  if (rv)
+    {
+      clib_warning ("vnet_app_del_cert_key_pair: %U", format_session_error,
+		    rv);
+      rv = VNET_API_ERROR_UNSPECIFIED;
+    }
 
 done:
   REPLY_MACRO (VL_API_APP_DEL_CERT_KEY_PAIR_REPLY);
@@ -1219,8 +1884,12 @@ static session_cb_vft_t session_mq_sapi_cb_vft = {
   .session_reset_callback = mq_send_session_reset_cb,
   .session_migrate_callback = mq_send_session_migrate_cb,
   .session_cleanup_callback = mq_send_session_cleanup_cb,
+  .session_listened_callback = mq_send_session_bound_cb,
+  .session_unlistened_callback = mq_send_unlisten_cb,
   .add_segment_callback = mq_send_add_segment_sapi_cb,
   .del_segment_callback = mq_send_del_segment_sapi_cb,
+  .builtin_app_rx_callback = mq_send_io_rx_event,
+  .builtin_app_tx_callback = mq_send_io_tx_event,
 };
 
 static void
@@ -1360,7 +2029,7 @@ sapi_add_del_worker_handler (app_namespace_t * app_ns,
   app = application_get_if_valid (mp->app_index);
   if (!app)
     {
-      rv = VNET_API_ERROR_INVALID_VALUE;
+      rv = SESSION_E_INVALID;
       goto done;
     }
 
@@ -1375,7 +2044,8 @@ sapi_add_del_worker_handler (app_namespace_t * app_ns,
   rv = vnet_app_worker_add_del (&args);
   if (rv)
     {
-      clib_warning ("app worker add/del returned: %d", rv);
+      clib_warning ("app worker add/del returned: %U", format_session_error,
+		    rv);
       goto done;
     }
 
@@ -1398,15 +2068,20 @@ sapi_add_del_worker_handler (app_namespace_t * app_ns,
 
 done:
 
+  /* With app sock api socket expected to be closed, no reply */
+  if (!mp->is_add && appns_sapi_enabled ())
+    return;
+
   msg.type = APP_SAPI_MSG_TYPE_ADD_DEL_WORKER_REPLY;
   rmp = &msg.worker_add_del_reply;
   rmp->retval = rv;
   rmp->is_add = mp->is_add;
+  rmp->wrk_index = mp->wrk_index;
   rmp->api_client_handle = sapi_handle;
-  rmp->wrk_index = args.wrk_map_index;
-  rmp->segment_handle = args.segment_handle;
   if (!rv && mp->is_add)
     {
+      rmp->wrk_index = args.wrk_map_index;
+      rmp->segment_handle = args.segment_handle;
       /* No segment name and size. This supports only memfds */
       rmp->app_event_queue_address =
 	fifo_segment_msg_q_offset ((fifo_segment_t *) args.segment, 0);
@@ -1723,7 +2398,7 @@ appns_sapi_add_ns_socket (app_namespace_t * app_ns)
       if (err)
 	{
 	  clib_error_report (err);
-	  return VNET_API_ERROR_SYSCALL_ERROR_1;
+	  return SESSION_E_SYSCALL;
 	}
     }
 
@@ -1760,20 +2435,34 @@ appns_sapi_add_ns_socket (app_namespace_t * app_ns)
 static clib_error_t *
 session_api_hookup (vlib_main_t *vm)
 {
+  api_main_t *am = vlibapi_get_main ();
+
   /*
    * Set up the (msg_name, crc, message-id) table
    */
   REPLY_MSG_ID_BASE = setup_message_id_table ();
 
+  vl_api_set_msg_thread_safe (
+    am, REPLY_MSG_ID_BASE + VL_API_SESSION_SDL_ADD_DEL, 1);
+  vl_api_set_msg_thread_safe (
+    am, REPLY_MSG_ID_BASE + VL_API_SESSION_SDL_ADD_DEL_V2, 1);
+  vl_api_set_msg_thread_safe (
+    am, REPLY_MSG_ID_BASE + VL_API_SESSION_SDL_ADD_DEL_REPLY, 1);
+  vl_api_set_msg_thread_safe (am, REPLY_MSG_ID_BASE + VL_API_SESSION_SDL_DUMP,
+			      1);
+  vl_api_set_msg_thread_safe (
+    am, REPLY_MSG_ID_BASE + VL_API_SESSION_SDL_DETAILS, 1);
+  vl_api_set_msg_thread_safe (
+    am, REPLY_MSG_ID_BASE + VL_API_SESSION_SDL_ADD_DEL_V2_REPLY, 1);
+  vl_api_set_msg_thread_safe (
+    am, REPLY_MSG_ID_BASE + VL_API_SESSION_SDL_V2_DUMP, 1);
+  vl_api_set_msg_thread_safe (
+    am, REPLY_MSG_ID_BASE + VL_API_SESSION_SDL_V2_DETAILS, 1);
+  vl_api_set_msg_thread_safe (
+    am, REPLY_MSG_ID_BASE + VL_API_SESSION_SDL_V3_DUMP, 1);
+  vl_api_set_msg_thread_safe (
+    am, REPLY_MSG_ID_BASE + VL_API_SESSION_SDL_V3_DETAILS, 1);
   return 0;
 }
 
 VLIB_API_INIT_FUNCTION (session_api_hookup);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

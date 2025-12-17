@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2011-2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 /**
@@ -298,7 +288,6 @@ out:
   return ret;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND(set_interface_lldp_cmd, static) = {
   .path = "set interface lldp",
   .short_help = "set interface lldp <interface> | sw_if_index <idx>"
@@ -313,7 +302,6 @@ VLIB_CLI_COMMAND(set_lldp_cmd, static) = {
                 "[tx-interval <value>]",
   .function = lldp_cfg_cmd,
 };
-/* *INDENT-ON* */
 
 static const char *
 lldp_chassis_id_subtype_str (lldp_chassis_id_subtype_t t)
@@ -580,7 +568,6 @@ format_lldp_intfs_detail (u8 * s, vlib_main_t * vm, const lldp_main_t * lm)
   s = format (s, "\nLLDP-enabled interface table:\n");
   f64 now = vlib_time_now (vm);
 
-  /* *INDENT-OFF* */
   pool_foreach (
       n, lm->intfs)  {
         hw = vnet_get_hw_interface(vnm, n->hw_if_index);
@@ -640,7 +627,6 @@ format_lldp_intfs_detail (u8 * s, vlib_main_t * vm, const lldp_main_t * lm)
                        now, format_time_ago, n->last_heard, now);
           }
       }
-  /* *INDENT-ON* */
   return s;
 }
 
@@ -663,7 +649,6 @@ format_lldp_intfs (u8 * s, va_list * va)
 	      "Peer chassis ID", "Remote port ID", "Last heard", "Last sent",
 	      "Status");
 
-  /* *INDENT-OFF* */
   pool_foreach (
       n, lm->intfs)  {
         const vnet_hw_interface_t *hw =
@@ -689,7 +674,6 @@ format_lldp_intfs (u8 * s, va_list * va)
                        format_time_ago, n->last_sent, now, "inactive");
           }
       }
-  /* *INDENT-ON* */
   return s;
 }
 
@@ -710,13 +694,11 @@ show_lldp (vlib_main_t * vm, unformat_input_t * input,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND(show_lldp_command, static) = {
   .path = "show lldp",
   .short_help = "show lldp [detail]",
   .function = show_lldp,
 };
-/* *INDENT-ON* */
 
 /*
  * packet trace format function, very similar to
@@ -753,11 +735,3 @@ lldp_input_format_trace (u8 * s, va_list * args)
 
   return s;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

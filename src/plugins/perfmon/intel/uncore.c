@@ -1,20 +1,12 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/vnet.h>
 #include <vppinfra/linux/sysfs.h>
+#include <vppinfra/bitmap.h>
+#include <vppinfra/unix.h>
 #include <perfmon/perfmon.h>
 #include <perfmon/intel/core.h>
 #include <perfmon/intel/uncore.h>
@@ -148,12 +140,9 @@ intel_uncore_init (vlib_main_t *vm, perfmon_source_t *src)
   u32 i, j;
   u8 *s = 0;
 
-  if ((err = clib_sysfs_read ("/sys/devices/system/node/online", "%U",
-			      unformat_bitmap_list, &node_bitmap)))
-    {
-      clib_error_free (err);
-      return clib_error_return (0, "failed to discover numa topology");
-    }
+  node_bitmap = os_get_online_cpu_node_bitmap ();
+  if (!node_bitmap)
+    return clib_error_return (0, "failed to discover numa topology");
 
   clib_bitmap_foreach (i, node_bitmap)
     {

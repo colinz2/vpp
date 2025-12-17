@@ -1,19 +1,8 @@
-/*
- * flowprobe.c - ipfix probe plugin
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* flowprobe.c - ipfix probe plugin */
 
 /**
  * @file
@@ -45,11 +34,10 @@ uword flowprobe_walker_process (vlib_main_t * vm, vlib_node_runtime_t * rt,
 #include <vlibapi/api_helper_macros.h>
 
 /* Define the per-interface configurable features */
-/* *INDENT-OFF* */
 VNET_FEATURE_INIT (flowprobe_input_ip4_unicast, static) = {
   .arc_name = "ip4-unicast",
   .node_name = "flowprobe-input-ip4",
-  .runs_before = VNET_FEATURES ("ip4-lookup"),
+  .runs_before = VNET_FEATURES ("ip4-lookup", "ip4-inacl"),
 };
 VNET_FEATURE_INIT (flowprobe_input_ip4_multicast, static) = {
   .arc_name = "ip4-multicast",
@@ -59,7 +47,7 @@ VNET_FEATURE_INIT (flowprobe_input_ip4_multicast, static) = {
 VNET_FEATURE_INIT (flowprobe_input_ip6_unicast, static) = {
   .arc_name = "ip6-unicast",
   .node_name = "flowprobe-input-ip6",
-  .runs_before = VNET_FEATURES ("ip6-lookup"),
+  .runs_before = VNET_FEATURES ("ip6-lookup", "ip6-inacl"),
 };
 VNET_FEATURE_INIT (flowprobe_input_ip6_multicast, static) = {
   .arc_name = "ip6-multicast",
@@ -88,7 +76,6 @@ VNET_FEATURE_INIT (flowprobe_output_l2, static) = {
   .node_name = "flowprobe-output-l2",
   .runs_before = VNET_FEATURES ("interface-output-arc-end"),
 };
-/* *INDENT-ON* */
 
 #define FINISH                                                                \
   vec_add1 (s, 0);                                                            \
@@ -245,6 +232,7 @@ flowprobe_template_rewrite_inline (ipfix_exporter_t *exp, flow_report_t *fr,
   flowprobe_main_t *fm = &flowprobe_main;
   flowprobe_record_t flags = fr->opaque.as_uword;
   bool collect_ip4 = false, collect_ip6 = false;
+  bool collect_l4 = false;
 
   stream = &exp->streams[fr->stream_index];
 
@@ -257,6 +245,10 @@ flowprobe_template_rewrite_inline (ipfix_exporter_t *exp, flow_report_t *fr,
       if (which == FLOW_VARIANT_L2_IP6)
 	flags |= FLOW_RECORD_L2_IP6;
     }
+  if (flags & FLOW_RECORD_L4)
+    {
+      collect_l4 = (which != FLOW_VARIANT_L2);
+    }
 
   field_count += flowprobe_template_common_field_count ();
   if (flags & FLOW_RECORD_L2)
@@ -265,7 +257,7 @@ flowprobe_template_rewrite_inline (ipfix_exporter_t *exp, flow_report_t *fr,
     field_count += flowprobe_template_ip4_field_count ();
   if (collect_ip6)
     field_count += flowprobe_template_ip6_field_count ();
-  if (flags & FLOW_RECORD_L4)
+  if (collect_l4)
     field_count += flowprobe_template_l4_field_count ();
 
   /* allocate rewrite space */
@@ -304,7 +296,7 @@ flowprobe_template_rewrite_inline (ipfix_exporter_t *exp, flow_report_t *fr,
     f = flowprobe_template_ip4_fields (f);
   if (collect_ip6)
     f = flowprobe_template_ip6_fields (f);
-  if (flags & FLOW_RECORD_L4)
+  if (collect_l4)
     f = flowprobe_template_l4_fields (f);
 
   /* Back to the template packet... */
@@ -503,6 +495,43 @@ flowprobe_create_state_tables (u32 active_timer)
   return error;
 }
 
+static clib_error_t *
+flowprobe_clear_state_if_index (u32 sw_if_index)
+{
+  flowprobe_main_t *fm = &flowprobe_main;
+  clib_error_t *error = 0;
+  u32 worker_i;
+  u32 entry_i;
+
+  if (fm->active_timer > 0)
+    {
+      vec_foreach_index (worker_i, fm->pool_per_worker)
+	{
+	  pool_foreach_index (entry_i, fm->pool_per_worker[worker_i])
+	    {
+	      flowprobe_entry_t *e =
+		pool_elt_at_index (fm->pool_per_worker[worker_i], entry_i);
+	      if (e->key.rx_sw_if_index == sw_if_index ||
+		  e->key.tx_sw_if_index == sw_if_index)
+		{
+		  e->packetcount = 0;
+		  e->octetcount = 0;
+		  e->prot.tcp.flags = 0;
+		  if (fm->passive_timer > 0)
+		    {
+		      tw_timer_stop_2t_1w_2048sl (
+			fm->timers_per_worker[worker_i],
+			e->passive_timer_handle);
+		    }
+		  flowprobe_delete_by_index (worker_i, entry_i);
+		}
+	    }
+	}
+    }
+
+  return error;
+}
+
 static int
 validate_feature_on_interface (flowprobe_main_t * fm, u32 sw_if_index,
 			       u8 which)
@@ -548,12 +577,17 @@ flowprobe_interface_add_del_feature (flowprobe_main_t *fm, u32 sw_if_index,
     {
       if (which == FLOW_VARIANT_L2)
 	{
+	  if (!is_add)
+	    {
+	      flowprobe_flush_callback_l2 ();
+	    }
 	  if (fm->record & FLOW_RECORD_L2)
 	    {
 	      rv = flowprobe_template_add_del (1, UDP_DST_PORT_ipfix, flags,
 					       flowprobe_data_callback_l2,
 					       flowprobe_template_rewrite_l2,
 					       is_add, &template_id);
+	      fm->template_reports[flags] = (is_add) ? template_id : 0;
 	    }
 	  if (fm->record & FLOW_RECORD_L3 || fm->record & FLOW_RECORD_L4)
 	    {
@@ -576,20 +610,30 @@ flowprobe_interface_add_del_feature (flowprobe_main_t *fm, u32 sw_if_index,
 		flags | FLOW_RECORD_L2_IP4;
 	      fm->context[FLOW_VARIANT_L2_IP6].flags =
 		flags | FLOW_RECORD_L2_IP6;
-
-	      fm->template_reports[flags] = template_id;
 	    }
 	}
       else if (which == FLOW_VARIANT_IP4)
-	rv = flowprobe_template_add_del (1, UDP_DST_PORT_ipfix, flags,
-					 flowprobe_data_callback_ip4,
-					 flowprobe_template_rewrite_ip4,
-					 is_add, &template_id);
+	{
+	  if (!is_add)
+	    {
+	      flowprobe_flush_callback_ip4 ();
+	    }
+	  rv = flowprobe_template_add_del (
+	    1, UDP_DST_PORT_ipfix, flags, flowprobe_data_callback_ip4,
+	    flowprobe_template_rewrite_ip4, is_add, &template_id);
+	  fm->template_reports[flags] = (is_add) ? template_id : 0;
+	}
       else if (which == FLOW_VARIANT_IP6)
-	rv = flowprobe_template_add_del (1, UDP_DST_PORT_ipfix, flags,
-					 flowprobe_data_callback_ip6,
-					 flowprobe_template_rewrite_ip6,
-					 is_add, &template_id);
+	{
+	  if (!is_add)
+	    {
+	      flowprobe_flush_callback_ip6 ();
+	    }
+	  rv = flowprobe_template_add_del (
+	    1, UDP_DST_PORT_ipfix, flags, flowprobe_data_callback_ip6,
+	    flowprobe_template_rewrite_ip6, is_add, &template_id);
+	  fm->template_reports[flags] = (is_add) ? template_id : 0;
+	}
     }
   if (rv && rv != VNET_API_ERROR_VALUE_EXIST)
     {
@@ -600,7 +644,6 @@ flowprobe_interface_add_del_feature (flowprobe_main_t *fm, u32 sw_if_index,
   if (which != (u8) ~ 0)
     {
       fm->context[which].flags = fm->record;
-      fm->template_reports[flags] = (is_add) ? template_id : 0;
     }
 
   if (direction == FLOW_DIRECTION_RX || direction == FLOW_DIRECTION_BOTH)
@@ -643,6 +686,11 @@ flowprobe_interface_add_del_feature (flowprobe_main_t *fm, u32 sw_if_index,
       flowprobe_create_state_tables (fm->active_timer);
       if (fm->active_timer)
 	vlib_process_signal_event (vm, flowprobe_timer_node.index, 1, 0);
+    }
+
+  if (!is_add && fm->initialized)
+    {
+      flowprobe_clear_state_if_index (sw_if_index);
     }
 
   return 0;
@@ -965,12 +1013,10 @@ vl_api_flowprobe_get_params_t_handler (vl_api_flowprobe_get_params_t *mp)
   // clang-format on
 }
 
-/* *INDENT-OFF* */
 VLIB_PLUGIN_REGISTER () = {
     .version = VPP_BUILD_VER,
     .description = "Flow per Packet",
 };
-/* *INDENT-ON* */
 
 u8 *
 format_flowprobe_direction (u8 *s, va_list *args)
@@ -1054,14 +1100,12 @@ flowprobe_show_table_fn (vlib_main_t * vm,
 
   for (i = 0; i < vec_len (fm->pool_per_worker); i++)
     {
-      /* *INDENT-OFF* */
       pool_foreach (e, fm->pool_per_worker[i])
 	{
 	  vlib_cli_output (vm, "%U",
 			   format_flowprobe_entry,
 			   e);
 	}
-      /* *INDENT-ON* */
 
     }
   return 0;
@@ -1263,7 +1307,6 @@ flowprobe_show_params_command_fn (vlib_main_t * vm,
  * @cliexend
  * @endparblock
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (flowprobe_enable_disable_command, static) = {
   .path = "flowprobe feature add-del",
   .short_help = "flowprobe feature add-del <interface-name> [(l2|ip4|ip6)] "
@@ -1299,7 +1342,6 @@ VLIB_CLI_COMMAND (flowprobe_show_stats_command, static) = {
     .short_help = "show flowprobe statistics",
     .function = flowprobe_show_stats_fn,
 };
-/* *INDENT-ON* */
 
 /*
  * Main-core process, sending an interrupt to the per worker input
@@ -1353,13 +1395,11 @@ timer_process (vlib_main_t * vm, vlib_node_runtime_t * rt, vlib_frame_t * f)
   return 0;			/* or not */
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (flowprobe_timer_node,static) = {
   .function = timer_process,
   .name = "flowprobe-timer-process",
   .type = VLIB_NODE_TYPE_PROCESS,
 };
-/* *INDENT-ON* */
 
 #include <flowprobe/flowprobe.api.c>
 
@@ -1409,11 +1449,3 @@ flowprobe_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (flowprobe_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

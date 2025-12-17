@@ -1,19 +1,8 @@
-/*
- * ipsec.c : IPSEC module functions
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* ipsec.c : IPSEC module functions */
 
 #include <vnet/vnet.h>
 #include <vnet/api_errno.h>
@@ -35,8 +24,6 @@
 /* Flow cache is sized for 1 million flows with a load factor of .25.
  */
 #define IPSEC4_SPD_DEFAULT_HASH_NUM_BUCKETS (1 << 22)
-
-ipsec_main_t ipsec_main;
 
 esp_async_post_next_t esp_encrypt_async_next;
 esp_async_post_next_t esp_decrypt_async_next;
@@ -275,8 +262,7 @@ ipsec_register_esp_backend (
   const char *esp6_decrypt_node_name, const char *esp6_decrypt_tun_node_name,
   const char *esp_mpls_encrypt_node_tun_name,
   check_support_cb_t esp_check_support_cb,
-  add_del_sa_sess_cb_t esp_add_del_sa_sess_cb,
-  enable_disable_cb_t enable_disable_cb)
+  add_del_sa_sess_cb_t esp_add_del_sa_sess_cb)
 {
   ipsec_esp_backend_t *b;
 
@@ -307,7 +293,6 @@ ipsec_register_esp_backend (
 
   b->check_support_cb = esp_check_support_cb;
   b->add_del_sa_sess_cb = esp_add_del_sa_sess_cb;
-  b->enable_disable_cb = enable_disable_cb;
 
   return b - im->esp_backends;
 }
@@ -316,9 +301,9 @@ clib_error_t *
 ipsec_rsc_in_use (ipsec_main_t * im)
 {
   /* return an error is crypto resource are in use */
-  if (pool_elts (ipsec_sa_pool) > 0)
+  if (pool_elts (im->sa_pool) > 0)
     return clib_error_return (0, "%d SA entries configured",
-			      pool_elts (ipsec_sa_pool));
+			      pool_elts (im->sa_pool));
   if (ipsec_itf_count () > 0)
     return clib_error_return (0, "%d IPSec interface configured",
 			      ipsec_itf_count ());
@@ -358,18 +343,6 @@ ipsec_select_esp_backend (ipsec_main_t * im, u32 backend_idx)
   if (pool_is_free_index (im->esp_backends, backend_idx))
     return VNET_API_ERROR_INVALID_VALUE;
 
-  /* disable current backend */
-  if (im->esp_current_backend != ~0)
-    {
-      ipsec_esp_backend_t *cb = pool_elt_at_index (im->esp_backends,
-						   im->esp_current_backend);
-      if (cb->enable_disable_cb)
-	{
-	  if ((cb->enable_disable_cb) (0) != 0)
-	    return -1;
-	}
-    }
-
   ipsec_esp_backend_t *b = pool_elt_at_index (im->esp_backends, backend_idx);
   im->esp_current_backend = backend_idx;
   im->esp4_encrypt_node_index = b->esp4_encrypt_node_index;
@@ -388,11 +361,6 @@ ipsec_select_esp_backend (ipsec_main_t * im, u32 backend_idx)
   im->esp6_encrypt_tun_node_index = b->esp6_encrypt_tun_node_index;
   im->esp_mpls_encrypt_tun_node_index = b->esp_mpls_encrypt_tun_node_index;
 
-  if (b->enable_disable_cb)
-    {
-      if ((b->enable_disable_cb) (1) != 0)
-	return -1;
-    }
   return 0;
 }
 
@@ -402,12 +370,10 @@ ipsec_set_async_mode (u32 is_enabled)
   ipsec_main_t *im = &ipsec_main;
   ipsec_sa_t *sa;
 
-  vnet_crypto_request_async_mode (is_enabled);
-
   im->async_mode = is_enabled;
 
   /* change SA crypto op data */
-  pool_foreach (sa, ipsec_sa_pool)
+  pool_foreach (sa, im->sa_pool)
     ipsec_sa_set_async_mode (sa, is_enabled);
 }
 
@@ -445,7 +411,6 @@ ipsec_init (vlib_main_t * vm)
 {
   clib_error_t *error;
   ipsec_main_t *im = &ipsec_main;
-  ipsec_main_crypto_alg_t *a;
 
   /* Backend registration requires the feature arcs to be set up */
   if ((error = vlib_call_init_function (vm, vnet_feature_init)))
@@ -482,7 +447,7 @@ ipsec_init (vlib_main_t * vm)
     vm, im, "crypto engine backend", "esp4-encrypt", "esp4-encrypt-tun",
     "esp4-decrypt", "esp4-decrypt-tun", "esp6-encrypt", "esp6-encrypt-tun",
     "esp6-decrypt", "esp6-decrypt-tun", "esp-mpls-encrypt-tun",
-    ipsec_check_esp_support, NULL, crypto_dispatch_enable_disable);
+    ipsec_check_esp_support, NULL);
   im->esp_default_backend = idx;
 
   rv = ipsec_select_esp_backend (im, idx);
@@ -491,130 +456,6 @@ ipsec_init (vlib_main_t * vm)
 
   if ((error = vlib_call_init_function (vm, ipsec_cli_init)))
     return error;
-
-  vec_validate (im->crypto_algs, IPSEC_CRYPTO_N_ALG - 1);
-
-  a = im->crypto_algs + IPSEC_CRYPTO_ALG_NONE;
-  a->enc_op_id = VNET_CRYPTO_OP_NONE;
-  a->dec_op_id = VNET_CRYPTO_OP_NONE;
-  a->alg = VNET_CRYPTO_ALG_NONE;
-  a->iv_size = 0;
-  a->block_align = 1;
-
-  a = im->crypto_algs + IPSEC_CRYPTO_ALG_DES_CBC;
-  a->enc_op_id = VNET_CRYPTO_OP_DES_CBC_ENC;
-  a->dec_op_id = VNET_CRYPTO_OP_DES_CBC_DEC;
-  a->alg = VNET_CRYPTO_ALG_DES_CBC;
-  a->iv_size = a->block_align = 8;
-
-  a = im->crypto_algs + IPSEC_CRYPTO_ALG_3DES_CBC;
-  a->enc_op_id = VNET_CRYPTO_OP_3DES_CBC_ENC;
-  a->dec_op_id = VNET_CRYPTO_OP_3DES_CBC_DEC;
-  a->alg = VNET_CRYPTO_ALG_3DES_CBC;
-  a->iv_size = a->block_align = 8;
-
-  a = im->crypto_algs + IPSEC_CRYPTO_ALG_AES_CBC_128;
-  a->enc_op_id = VNET_CRYPTO_OP_AES_128_CBC_ENC;
-  a->dec_op_id = VNET_CRYPTO_OP_AES_128_CBC_DEC;
-  a->alg = VNET_CRYPTO_ALG_AES_128_CBC;
-  a->iv_size = a->block_align = 16;
-
-  a = im->crypto_algs + IPSEC_CRYPTO_ALG_AES_CBC_192;
-  a->enc_op_id = VNET_CRYPTO_OP_AES_192_CBC_ENC;
-  a->dec_op_id = VNET_CRYPTO_OP_AES_192_CBC_DEC;
-  a->alg = VNET_CRYPTO_ALG_AES_192_CBC;
-  a->iv_size = a->block_align = 16;
-
-  a = im->crypto_algs + IPSEC_CRYPTO_ALG_AES_CBC_256;
-  a->enc_op_id = VNET_CRYPTO_OP_AES_256_CBC_ENC;
-  a->dec_op_id = VNET_CRYPTO_OP_AES_256_CBC_DEC;
-  a->alg = VNET_CRYPTO_ALG_AES_256_CBC;
-  a->iv_size = a->block_align = 16;
-
-  a = im->crypto_algs + IPSEC_CRYPTO_ALG_AES_CTR_128;
-  a->enc_op_id = VNET_CRYPTO_OP_AES_128_CTR_ENC;
-  a->dec_op_id = VNET_CRYPTO_OP_AES_128_CTR_DEC;
-  a->alg = VNET_CRYPTO_ALG_AES_128_CTR;
-  a->iv_size = 8;
-  a->block_align = 1;
-
-  a = im->crypto_algs + IPSEC_CRYPTO_ALG_AES_CTR_192;
-  a->enc_op_id = VNET_CRYPTO_OP_AES_192_CTR_ENC;
-  a->dec_op_id = VNET_CRYPTO_OP_AES_192_CTR_DEC;
-  a->alg = VNET_CRYPTO_ALG_AES_192_CTR;
-  a->iv_size = 8;
-  a->block_align = 1;
-
-  a = im->crypto_algs + IPSEC_CRYPTO_ALG_AES_CTR_256;
-  a->enc_op_id = VNET_CRYPTO_OP_AES_256_CTR_ENC;
-  a->dec_op_id = VNET_CRYPTO_OP_AES_256_CTR_DEC;
-  a->alg = VNET_CRYPTO_ALG_AES_256_CTR;
-  a->iv_size = 8;
-  a->block_align = 1;
-
-  a = im->crypto_algs + IPSEC_CRYPTO_ALG_AES_GCM_128;
-  a->enc_op_id = VNET_CRYPTO_OP_AES_128_GCM_ENC;
-  a->dec_op_id = VNET_CRYPTO_OP_AES_128_GCM_DEC;
-  a->alg = VNET_CRYPTO_ALG_AES_128_GCM;
-  a->iv_size = 8;
-  a->block_align = 1;
-  a->icv_size = 16;
-
-  a = im->crypto_algs + IPSEC_CRYPTO_ALG_AES_GCM_192;
-  a->enc_op_id = VNET_CRYPTO_OP_AES_192_GCM_ENC;
-  a->dec_op_id = VNET_CRYPTO_OP_AES_192_GCM_DEC;
-  a->alg = VNET_CRYPTO_ALG_AES_192_GCM;
-  a->iv_size = 8;
-  a->block_align = 1;
-  a->icv_size = 16;
-
-  a = im->crypto_algs + IPSEC_CRYPTO_ALG_AES_GCM_256;
-  a->enc_op_id = VNET_CRYPTO_OP_AES_256_GCM_ENC;
-  a->dec_op_id = VNET_CRYPTO_OP_AES_256_GCM_DEC;
-  a->alg = VNET_CRYPTO_ALG_AES_256_GCM;
-  a->iv_size = 8;
-  a->block_align = 1;
-  a->icv_size = 16;
-
-  a = im->crypto_algs + IPSEC_CRYPTO_ALG_CHACHA20_POLY1305;
-  a->enc_op_id = VNET_CRYPTO_OP_CHACHA20_POLY1305_ENC;
-  a->dec_op_id = VNET_CRYPTO_OP_CHACHA20_POLY1305_DEC;
-  a->alg = VNET_CRYPTO_ALG_CHACHA20_POLY1305;
-  a->iv_size = 8;
-  a->icv_size = 16;
-
-  vec_validate (im->integ_algs, IPSEC_INTEG_N_ALG - 1);
-  ipsec_main_integ_alg_t *i;
-
-  i = &im->integ_algs[IPSEC_INTEG_ALG_MD5_96];
-  i->op_id = VNET_CRYPTO_OP_MD5_HMAC;
-  i->alg = VNET_CRYPTO_ALG_HMAC_MD5;
-  i->icv_size = 12;
-
-  i = &im->integ_algs[IPSEC_INTEG_ALG_SHA1_96];
-  i->op_id = VNET_CRYPTO_OP_SHA1_HMAC;
-  i->alg = VNET_CRYPTO_ALG_HMAC_SHA1;
-  i->icv_size = 12;
-
-  i = &im->integ_algs[IPSEC_INTEG_ALG_SHA_256_96];
-  i->op_id = VNET_CRYPTO_OP_SHA1_HMAC;
-  i->alg = VNET_CRYPTO_ALG_HMAC_SHA256;
-  i->icv_size = 12;
-
-  i = &im->integ_algs[IPSEC_INTEG_ALG_SHA_256_128];
-  i->op_id = VNET_CRYPTO_OP_SHA256_HMAC;
-  i->alg = VNET_CRYPTO_ALG_HMAC_SHA256;
-  i->icv_size = 16;
-
-  i = &im->integ_algs[IPSEC_INTEG_ALG_SHA_384_192];
-  i->op_id = VNET_CRYPTO_OP_SHA384_HMAC;
-  i->alg = VNET_CRYPTO_ALG_HMAC_SHA384;
-  i->icv_size = 24;
-
-  i = &im->integ_algs[IPSEC_INTEG_ALG_SHA_512_256];
-  i->op_id = VNET_CRYPTO_OP_SHA512_HMAC;
-  i->alg = VNET_CRYPTO_ALG_HMAC_SHA512;
-  i->icv_size = 32;
 
   vec_validate_aligned (im->ptd, vlib_num_workers (), CLIB_CACHE_LINE_BYTES);
 
@@ -660,6 +501,7 @@ ipsec_config (vlib_main_t *vm, unformat_input_t *input)
   u32 ipsec_spd_fp_num_buckets;
   bool fp_spd_ip4_enabled = false;
   bool fp_spd_ip6_enabled = false;
+  u32 handoff_queue_size;
 
   while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
     {
@@ -755,6 +597,11 @@ ipsec_config (vlib_main_t *vm, unformat_input_t *input)
 
 	  ipsec_tun_table_init (AF_IP6, table_size, n_buckets);
 	}
+      else if (unformat (input, "async-handoff-queue-size %d",
+			 &handoff_queue_size))
+	{
+	  im->handoff_queue_size = handoff_queue_size;
+	}
       else
 	return clib_error_return (0, "unknown input `%U'",
 				  format_unformat_error, input);
@@ -782,11 +629,3 @@ ipsec_config (vlib_main_t *vm, unformat_input_t *input)
 }
 
 VLIB_CONFIG_FUNCTION (ipsec_config, "ipsec");
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

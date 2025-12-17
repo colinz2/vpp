@@ -1,17 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2005-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <stdio.h>
@@ -2329,21 +2317,22 @@ out:
 
 static void view1_button_click_callback(GtkButton *item, gpointer data)
 {
-    enum view1_button_click click = (enum view1_button_click) data;
-    event_t *ep;
-    ulonglong event_incdec;
-    ulonglong current_width;
-    ulonglong zoom_delta;
+  enum view1_button_click click = (enum view1_button_click) (long int) data;
+  event_t *ep;
+  ulonglong event_incdec;
+  ulonglong current_width;
+  ulonglong zoom_delta;
 
-    current_width = s_v1->maxvistime - s_v1->minvistime;
-    event_incdec = (current_width) / 3;
+  current_width = s_v1->maxvistime - s_v1->minvistime;
+  event_incdec = (current_width) / 3;
 
-    if (event_incdec == 0LL)
-        event_incdec = 1;
+  if (event_incdec == 0LL)
+    event_incdec = 1;
 
-    zoom_delta = (s_v1->maxvistime - s_v1->minvistime) / 6;
+  zoom_delta = (s_v1->maxvistime - s_v1->minvistime) / 6;
 
-    switch(click) {
+  switch (click)
+    {
     case TOP_BUTTON:
         /* First PID to top of window */
         s_v1->first_pid_index = 0;

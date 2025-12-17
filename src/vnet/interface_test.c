@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2021 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <vat/vat.h>
@@ -911,7 +898,7 @@ vl_api_sw_interface_tx_placement_details_t_handler (
 
   for (u32 i = 0; i < size; i++)
     {
-      u32 thread_index = ntohl (mp->threads[i]);
+      clib_thread_index_t thread_index = ntohl (mp->threads[i]);
       bitmap = clib_bitmap_set (bitmap, thread_index, 1);
     }
 
@@ -1281,6 +1268,18 @@ static int
 api_sw_interface_set_interface_name (vat_main_t *vam)
 {
   return -1;
+}
+
+static int
+api_pcap_set_filter_function (vat_main_t *vam)
+{
+  vl_api_pcap_set_filter_function_t *mp;
+  int ret;
+
+  M (PCAP_SET_FILTER_FUNCTION, mp);
+  S (mp);
+  W (ret);
+  return ret;
 }
 
 static int

@@ -8,8 +8,9 @@ from scapy.packet import bind_layers, Packet, Raw
 from scapy.layers.inet import IP, UDP, Ether
 from scapy.layers.inet6 import IPv6
 
-from framework import VppTestCase, VppTestRunner
-from asf.lisp import (
+from framework import VppTestCase
+from asfframework import VppTestRunner
+from lisp import (
     VppLocalMapping,
     VppLispAdjacency,
     VppLispLocator,
@@ -18,6 +19,7 @@ from asf.lisp import (
     LispRemoteLocator,
 )
 from util import ppp
+from config import config
 
 # From py_lispnetworking.lisp.py:  # GNU General Public License v2.0
 
@@ -53,7 +55,6 @@ class ForeignAddressFactory(object):
 
 
 class Driver(metaclass=abc.ABCMeta):
-
     config_order = [
         "locator-sets",
         "locators",
@@ -157,6 +158,7 @@ class SimpleDriver(Driver):
             self.test.pg0.assert_nothing_captured()
 
 
+@unittest.skipIf("lisp" in config.excluded_plugins, "Exclude LISP plugin tests")
 class TestLisp(VppTestCase):
     """Basic LISP test"""
 
@@ -206,6 +208,7 @@ class TestLisp(VppTestCase):
         self.test_driver.run(self.deid_ip4)
 
 
+@unittest.skipIf("lisp" in config.excluded_plugins, "Exclude LISP plugin tests")
 class TestLispUT(VppTestCase):
     """Lisp UT"""
 

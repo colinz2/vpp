@@ -1,19 +1,9 @@
-/*
- * nsh_api.c - nsh mapping api
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* nsh_api.c - nsh mapping api */
+
 #include <vnet/vnet.h>
 #include <vnet/plugin/plugin.h>
 #include <nsh/nsh.h>
@@ -64,13 +54,11 @@ format_nsh_name (u8 * s, va_list * args)
   return format (s, "nsh_tunnel%d", dev_instance);
 }
 
-/* *INDENT-OFF* */
 VNET_DEVICE_CLASS (nsh_device_class, static) = {
   .name = "NSH",
   .format_device_name = format_nsh_name,
   .admin_up_down_function = nsh_interface_admin_up_down,
 };
-/* *INDENT-ON* */
 
 static void send_nsh_entry_details
   (nsh_entry_t * t, vl_api_registration_t * rp, u32 context)
@@ -633,11 +621,3 @@ nsh_api_init (vlib_main_t * vm, nsh_main_t * nm)
 
   return 0;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

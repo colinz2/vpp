@@ -2,12 +2,14 @@
 
 import unittest
 
-from asfframework import VppTestCase, VppTestRunner
+from asfframework import VppAsfTestCase, VppTestRunner
 
 from vpp_vhost_interface import VppVhostInterface
+from config import config
 
 
-class TesVhostInterface(VppTestCase):
+@unittest.skipIf("vhost" in config.excluded_plugins, "Exclude Vhost plugin tests")
+class TesVhostInterface(VppAsfTestCase):
     """Vhost User Test Case"""
 
     @classmethod

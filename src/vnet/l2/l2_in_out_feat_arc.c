@@ -1,19 +1,8 @@
-/*
- * l2_in_out_feat_arc.c : layer 2 input/output acl processing
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2013,2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* l2_in_out_feat_arc.c : layer 2 input/output acl processing */
 
 #include <vlib/vlib.h>
 #include <vnet/ethernet/ethernet.h>
@@ -396,7 +385,6 @@ vnet_l2_in_out_feat_arc_enable_disable (u32 sw_if_index, int is_output,
 }
 #endif /* CLIB_MARCH_VARIANT */
 
-/* *INDENT-OFF* */
 VNET_FEATURE_ARC_INIT (l2_in_ip4_arc, static) =
 {
   .arc_name  = "l2-input-ip4",
@@ -438,10 +426,8 @@ VNET_FEATURE_ARC_INIT (l2_in_nonip_arc, static) =
 };
 
 
-/* *INDENT-ON* */
 
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (l2_in_feat_arc_node) = {
   .name = "l2-input-feat-arc",
   .vector_size = sizeof (u32),
@@ -521,7 +507,6 @@ VNET_FEATURE_INIT (l2_out_nonip_arc_end, static) =
   .node_name = "l2-output-feat-arc-end",
   .runs_before = 0,     /* not before any other features */
 };
-/* *INDENT-ON* */
 
 
 #ifndef CLIB_MARCH_VARIANT
@@ -621,11 +606,3 @@ vnet_l2_feature_enable_disable (const char *arc_name, const char *node_name,
 
 VLIB_INIT_FUNCTION (l2_in_out_feat_arc_init);
 #endif /* CLIB_MARCH_VARIANT */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

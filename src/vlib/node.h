@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * node.h: VLIB processing nodes
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* node.h: VLIB processing nodes */
 
 #ifndef included_vlib_node_h
 #define included_vlib_node_h
@@ -83,8 +51,45 @@ typedef enum
   /* "Process" nodes which can be suspended and later resumed. */
   VLIB_NODE_TYPE_PROCESS,
 
+  /* Nodes to by called by per-thread timing wheel. */
+  VLIB_NODE_TYPE_SCHED,
+
   VLIB_N_NODE_TYPE,
 } vlib_node_type_t;
+
+typedef struct
+{
+  u8 can_be_disabled : 1;
+  u8 may_receive_interrupts : 1;
+  u8 decrement_main_loop_per_calls_if_polling : 1;
+  u8 supports_adaptive_mode : 1;
+  u8 can_be_polled : 1;
+  u8 is_process : 1;
+} vlib_node_type_atts_t;
+
+static const vlib_node_type_atts_t node_type_attrs[VLIB_N_NODE_TYPE] ={
+  [VLIB_NODE_TYPE_PRE_INPUT] = {
+    .can_be_disabled = 1,
+    .may_receive_interrupts = 1,
+    .decrement_main_loop_per_calls_if_polling = 1,
+    .can_be_polled = 1,
+  },
+  [VLIB_NODE_TYPE_INPUT] = {
+    .can_be_disabled = 1,
+    .may_receive_interrupts = 1,
+    .decrement_main_loop_per_calls_if_polling = 1,
+    .supports_adaptive_mode = 1,
+    .can_be_polled = 1,
+  },
+  [VLIB_NODE_TYPE_PROCESS] = {
+    .can_be_disabled = 1,
+    .is_process = 1,
+  },
+  [VLIB_NODE_TYPE_SCHED] = {
+    .can_be_disabled = 1,
+    .may_receive_interrupts = 1,
+  },
+};
 
 typedef struct _vlib_node_fn_registration
 {
@@ -245,7 +250,26 @@ typedef enum
   foreach_vlib_node_state
 #undef _
     VLIB_N_NODE_STATE,
-} vlib_node_state_t;
+} __clib_packed vlib_node_state_t;
+
+typedef enum
+{
+  VLIB_NODE_DISPATCH_REASON_UNKNOWN = 0,
+  VLIB_NODE_DISPATCH_REASON_PENDING_FRAME,
+  VLIB_NODE_DISPATCH_REASON_POLL,
+  VLIB_NODE_DISPATCH_REASON_INTERRUPT,
+  VLIB_NODE_DISPATCH_REASON_SCHED,
+  VLIB_NODE_DISPATCH_N_REASON,
+} __clib_packed vlib_node_dispatch_reason_t;
+
+#define vlib_node_dispatch_reason_enum_strings                                \
+  {                                                                           \
+    [VLIB_NODE_DISPATCH_REASON_UNKNOWN] = "unknown",                          \
+    [VLIB_NODE_DISPATCH_REASON_PENDING_FRAME] = "pending-frame",              \
+    [VLIB_NODE_DISPATCH_REASON_POLL] = "poll",                                \
+    [VLIB_NODE_DISPATCH_REASON_INTERRUPT] = "interrupt",                      \
+    [VLIB_NODE_DISPATCH_REASON_SCHED] = "scheduled",                          \
+  }
 
 typedef struct vlib_node_t
 {
@@ -297,6 +321,7 @@ typedef struct vlib_node_t
 #define VLIB_NODE_FLAG_SWITCH_FROM_POLLING_TO_INTERRUPT_MODE (1 << 7)
 #define VLIB_NODE_FLAG_TRACE_SUPPORTED (1 << 8)
 #define VLIB_NODE_FLAG_ADAPTIVE_MODE			     (1 << 9)
+#define VLIB_NODE_FLAG_ALLOW_LAZY_NEXT_NODES		     (1 << 10)
 
   /* State for input nodes. */
   u8 state;
@@ -497,7 +522,10 @@ typedef struct vlib_node_runtime_t
 
   u16 flags;				/**< Copy of main node flags. */
 
-  u16 state;				/**< Input node state. */
+  vlib_node_state_t state; /**< Input node state. */
+
+  vlib_node_dispatch_reason_t
+    dispatch_reason; /**< Reason for running this node. */
 
   u16 n_next_nodes;
 
@@ -506,6 +534,9 @@ typedef struct vlib_node_runtime_t
 					  last time this node ran. Set to
 					  zero before first run of this
 					  node. */
+  u32 stop_timer_handle_plus_1;		/**< Timing wheel stop handle for
+					  SCHED node incremented by 1,
+					  0 = no timer running. */
 
   CLIB_ALIGN_MARK (runtime_data_pad, 8);
 
@@ -542,6 +573,45 @@ typedef struct
   uword opaque;
 } vlib_process_event_type_t;
 
+#define foreach_vlib_process_state                                            \
+  _ (NOT_STARTED, "not started")                                              \
+  _ (RUNNING, "running")                                                      \
+  _ (SUSPENDED, "suspended")                                                  \
+  _ (WAIT_FOR_EVENT, "event wait")                                            \
+  _ (WAIT_FOR_CLOCK, "clock wait")                                            \
+  _ (WAIT_FOR_EVENT_OR_CLOCK, "any wait")                                     \
+  _ (WAIT_FOR_ONE_TIME_EVENT, "one time event wait")                          \
+  _ (YIELD, "yield")
+
+typedef enum
+{
+#define _(n, s) VLIB_PROCESS_STATE_##n,
+  foreach_vlib_process_state VLIB_PROCESS_N_STATES
+#undef _
+} __clib_packed vlib_process_state_t;
+
+STATIC_ASSERT (VLIB_PROCESS_STATE_NOT_STARTED == 0, "");
+
+typedef enum
+{
+  VLIB_PROCESS_RESTORE_REASON_UNKNOWN = 0,
+  VLIB_PROCESS_RESTORE_REASON_EVENT,
+  VLIB_PROCESS_RESTORE_REASON_CLOCK,
+  VLIB_PROCESS_RESTORE_REASON_TIMED_EVENT,
+  VLIB_PROCESS_RESTORE_REASON_YIELD,
+  VLIB_PROCRSS_N_RESTORE_REASON
+} __clib_packed vlib_process_restore_reason_t;
+
+typedef struct
+{
+  vlib_process_restore_reason_t reason;
+  union
+  {
+    u32 runtime_index;
+    u32 timed_event_data_pool_index;
+  };
+} __clib_packed vlib_process_restore_t;
+
 typedef struct
 {
   CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
@@ -559,14 +629,11 @@ typedef struct
 #define VLIB_PROCESS_RESUME_LONGJMP_SUSPEND 0
 #define VLIB_PROCESS_RESUME_LONGJMP_RESUME  1
 
-  u16 flags;
-#define VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_CLOCK (1 << 0)
-#define VLIB_PROCESS_IS_SUSPENDED_WAITING_FOR_EVENT (1 << 1)
-  /* Set to indicate that this process has been added to resume vector. */
-#define VLIB_PROCESS_RESUME_PENDING (1 << 2)
+  /* Process state. */
+  vlib_process_state_t state;
 
-  /* Process function is currently running. */
-#define VLIB_PROCESS_IS_RUNNING (1 << 3)
+  /* Process is added to resume list due to pending event  */
+  u8 event_resume_pending : 1;
 
   /* Size of process stack. */
   u16 log2_n_stack_bytes;
@@ -642,30 +709,6 @@ typedef struct
 }
 vlib_signal_timed_event_data_t;
 
-always_inline uword
-vlib_timing_wheel_data_is_timed_event (u32 d)
-{
-  return d & 1;
-}
-
-always_inline u32
-vlib_timing_wheel_data_set_suspended_process (u32 i)
-{
-  return 0 + 2 * i;
-}
-
-always_inline u32
-vlib_timing_wheel_data_set_timed_event (u32 i)
-{
-  return 1 + 2 * i;
-}
-
-always_inline uword
-vlib_timing_wheel_data_get_index (u32 d)
-{
-  return d / 2;
-}
-
 typedef struct
 {
   clib_march_variant_type_t index;
@@ -690,8 +733,7 @@ typedef struct
   vlib_node_runtime_t *nodes_by_type[VLIB_N_NODE_TYPE];
 
   /* Node runtime indices for input nodes with pending interrupts. */
-  void *interrupts;
-  volatile u32 *pending_interrupts;
+  void *node_interrupts[VLIB_N_NODE_TYPE];
 
   /* Input nodes are switched from/to interrupt to/from polling mode
      when average vector length goes above/below polling/interrupt
@@ -705,13 +747,17 @@ typedef struct
   /* Vector of internal node's frames waiting to be called. */
   vlib_pending_frame_t *pending_frames;
 
-  /* Timing wheel for scheduling time-based node dispatch. */
-  void *timing_wheel;
-
   vlib_signal_timed_event_data_t *signal_timed_event_data_pool;
 
-  /* Opaque data vector added via timing_wheel_advance. */
-  u32 *data_from_advancing_timing_wheel;
+  /* Vector of process nodes waiting for restore */
+  vlib_process_restore_t *process_restore_current;
+
+  /* Vector of sched nodes waiting to be calleed */
+  u32 *sched_node_pending;
+
+  /* Vector of process nodes waiting for restore in next greaph scheduler run
+   */
+  vlib_process_restore_t *process_restore_next;
 
   /* CPU time of next process to be ready on timing wheel. */
   f64 time_next_process_ready;
@@ -787,11 +833,3 @@ typedef struct
 } frame_queue_nelt_counter_t;
 
 #endif /* included_vlib_node_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

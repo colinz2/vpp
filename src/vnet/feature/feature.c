@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/feature/feature.h>
@@ -533,13 +523,11 @@ show_features_command_fn (vlib_main_t * vm,
  * @cliexend
  * @endparblock
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_features_command, static) = {
   .path = "show features",
   .short_help = "show features [verbose]",
   .function = show_features_command_fn,
 };
-/* *INDENT-ON* */
 
 /** Display the set of driver features configured on a specific interface
   * Called by "show interface" handler
@@ -700,14 +688,12 @@ done:
  * @cliexend
  * @endparblock
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_interface_feature_command, static) = {
   .path = "set interface feature",
   .short_help = "set interface feature <intfc> <feature_name> arc <arc_name> "
       "[disable]",
   .function = set_interface_features_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 vnet_feature_add_del_sw_interface (vnet_main_t * vnm, u32 sw_if_index,
@@ -754,11 +740,3 @@ vnet_feature_add_del_sw_interface (vnet_main_t * vnm, u32 sw_if_index,
 
 VNET_SW_INTERFACE_ADD_DEL_FUNCTION_PRIO (vnet_feature_add_del_sw_interface,
 					 VNET_ITF_FUNC_PRIORITY_HIGH);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

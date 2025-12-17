@@ -1,23 +1,16 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/session/application.h>
 #include <vnet/session/application_interface.h>
 #include <vnet/session/application_namespace.h>
 #include <vnet/session/application_local.h>
+#include <vnet/session/application_eventing.h>
+#include <vnet/session/application_crypto.h>
 #include <vnet/session/session.h>
+#include <vnet/session/segment_manager.h>
 
 static app_main_t app_main;
 
@@ -31,10 +24,12 @@ static app_main_t app_main;
 static app_listener_t *
 app_listener_alloc (application_t * app)
 {
+  app_main_t *am = &app_main;
   app_listener_t *app_listener;
-  pool_get (app->listeners, app_listener);
+
+  pool_get (am->listeners, app_listener);
   clib_memset (app_listener, 0, sizeof (*app_listener));
-  app_listener->al_index = app_listener - app->listeners;
+  app_listener->al_index = app_listener - am->listeners;
   app_listener->app_index = app->app_index;
   app_listener->session_index = SESSION_INVALID_INDEX;
   app_listener->local_index = SESSION_INVALID_INDEX;
@@ -43,18 +38,23 @@ app_listener_alloc (application_t * app)
 }
 
 app_listener_t *
-app_listener_get (application_t * app, u32 app_listener_index)
+app_listener_get (u32 app_listener_index)
 {
-  return pool_elt_at_index (app->listeners, app_listener_index);
+  app_main_t *am = &app_main;
+
+  return pool_elt_at_index (am->listeners, app_listener_index);
 }
 
 static void
 app_listener_free (application_t * app, app_listener_t * app_listener)
 {
+  app_main_t *am = &app_main;
+
   clib_bitmap_free (app_listener->workers);
+  vec_free (app_listener->cl_listeners);
   if (CLIB_DEBUG)
     clib_memset (app_listener, 0xfa, sizeof (*app_listener));
-  pool_put (app->listeners, app_listener);
+  pool_put (am->listeners, app_listener);
 }
 
 session_handle_t
@@ -63,24 +63,14 @@ app_listener_handle (app_listener_t * al)
   return al->ls_handle;
 }
 
-app_listener_t *
-app_listener_get_w_session (session_t * ls)
-{
-  application_t *app;
-
-  app = application_get_if_valid (ls->app_index);
-  if (!app)
-    return 0;
-  return app_listener_get (app, ls->al_index);
-}
-
 session_handle_t
 app_listen_session_handle (session_t * ls)
 {
   app_listener_t *al;
-  al = app_listener_get_w_session (ls);
-  if (!al)
+  /* TODO(fcoras): quic session handles */
+  if (ls->al_index == SESSION_INVALID_INDEX)
     return listen_session_get_handle (ls);
+  al = app_listener_get (ls->al_index);
   return al->ls_handle;
 }
 
@@ -91,7 +81,7 @@ app_listener_get_w_handle (session_handle_t handle)
   ls = session_get_from_handle_if_valid (handle);
   if (!ls)
     return 0;
-  return app_listener_get_w_session (ls);
+  return app_listener_get (ls->al_index);
 }
 
 app_listener_t *
@@ -112,7 +102,7 @@ app_listener_lookup (application_t * app, session_endpoint_cfg_t * sep_ext)
       if (handle != SESSION_INVALID_HANDLE)
 	{
 	  ls = listen_session_get_from_handle (handle);
-	  return app_listener_get_w_session (ls);
+	  return app_listener_get (ls->al_index);
 	}
     }
 
@@ -122,7 +112,7 @@ app_listener_lookup (application_t * app, session_endpoint_cfg_t * sep_ext)
   if (handle != SESSION_INVALID_HANDLE)
     {
       ls = listen_session_get_from_handle (handle);
-      return app_listener_get_w_session ((session_t *) ls);
+      return app_listener_get (ls->al_index);
     }
 
   /*
@@ -144,7 +134,7 @@ app_listener_lookup (application_t * app, session_endpoint_cfg_t * sep_ext)
 	  if (handle != SESSION_INVALID_HANDLE)
 	    {
 	      ls = listen_session_get_from_handle (handle);
-	      return app_listener_get_w_session ((session_t *) ls);
+	      return app_listener_get (ls->al_index);
 	    }
 	}
     }
@@ -178,10 +168,9 @@ app_listener_alloc_and_init (application_t * app,
     {
       session_type_t local_st;
 
-      local_st = session_type_from_proto_and_ip (TRANSPORT_PROTO_NONE,
-						 sep->is_ip4);
+      local_st =
+	session_type_from_proto_and_ip (TRANSPORT_PROTO_CT, sep->is_ip4);
       ls = listen_session_alloc (0, local_st);
-      ls->app_index = app->app_index;
       ls->app_wrk_index = sep->app_wrk_index;
       lh = session_handle (ls);
 
@@ -194,7 +183,7 @@ app_listener_alloc_and_init (application_t * app,
 	}
 
       ls = session_get_from_handle (lh);
-      app_listener = app_listener_get (app, al_index);
+      app_listener = app_listener_get (al_index);
       app_listener->local_index = ls->session_index;
       app_listener->ls_handle = lh;
       ls->al_index = al_index;
@@ -213,7 +202,6 @@ app_listener_alloc_and_init (application_t * app,
        * build it's own specific listening connection.
        */
       ls = listen_session_alloc (0, st);
-      ls->app_index = app->app_index;
       ls->app_wrk_index = sep->app_wrk_index;
 
       /* Listen pool can be reallocated if the transport is
@@ -223,12 +211,13 @@ app_listener_alloc_and_init (application_t * app,
       if ((rv = session_listen (ls, sep)))
 	{
 	  ls = listen_session_get_from_handle (lh);
+	  app_listener = app_listener_get (al_index);
 	  session_free (ls);
-	  app_listener_free (app, app_listener);
+	  app_listener_cleanup (app_listener);
 	  return rv;
 	}
       ls = listen_session_get_from_handle (lh);
-      app_listener = app_listener_get (app, al_index);
+      app_listener = app_listener_get (al_index);
       app_listener->session_index = ls->session_index;
       app_listener->ls_handle = lh;
       ls->al_index = al_index;
@@ -290,8 +279,9 @@ app_listener_cleanup (app_listener_t * al)
 }
 
 static app_worker_t *
-app_listener_select_worker (application_t * app, app_listener_t * al)
+app_listener_select_worker (app_listener_t *al)
 {
+  application_t *app;
   u32 wrk_index;
 
   app = application_get (al->app_index);
@@ -319,6 +309,13 @@ app_listener_get_local_session (app_listener_t * al)
   if (al->local_index == SESSION_INVALID_INDEX)
     return 0;
   return listen_session_get (al->local_index);
+}
+
+session_t *
+app_listener_get_wrk_cl_session (app_listener_t *al, u32 wrk_map_index)
+{
+  u32 si = vec_elt (al->cl_listeners, wrk_map_index);
+  return session_get (si, 0 /* listener thread */);
 }
 
 static app_worker_map_t *
@@ -486,7 +483,7 @@ vlib_node_registration_t appsl_rx_mqs_input_node;
 VLIB_NODE_FN (appsl_rx_mqs_input_node)
 (vlib_main_t *vm, vlib_node_runtime_t *node, vlib_frame_t *frame)
 {
-  u32 thread_index = vm->thread_index, n_msgs = 0;
+  clib_thread_index_t thread_index = vm->thread_index, n_msgs = 0;
   app_rx_mq_elt_t *elt, *next;
   app_main_t *am = &app_main;
   session_worker_t *wrk;
@@ -577,7 +574,7 @@ app_rx_mqs_epoll_add (application_t *app, app_rx_mq_elt_t *mqe)
 {
   clib_file_t template = { 0 };
   app_rx_mq_handle_t handle;
-  u32 thread_index;
+  clib_thread_index_t thread_index;
   int fd;
 
   thread_index = mqe - app->rx_mqs;
@@ -599,7 +596,7 @@ app_rx_mqs_epoll_add (application_t *app, app_rx_mq_elt_t *mqe)
 static void
 app_rx_mqs_epoll_del (application_t *app, app_rx_mq_elt_t *mqe)
 {
-  u32 thread_index = mqe - app->rx_mqs;
+  clib_thread_index_t thread_index = mqe - app->rx_mqs;
   app_main_t *am = &app_main;
   appsl_wrk_t *aw;
 
@@ -725,6 +722,12 @@ application_get_if_valid (u32 app_index)
   return pool_elt_at_index (app_main.app_pool, app_index);
 }
 
+static int
+_null_app_tx_callback (session_t *s)
+{
+  return 0;
+}
+
 static void
 application_verify_cb_fns (session_cb_vft_t * cb_fns)
 {
@@ -736,6 +739,8 @@ application_verify_cb_fns (session_cb_vft_t * cb_fns)
     clib_warning ("No session disconnect callback function provided");
   if (cb_fns->session_reset_callback == 0)
     clib_warning ("No session reset callback function provided");
+  if (!cb_fns->builtin_app_tx_callback)
+    cb_fns->builtin_app_tx_callback = _null_app_tx_callback;
 }
 
 /**
@@ -765,8 +770,8 @@ application_verify_cfg (ssvm_segment_type_t st)
     return 1;
 }
 
-static int
-application_alloc_and_init (app_init_args_t * a)
+static session_error_t
+application_alloc_and_init (app_init_args_t *a)
 {
   ssvm_segment_type_t seg_type = SSVM_SEGMENT_MEMFD;
   segment_manager_props_t *props;
@@ -787,15 +792,15 @@ application_alloc_and_init (app_init_args_t * a)
     {
       clib_warning ("mq eventfds can only be used if socket transport is "
 		    "used for binary api");
-      return VNET_API_ERROR_APP_UNSUPPORTED_CFG;
+      return SESSION_E_NOSUPPORT;
     }
 
   if (!application_verify_cfg (seg_type))
-    return VNET_API_ERROR_APP_UNSUPPORTED_CFG;
+    return SESSION_E_NOSUPPORT;
 
   if (opts[APP_OPTIONS_PREALLOC_FIFO_PAIRS] &&
       opts[APP_OPTIONS_PREALLOC_FIFO_HDRS])
-    return VNET_API_ERROR_APP_UNSUPPORTED_CFG;
+    return SESSION_E_NOSUPPORT;
 
   /* Check that the obvious things are properly set up */
   application_verify_cb_fns (a->session_cb_vft);
@@ -822,7 +827,7 @@ application_alloc_and_init (app_init_args_t * a)
       props->add_segment = 1;
     }
   if (opts[APP_OPTIONS_FLAGS] & APP_OPTIONS_FLAGS_USE_HUGE_PAGE)
-    props->huge_page = 1;
+    props->use_huge_page = 1;
   if (opts[APP_OPTIONS_RX_FIFO_SIZE])
     props->rx_fifo_size = opts[APP_OPTIONS_RX_FIFO_SIZE];
   if (opts[APP_OPTIONS_TX_FIFO_SIZE])
@@ -832,7 +837,7 @@ application_alloc_and_init (app_init_args_t * a)
   if (opts[APP_OPTIONS_FLAGS] & APP_OPTIONS_FLAGS_EVT_MQ_USE_EVENTFD)
     props->use_mq_eventfd = 1;
   if (opts[APP_OPTIONS_TLS_ENGINE])
-    app->tls_engine = opts[APP_OPTIONS_TLS_ENGINE];
+    app->crypto_ctx.tls_engine = opts[APP_OPTIONS_TLS_ENGINE];
   if (opts[APP_OPTIONS_MAX_FIFO_SIZE])
     props->max_fifo_size = opts[APP_OPTIONS_MAX_FIFO_SIZE];
   if (opts[APP_OPTIONS_HIGH_WATERMARK])
@@ -841,13 +846,27 @@ application_alloc_and_init (app_init_args_t * a)
     props->low_watermark = opts[APP_OPTIONS_LOW_WATERMARK];
   if (opts[APP_OPTIONS_PCT_FIRST_ALLOC])
     props->pct_first_alloc = opts[APP_OPTIONS_PCT_FIRST_ALLOC];
+  if (opts[APP_OPTIONS_MAX_FIFO_MEMORY])
+    {
+      /* Round upwards to nearest segment_size */
+      props->max_segments =
+	(opts[APP_OPTIONS_MAX_FIFO_MEMORY] + props->segment_size - 1) /
+	props->segment_size;
+    }
   props->segment_type = seg_type;
+
+  if (opts[APP_OPTIONS_FLAGS] & APP_OPTIONS_FLAGS_EVT_COLLECTOR)
+    app->cb_fns.app_evt_callback = app_evt_collector_get_cb_fn ();
+  if (opts[APP_OPTIONS_FLAGS] & APP_OPTIONS_FLAGS_NO_DUMP_SEGMENTS)
+    props->no_dump_segments = 1;
 
   /* Add app to lookup by api_client_index table */
   if (!application_is_builtin (app))
     application_api_table_add (app->app_index, a->api_client_index);
-  else
+  if (a->name)
     application_name_table_add (app);
+
+  app_crypto_ctx_init (&app->crypto_ctx);
 
   a->app_index = app->app_index;
 
@@ -876,12 +895,10 @@ application_free (application_t * app)
    * Free workers
    */
 
-  /* *INDENT-OFF* */
   pool_flush (wrk_map, app->worker_maps, ({
     app_wrk = app_worker_get (wrk_map->wrk_index);
     app_worker_free (app_wrk);
   }));
-  /* *INDENT-ON* */
   pool_free (app->worker_maps);
 
   /*
@@ -901,8 +918,12 @@ application_free (application_t * app)
   /*
    * Cleanup remaining state
    */
-  if (application_is_builtin (app))
+  if (app->name)
     application_name_table_del (app);
+
+  hash_free (app->evt_collector_session_filter);
+  app_crypto_ctx_free (&app->crypto_ctx);
+
   vec_free (app->name);
   pool_put (app_main.app_pool, app);
 }
@@ -924,18 +945,16 @@ application_detach_process (application_t * app, u32 api_client_index)
   APP_DBG ("Detaching for app %v index %u api client index %u", app->name,
 	   app->app_index, api_client_index);
 
-  /* *INDENT-OFF* */
-  pool_foreach (wrk_map, app->worker_maps)  {
-    app_wrk = app_worker_get (wrk_map->wrk_index);
-    if (app_wrk->api_client_index == api_client_index)
-      vec_add1 (wrks, app_wrk->wrk_index);
-  }
-  /* *INDENT-ON* */
+  pool_foreach (wrk_map, app->worker_maps)
+    {
+      app_wrk = app_worker_get (wrk_map->wrk_index);
+      if (app_wrk->api_client_index == api_client_index)
+	vec_add1 (wrks, app_wrk->wrk_index);
+    }
 
   if (!vec_len (wrks))
     {
-      clib_warning ("no workers for app %u api_index %u", app->app_index,
-		    api_client_index);
+      application_free (app);
       return;
     }
 
@@ -961,7 +980,7 @@ application_namespace_cleanup (app_namespace_t *app_ns)
   ns_index = app_namespace_index (app_ns);
   pool_foreach (app, app_main.app_pool)
     if (app->ns_index == ns_index)
-      vec_add1 (app_indices, app->ns_index);
+      vec_add1 (app_indices, app->app_index);
 
   vec_foreach (app_index, app_indices)
     {
@@ -1001,12 +1020,55 @@ application_n_workers (application_t * app)
 app_worker_t *
 application_listener_select_worker (session_t * ls)
 {
-  application_t *app;
   app_listener_t *al;
 
-  app = application_get (ls->app_index);
-  al = app_listener_get (app, ls->al_index);
-  return app_listener_select_worker (app, al);
+  al = app_listener_get (ls->al_index);
+  return app_listener_select_worker (al);
+}
+
+always_inline u32
+app_listener_cl_flow_hash (session_dgram_hdr_t *hdr)
+{
+  u32 hash = 0;
+
+  if (hdr->is_ip4)
+    {
+      hash = clib_crc32c_u32 (hash, hdr->rmt_ip.ip4.as_u32);
+      hash = clib_crc32c_u32 (hash, hdr->lcl_ip.ip4.as_u32);
+      hash = clib_crc32c_u16 (hash, hdr->rmt_port);
+      hash = clib_crc32c_u16 (hash, hdr->lcl_port);
+    }
+  else
+    {
+      hash = clib_crc32c_u64 (hash, hdr->rmt_ip.ip6.as_u64[0]);
+      hash = clib_crc32c_u64 (hash, hdr->rmt_ip.ip6.as_u64[1]);
+      hash = clib_crc32c_u64 (hash, hdr->lcl_ip.ip6.as_u64[0]);
+      hash = clib_crc32c_u64 (hash, hdr->lcl_ip.ip6.as_u64[1]);
+      hash = clib_crc32c_u16 (hash, hdr->rmt_port);
+      hash = clib_crc32c_u16 (hash, hdr->lcl_port);
+    }
+
+  return hash;
+}
+
+session_t *
+app_listener_select_wrk_cl_session (session_t *ls, session_dgram_hdr_t *hdr)
+{
+  u32 wrk_map_index = 0;
+  app_listener_t *al;
+
+  al = app_listener_get (ls->al_index);
+  /* Crude test to check if only worker 0 is set */
+  if (al->workers[0] != 1)
+    {
+      u32 hash = app_listener_cl_flow_hash (hdr);
+      hash %= vec_len (al->workers);
+      wrk_map_index = clib_bitmap_next_set (al->workers, hash);
+      if (wrk_map_index == ~0)
+	wrk_map_index = clib_bitmap_first_set (al->workers);
+    }
+
+  return app_listener_get_wrk_cl_session (al, wrk_map_index);
 }
 
 int
@@ -1034,6 +1096,7 @@ application_alloc_worker_and_init (application_t * app, app_worker_t ** wrk)
       return rv;
     }
   sm->first_is_protected = 1;
+  sm->flags |= SEG_MANAGER_F_CONNECTS;
 
   /*
    * Setup app worker
@@ -1048,8 +1111,8 @@ application_alloc_worker_and_init (application_t * app, app_worker_t ** wrk)
   return 0;
 }
 
-int
-vnet_app_worker_add_del (vnet_app_worker_add_del_args_t * a)
+session_error_t
+vnet_app_worker_add_del (vnet_app_worker_add_del_args_t *a)
 {
   fifo_segment_t *fs;
   app_worker_map_t *wrk_map;
@@ -1060,7 +1123,7 @@ vnet_app_worker_add_del (vnet_app_worker_add_del_args_t * a)
 
   app = application_get (a->app_index);
   if (!app)
-    return VNET_API_ERROR_INVALID_VALUE;
+    return SESSION_E_INVALID;
 
   if (a->is_add)
     {
@@ -1083,11 +1146,11 @@ vnet_app_worker_add_del (vnet_app_worker_add_del_args_t * a)
     {
       wrk_map = app_worker_map_get (app, a->wrk_map_index);
       if (!wrk_map)
-	return VNET_API_ERROR_INVALID_VALUE;
+	return SESSION_E_INVALID;
 
       app_wrk = app_worker_get (wrk_map->wrk_index);
       if (!app_wrk)
-	return VNET_API_ERROR_INVALID_VALUE;
+	return SESSION_E_INVALID;
 
       application_api_table_del (app_wrk->api_client_index);
       if (appns_sapi_enabled ())
@@ -1100,8 +1163,8 @@ vnet_app_worker_add_del (vnet_app_worker_add_del_args_t * a)
   return 0;
 }
 
-static int
-app_validate_namespace (u8 * namespace_id, u64 secret, u32 * app_ns_index)
+static session_error_t
+app_validate_namespace (u8 *namespace_id, u64 secret, u32 *app_ns_index)
 {
   app_namespace_t *app_ns;
   if (vec_len (namespace_id) == 0)
@@ -1113,12 +1176,12 @@ app_validate_namespace (u8 * namespace_id, u64 secret, u32 * app_ns_index)
 
   *app_ns_index = app_namespace_index_from_id (namespace_id);
   if (*app_ns_index == APP_NAMESPACE_INVALID_INDEX)
-    return VNET_API_ERROR_APP_INVALID_NS;
+    return SESSION_E_INVALID_NS;
   app_ns = app_namespace_get (*app_ns_index);
   if (!app_ns)
-    return VNET_API_ERROR_APP_INVALID_NS;
+    return SESSION_E_INVALID_NS;
   if (app_ns->ns_secret != secret)
-    return VNET_API_ERROR_APP_WRONG_NS_SECRET;
+    return SESSION_E_WRONG_NS_SECRET;
   return 0;
 }
 
@@ -1142,8 +1205,8 @@ app_name_from_api_index (u32 api_client_index)
  * to external app and a segment manager for shared memory fifo based
  * communication with the external app.
  */
-int
-vnet_application_attach (vnet_app_attach_args_t * a)
+session_error_t
+vnet_application_attach (vnet_app_attach_args_t *a)
 {
   fifo_segment_t *fs;
   application_t *app = 0;
@@ -1152,17 +1215,17 @@ vnet_application_attach (vnet_app_attach_args_t * a)
   u32 app_ns_index = 0;
   u8 *app_name = 0;
   u64 secret;
-  int rv;
+  session_error_t rv;
 
   if (a->api_client_index != APP_INVALID_INDEX)
     app = application_lookup (a->api_client_index);
   else if (a->name)
     app = application_lookup_name (a->name);
   else
-    return VNET_API_ERROR_INVALID_VALUE;
+    return SESSION_E_INVALID;
 
   if (app)
-    return VNET_API_ERROR_APP_ALREADY_ATTACHED;
+    return SESSION_E_APP_ATTACHED;
 
   /* Socket api sets the name and validates namespace prior to attach */
   if (!a->use_sock_api)
@@ -1216,8 +1279,8 @@ vnet_application_attach (vnet_app_attach_args_t * a)
 /**
  * Detach application from vpp
  */
-int
-vnet_application_detach (vnet_app_detach_args_t * a)
+session_error_t
+vnet_application_detach (vnet_app_detach_args_t *a)
 {
   application_t *app;
 
@@ -1225,7 +1288,7 @@ vnet_application_detach (vnet_app_detach_args_t * a)
   if (!app)
     {
       clib_warning ("app not attached");
-      return VNET_API_ERROR_APPLICATION_NOT_ATTACHED;
+      return SESSION_E_NOAPP;
     }
 
   app_interface_check_thread_and_barrier (vnet_application_detach, a);
@@ -1299,8 +1362,8 @@ session_endpoint_update_for_app (session_endpoint_cfg_t * sep,
     }
 }
 
-int
-vnet_listen (vnet_listen_args_t * a)
+session_error_t
+vnet_listen (vnet_listen_args_t *a)
 {
   app_listener_t *app_listener;
   app_worker_t *app_wrk;
@@ -1353,8 +1416,8 @@ vnet_listen (vnet_listen_args_t * a)
   return 0;
 }
 
-int
-vnet_connect (vnet_connect_args_t * a)
+session_error_t
+vnet_connect (vnet_connect_args_t *a)
 {
   app_worker_t *client_wrk;
   application_t *client;
@@ -1377,10 +1440,10 @@ vnet_connect (vnet_connect_args_t * a)
    */
   if (application_has_local_scope (client))
     {
-      int rv;
+      session_error_t rv;
 
       a->sep_ext.original_tp = a->sep_ext.transport_proto;
-      a->sep_ext.transport_proto = TRANSPORT_PROTO_NONE;
+      a->sep_ext.transport_proto = TRANSPORT_PROTO_CT;
       rv = app_worker_connect_session (client_wrk, &a->sep_ext, &a->sh);
       a->sep_ext.transport_proto = a->sep_ext.original_tp;
       if (!rv || rv != SESSION_E_LOCAL_CONNECT)
@@ -1392,8 +1455,27 @@ vnet_connect (vnet_connect_args_t * a)
   return app_worker_connect_session (client_wrk, &a->sep_ext, &a->sh);
 }
 
-int
-vnet_unlisten (vnet_unlisten_args_t * a)
+session_error_t
+vnet_connect_stream (vnet_connect_args_t *a)
+{
+  app_worker_t *client_wrk;
+  application_t *client;
+
+  /* stream must be opened on same thread as parent connection */
+  ASSERT (a->sep_ext.parent_handle != SESSION_INVALID_HANDLE);
+  ASSERT (vlib_get_thread_index () ==
+	  session_thread_from_handle (a->sep_ext.parent_handle));
+
+  a->sep_ext.opaque = a->api_context;
+
+  client = application_get (a->app_index);
+  client_wrk = application_get_worker (client, a->wrk_map_index);
+
+  return app_worker_connect_stream (client_wrk, &a->sep_ext, &a->sh);
+}
+
+session_error_t
+vnet_unlisten (vnet_unlisten_args_t *a)
 {
   app_worker_t *app_wrk;
   app_listener_t *al;
@@ -1423,7 +1505,7 @@ vnet_unlisten (vnet_unlisten_args_t * a)
   return app_worker_stop_listen (app_wrk, al);
 }
 
-int
+session_error_t
 vnet_shutdown_session (vnet_shutdown_args_t *a)
 {
   app_worker_t *app_wrk;
@@ -1444,8 +1526,8 @@ vnet_shutdown_session (vnet_shutdown_args_t *a)
   return 0;
 }
 
-int
-vnet_disconnect_session (vnet_disconnect_args_t * a)
+session_error_t
+vnet_disconnect_session (vnet_disconnect_args_t *a)
 {
   app_worker_t *app_wrk;
   session_t *s;
@@ -1485,7 +1567,7 @@ application_change_listener_owner (session_t * s, app_worker_t * app_wrk)
   if (!app)
     return SESSION_E_NOAPP;
 
-  app_listener = app_listener_get (app, s->al_index);
+  app_listener = app_listener_get (s->al_index);
 
   /* Only remove from lb for now */
   app_listener->workers = clib_bitmap_set (app_listener->workers,
@@ -1527,6 +1609,12 @@ u8
 application_has_global_scope (application_t * app)
 {
   return app->flags & APP_OPTIONS_FLAGS_USE_GLOBAL_SCOPE;
+}
+
+int
+application_original_dst_is_enabled (application_t *app)
+{
+  return app->flags & APP_OPTIONS_FLAGS_GET_ORIGINAL_DST;
 }
 
 static clib_error_t *
@@ -1674,10 +1762,11 @@ application_get_segment_manager_properties (u32 app_index)
   return &app->sm_properties;
 }
 
-static void
-application_format_listeners (application_t * app, int verbose)
+static u8 *
+format_app_listeners (u8 *s, va_list *args)
 {
-  vlib_main_t *vm = vlib_get_main ();
+  application_t *app = va_arg (*args, application_t *);
+  int verbose = va_arg (*args, int);
   app_worker_map_t *wrk_map;
   app_worker_t *app_wrk;
   u32 sm_index;
@@ -1685,22 +1774,22 @@ application_format_listeners (application_t * app, int verbose)
 
   if (!app)
     {
-      vlib_cli_output (vm, "%U", format_app_worker_listener, NULL /* header */,
-		       0, 0, verbose);
-      return;
+      s = format (s, "%U\n", format_app_worker_listener, NULL /* header */, 0,
+		  0, verbose);
+      return s;
     }
 
-  /* *INDENT-OFF* */
   pool_foreach (wrk_map, app->worker_maps)  {
     app_wrk = app_worker_get (wrk_map->wrk_index);
     if (hash_elts (app_wrk->listeners_table) == 0)
       continue;
     hash_foreach (handle, sm_index, app_wrk->listeners_table, ({
-      vlib_cli_output (vm, "%U", format_app_worker_listener, app_wrk,
-                       handle, sm_index, verbose);
-    }));
+		    s = format (s, "%U\n", format_app_worker_listener, app_wrk,
+				handle, sm_index, verbose);
+		  }));
   }
-  /* *INDENT-ON* */
+
+  return s;
 }
 
 static void
@@ -1715,87 +1804,22 @@ application_format_connects (application_t * app, int verbose)
       return;
     }
 
-  /* *INDENT-OFF* */
   pool_foreach (wrk_map, app->worker_maps)  {
     app_wrk = app_worker_get (wrk_map->wrk_index);
     app_worker_format_connects (app_wrk, verbose);
   }
-  /* *INDENT-ON* */
-}
-
-u8 *
-format_cert_key_pair (u8 * s, va_list * args)
-{
-  app_cert_key_pair_t *ckpair = va_arg (*args, app_cert_key_pair_t *);
-  int key_len = 0, cert_len = 0;
-  cert_len = vec_len (ckpair->cert);
-  key_len = vec_len (ckpair->key);
-  if (ckpair->cert_key_index == 0)
-    s = format (s, "DEFAULT (cert:%d, key:%d)", cert_len, key_len);
-  else
-    s = format (s, "%d (cert:%d, key:%d)", ckpair->cert_key_index,
-		cert_len, key_len);
-  return s;
-}
-
-u8 *
-format_crypto_engine (u8 * s, va_list * args)
-{
-  u32 engine = va_arg (*args, u32);
-  switch (engine)
-    {
-    case CRYPTO_ENGINE_NONE:
-      return format (s, "none");
-    case CRYPTO_ENGINE_MBEDTLS:
-      return format (s, "mbedtls");
-    case CRYPTO_ENGINE_OPENSSL:
-      return format (s, "openssl");
-    case CRYPTO_ENGINE_PICOTLS:
-      return format (s, "picotls");
-    case CRYPTO_ENGINE_VPP:
-      return format (s, "vpp");
-    default:
-      return format (s, "unknown engine");
-    }
-  return s;
-}
-
-uword
-unformat_crypto_engine (unformat_input_t * input, va_list * args)
-{
-  u8 *a = va_arg (*args, u8 *);
-  if (unformat (input, "mbedtls"))
-    *a = CRYPTO_ENGINE_MBEDTLS;
-  else if (unformat (input, "openssl"))
-    *a = CRYPTO_ENGINE_OPENSSL;
-  else if (unformat (input, "picotls"))
-    *a = CRYPTO_ENGINE_PICOTLS;
-  else if (unformat (input, "vpp"))
-    *a = CRYPTO_ENGINE_VPP;
-  else
-    return 0;
-  return 1;
-}
-
-u8 *
-format_crypto_context (u8 * s, va_list * args)
-{
-  crypto_context_t *crctx = va_arg (*args, crypto_context_t *);
-  s = format (s, "[0x%x][sub%d,ckpair%x]", crctx->ctx_index,
-	      crctx->n_subscribers, crctx->ckpair_index);
-  s = format (s, "[%U]", format_crypto_engine, crctx->crypto_engine);
-  return s;
 }
 
 u8 *
 format_application (u8 * s, va_list * args)
 {
   application_t *app = va_arg (*args, application_t *);
-  CLIB_UNUSED (int verbose) = va_arg (*args, int);
+  int verbose = va_arg (*args, int);
   segment_manager_props_t *props;
   const u8 *app_ns_name, *app_name;
   app_worker_map_t *wrk_map;
   app_worker_t *app_wrk;
+  u32 indent = 2;
 
   if (app == 0)
     {
@@ -1817,24 +1841,35 @@ format_application (u8 * s, va_list * args)
   s = format (s, "app-name %v app-index %u ns-index %u seg-size %U\n",
 	      app_name, app->app_index, app->ns_index,
 	      format_memory_size, props->add_segment_size);
-  s = format (s, "rx-fifo-size %U tx-fifo-size %U workers:\n",
-	      format_memory_size, props->rx_fifo_size,
-	      format_memory_size, props->tx_fifo_size);
+  s =
+    format (s, "rx-fifo-size %U tx-fifo-size %U max-fifo-memory %U workers:\n",
+	    format_memory_size, props->rx_fifo_size, format_memory_size,
+	    props->tx_fifo_size, format_memory_size,
+	    props->max_segments * props->segment_size);
 
-  /* *INDENT-OFF* */
   pool_foreach (wrk_map, app->worker_maps)  {
       app_wrk = app_worker_get (wrk_map->wrk_index);
-      s = format (s, "%U", format_app_worker, app_wrk);
-  }
-  /* *INDENT-ON* */
+      if (verbose > 1)
+	s = format (s, "\n");
+      s = format (s, "%U%U", format_white_space, indent, format_app_worker,
+		  app_wrk, verbose);
+    }
 
   return s;
 }
 
 void
-application_format_all_listeners (vlib_main_t * vm, int verbose)
+application_format_listeners (vlib_main_t *vm, application_t *req_app,
+			      int verbose)
 {
   application_t *app;
+
+  if (req_app)
+    {
+      vlib_cli_output (vm, "%U", format_app_listeners, 0, verbose);
+      vlib_cli_output (vm, "%U", format_app_listeners, req_app, verbose);
+      return;
+    }
 
   if (!pool_elts (app_main.app_pool))
     {
@@ -1842,13 +1877,10 @@ application_format_all_listeners (vlib_main_t * vm, int verbose)
       return;
     }
 
-  application_format_listeners (0, verbose);
-
-  /* *INDENT-OFF* */
+  vlib_cli_output (vm, "%U", format_app_listeners, 0, verbose);
   pool_foreach (app, app_main.app_pool)  {
-    application_format_listeners (app, verbose);
+      vlib_cli_output (vm, "%U", format_app_listeners, app, verbose);
   }
-  /* *INDENT-ON* */
 }
 
 void
@@ -1864,54 +1896,43 @@ application_format_all_clients (vlib_main_t * vm, int verbose)
 
   application_format_connects (0, verbose);
 
-  /* *INDENT-OFF* */
   pool_foreach (app, app_main.app_pool)  {
     application_format_connects (app, verbose);
   }
-  /* *INDENT-ON* */
 }
 
-static clib_error_t *
-show_certificate_command_fn (vlib_main_t * vm, unformat_input_t * input,
-			     vlib_cli_command_t * cmd)
+static u8 *
+format_app_mq (u8 *s, va_list *args)
 {
-  app_cert_key_pair_t *ckpair;
-  session_cli_return_if_not_enabled ();
-
-  /* *INDENT-OFF* */
-  pool_foreach (ckpair, app_main.cert_key_pair_store)  {
-    vlib_cli_output (vm, "%U", format_cert_key_pair, ckpair);
-  }
-  /* *INDENT-ON* */
-  return 0;
-}
-
-static inline void
-appliction_format_app_mq (vlib_main_t * vm, application_t * app)
-{
+  application_t *app = va_arg (*args, application_t *);
   app_worker_map_t *map;
   app_worker_t *wrk;
   int i;
 
-  /* *INDENT-OFF* */
   pool_foreach (map, app->worker_maps)  {
     wrk = app_worker_get (map->wrk_index);
-    vlib_cli_output (vm, "[A%d][%d]%U", app->app_index,
-		     map->wrk_index, format_svm_msg_q,
-		     wrk->event_queue);
+    s = format (s, "[A%d][%d]%U", app->app_index, map->wrk_index,
+		format_svm_msg_q, wrk->event_queue);
   }
-  /* *INDENT-ON* */
 
   for (i = 0; i < vec_len (app->rx_mqs); i++)
-    vlib_cli_output (vm, "[A%d][R%d]%U", app->app_index, i, format_svm_msg_q,
-		     app->rx_mqs[i].mq);
+  s = format (s, "[A%d][R%d]%U", app->app_index, i, format_svm_msg_q,
+	      app->rx_mqs[i].mq);
+
+  return s;
 }
 
 static clib_error_t *
-appliction_format_all_app_mq (vlib_main_t * vm)
+application_format_mqs (vlib_main_t *vm, application_t *req_app)
 {
   application_t *app;
   int i, n_threads;
+
+  if (req_app)
+  {
+    vlib_cli_output (vm, "%U", format_app_mq, req_app);
+    return 0;
+  }
 
   n_threads = vlib_get_n_threads ();
 
@@ -1921,12 +1942,24 @@ appliction_format_all_app_mq (vlib_main_t * vm)
 		       session_main_get_vpp_event_queue (i));
     }
 
-  /* *INDENT-OFF* */
-  pool_foreach (app, app_main.app_pool)  {
-      appliction_format_app_mq (vm, app);
-  }
-  /* *INDENT-ON* */
+  pool_foreach (app, app_main.app_pool)
+    {
+      vlib_cli_output (vm, "%U", format_app_mq, app);
+    }
   return 0;
+}
+
+uword
+unformat_app_index (unformat_input_t *input, va_list *args)
+{
+  u32 *app_index = va_arg (*args, u32 *);
+  app_main_t *am = &app_main;
+
+  if (unformat (input, "%d", app_index))
+    return 1;
+
+  return unformat_user (input, unformat_hash_vec_string, am->app_by_name,
+			app_index);
 }
 
 static clib_error_t *
@@ -1934,7 +1967,7 @@ show_app_command_fn (vlib_main_t * vm, unformat_input_t * input,
 		     vlib_cli_command_t * cmd)
 {
   int do_server = 0, do_client = 0, do_mq = 0, do_transports = 0;
-  application_t *app;
+  application_t *app = 0;
   u32 app_index = ~0;
   int verbose = 0;
   u8 is_ta;
@@ -1945,40 +1978,39 @@ show_app_command_fn (vlib_main_t * vm, unformat_input_t * input,
     {
       if (unformat (input, "server"))
 	do_server = 1;
+      else if (unformat (input, "listeners"))
+	do_server = 1;
       else if (unformat (input, "client"))
 	do_client = 1;
       else if (unformat (input, "transports"))
 	do_transports = 1;
       else if (unformat (input, "mq"))
 	do_mq = 1;
-      else if (unformat (input, "%u", &app_index))
-	;
       else if (unformat (input, "verbose"))
 	verbose = 1;
+      else if (unformat (input, "%U", unformat_app_index, &app_index))
+	;
       else
 	return clib_error_return (0, "unknown input `%U'",
 				  format_unformat_error, input);
     }
 
-  if (do_mq && app_index != ~0)
+  if (app_index != ~0)
     {
       app = application_get_if_valid (app_index);
       if (!app)
 	return clib_error_return (0, "No app with index %u", app_index);
-
-      appliction_format_app_mq (vm, app);
-      return 0;
     }
 
   if (do_mq)
     {
-      appliction_format_all_app_mq (vm);
+      application_format_mqs (vm, app);
       return 0;
     }
 
   if (do_server)
     {
-      application_format_all_listeners (vm, verbose);
+      application_format_listeners (vm, app, verbose);
       return 0;
     }
 
@@ -1988,13 +2020,9 @@ show_app_command_fn (vlib_main_t * vm, unformat_input_t * input,
       return 0;
     }
 
-  if (app_index != ~0)
+  if (app)
     {
-      app = application_get_if_valid (app_index);
-      if (!app)
-	return clib_error_return (0, "No app with index %u", app_index);
-
-      vlib_cli_output (vm, "%U", format_application, app, /* verbose */ 1);
+      vlib_cli_output (vm, "%U", format_application, app, ++verbose);
       return 0;
     }
 
@@ -2012,85 +2040,6 @@ show_app_command_fn (vlib_main_t * vm, unformat_input_t * input,
   return 0;
 }
 
-/* Certificate store */
-
-static app_cert_key_pair_t *
-app_cert_key_pair_alloc ()
-{
-  app_cert_key_pair_t *ckpair;
-  pool_get (app_main.cert_key_pair_store, ckpair);
-  clib_memset (ckpair, 0, sizeof (*ckpair));
-  ckpair->cert_key_index = ckpair - app_main.cert_key_pair_store;
-  return ckpair;
-}
-
-app_cert_key_pair_t *
-app_cert_key_pair_get_if_valid (u32 index)
-{
-  if (pool_is_free_index (app_main.cert_key_pair_store, index))
-    return 0;
-  return app_cert_key_pair_get (index);
-}
-
-app_cert_key_pair_t *
-app_cert_key_pair_get (u32 index)
-{
-  return pool_elt_at_index (app_main.cert_key_pair_store, index);
-}
-
-app_cert_key_pair_t *
-app_cert_key_pair_get_default ()
-{
-  /* To maintain legacy bapi */
-  return app_cert_key_pair_get (0);
-}
-
-int
-vnet_app_add_cert_key_pair (vnet_app_add_cert_key_pair_args_t * a)
-{
-  app_cert_key_pair_t *ckpair = app_cert_key_pair_alloc ();
-  vec_validate (ckpair->cert, a->cert_len - 1);
-  clib_memcpy_fast (ckpair->cert, a->cert, a->cert_len);
-  vec_validate (ckpair->key, a->key_len - 1);
-  clib_memcpy_fast (ckpair->key, a->key, a->key_len);
-  a->index = ckpair->cert_key_index;
-  return 0;
-}
-
-int
-vnet_app_add_cert_key_interest (u32 index, u32 app_index)
-{
-  app_cert_key_pair_t *ckpair;
-  if (!(ckpair = app_cert_key_pair_get_if_valid (index)))
-    return -1;
-  if (vec_search (ckpair->app_interests, app_index) != ~0)
-    vec_add1 (ckpair->app_interests, app_index);
-  return 0;
-}
-
-int
-vnet_app_del_cert_key_pair (u32 index)
-{
-  app_cert_key_pair_t *ckpair;
-  application_t *app;
-  u32 *app_index;
-
-  if (!(ckpair = app_cert_key_pair_get_if_valid (index)))
-    return (VNET_API_ERROR_INVALID_VALUE);
-
-  vec_foreach (app_index, ckpair->app_interests)
-  {
-    if ((app = application_get_if_valid (*app_index))
-	&& app->cb_fns.app_cert_key_pair_delete_callback)
-      app->cb_fns.app_cert_key_pair_delete_callback (ckpair);
-  }
-
-  vec_free (ckpair->cert);
-  vec_free (ckpair->key);
-  pool_put (app_main.cert_key_pair_store, ckpair);
-  return 0;
-}
-
 clib_error_t *
 application_init (vlib_main_t * vm)
 {
@@ -2098,13 +2047,10 @@ application_init (vlib_main_t * vm)
   u32 n_workers;
 
   n_workers = vlib_num_workers ();
-
-  /* Index 0 was originally used by legacy apis, maintain as invalid */
-  (void) app_cert_key_pair_alloc ();
-  am->last_crypto_engine = CRYPTO_ENGINE_LAST;
+  vec_validate (am->wrk, n_workers);
   am->app_by_name = hash_create_vec (0, sizeof (u8), sizeof (uword));
 
-  vec_validate (am->wrk, n_workers);
+  application_crypto_init ();
 
   return 0;
 }
@@ -2113,33 +2059,7 @@ VLIB_INIT_FUNCTION (application_init);
 
 VLIB_CLI_COMMAND (show_app_command, static) = {
   .path = "show app",
-  .short_help = "show app [index] [server|client] [mq] [verbose] "
+  .short_help = "show app [index] [listeners|client] [mq] [verbose] "
 		"[transports]",
   .function = show_app_command_fn,
 };
-
-VLIB_CLI_COMMAND (show_certificate_command, static) = {
-  .path = "show app certificate",
-  .short_help = "list app certs and keys present in store",
-  .function = show_certificate_command_fn,
-};
-
-crypto_engine_type_t
-app_crypto_engine_type_add (void)
-{
-  return (++app_main.last_crypto_engine);
-}
-
-u8
-app_crypto_engine_n_types (void)
-{
-  return (app_main.last_crypto_engine + 1);
-}
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,12 +1,12 @@
 """
-  Neighbour Entries
+Neighbour Entries
 
-  object abstractions for ARP and ND
+object abstractions for ARP and ND
 """
 
 from ipaddress import ip_address
 from vpp_object import VppObject
-from vpp_papi import mac_pton, VppEnum
+from vpp_papi import VppEnum
 
 try:
     text_type = unicode

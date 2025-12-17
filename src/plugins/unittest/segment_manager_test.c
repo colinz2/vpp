@@ -79,7 +79,6 @@ placeholder_server_rx_callback (session_t * s)
   return -1;
 }
 
-/* *INDENT-OFF* */
 static session_cb_vft_t placeholder_session_cbs = {
   .session_reset_callback = placeholder_session_reset_callback,
   .session_connected_callback = placeholder_session_connected_callback,
@@ -89,7 +88,6 @@ static session_cb_vft_t placeholder_session_cbs = {
   .add_segment_callback = placeholder_add_segment_callback,
   .del_segment_callback = placeholder_del_segment_callback,
 };
-/* *INDENT-ON* */
 
 static char *states_str[] = {
 #define _(sym,str) str,
@@ -741,8 +739,11 @@ segment_manager_test (vlib_main_t * vm,
 		      unformat_input_t * input, vlib_cli_command_t * cmd_arg)
 {
   int res = 0;
+  session_enable_disable_args_t args = { .is_en = 1,
+					 .rt_engine_type =
+					   RT_BACKEND_ENGINE_RULE_TABLE };
 
-  vnet_session_enable_disable (vm, 1);
+  vnet_session_enable_disable (vm, &args);
 
   while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
     {
@@ -776,19 +777,9 @@ done:
   return 0;
 }
 
-/* *INDENT-OFF* */
-VLIB_CLI_COMMAND (tcp_test_command, static) =
-{
+VLIB_CLI_COMMAND (tcp_test_command, static) = {
   .path = "test segment-manager",
   .short_help = "test segment manager [pressure_levels_1]"
-                "[pressure_level_2][alloc][fifo_ops][prealloc_hdrs][all]",
+		"[pressure_level_2][alloc][fifo_ops][prealloc_hdrs][all]",
   .function = segment_manager_test,
 };
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

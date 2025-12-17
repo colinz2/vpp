@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <stdint.h>
@@ -670,7 +660,6 @@ VLIB_NODE_FN (ip4_policer_classify_node) (vlib_main_t * vm,
 				  POLICER_CLASSIFY_TABLE_IP4);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip4_policer_classify_node) = {
   .name = "ip4-policer-classify",
   .vector_size = sizeof (u32),
@@ -682,7 +671,6 @@ VLIB_REGISTER_NODE (ip4_policer_classify_node) = {
     [POLICER_CLASSIFY_NEXT_INDEX_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 VLIB_NODE_FN (ip6_policer_classify_node) (vlib_main_t * vm,
 					  vlib_node_runtime_t * node,
@@ -692,7 +680,6 @@ VLIB_NODE_FN (ip6_policer_classify_node) (vlib_main_t * vm,
 				  POLICER_CLASSIFY_TABLE_IP6);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_policer_classify_node) = {
   .name = "ip6-policer-classify",
   .vector_size = sizeof (u32),
@@ -704,7 +691,6 @@ VLIB_REGISTER_NODE (ip6_policer_classify_node) = {
     [POLICER_CLASSIFY_NEXT_INDEX_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 VLIB_NODE_FN (l2_policer_classify_node) (vlib_main_t * vm,
 					 vlib_node_runtime_t * node,
@@ -713,7 +699,6 @@ VLIB_NODE_FN (l2_policer_classify_node) (vlib_main_t * vm,
   return policer_classify_inline (vm, node, frame, POLICER_CLASSIFY_TABLE_L2);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (l2_policer_classify_node) = {
   .name = "l2-policer-classify",
   .vector_size = sizeof (u32),
@@ -725,7 +710,6 @@ VLIB_REGISTER_NODE (l2_policer_classify_node) = {
     [POLICER_CLASSIFY_NEXT_INDEX_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 #ifndef CLIB_MARCH_VARIANT
 static clib_error_t *
@@ -749,11 +733,3 @@ policer_classify_init (vlib_main_t * vm)
 
 VLIB_INIT_FUNCTION (policer_classify_init);
 #endif /* CLIB_MARCH_VARIANT */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

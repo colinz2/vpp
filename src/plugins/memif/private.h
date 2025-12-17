@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <vppinfra/lock.h>
@@ -76,7 +63,7 @@
 #define memif_file_del(a)                                                     \
   do                                                                          \
     {                                                                         \
-      memif_log_debug (0, "clib_file_del idx %u", a - file_main.file_pool);   \
+      memif_log_debug (0, "clib_file_del idx %u", (a)->index);                \
       clib_file_del (&file_main, a);                                          \
     }                                                                         \
   while (0)
@@ -149,6 +136,11 @@ typedef struct
   u16 dma_info_tail;
   u16 dma_info_size;
   u8 dma_info_full;
+
+  /* packets received or sent */
+  u64 n_packets;
+  u64 no_free_tx;
+  u32 max_no_free_tx;
 
   /* interrupts */
   int int_fd;
@@ -386,11 +378,3 @@ clib_error_t *memif_msg_send_disconnect (memif_if_t * mif,
 u8 *format_memif_device_name (u8 * s, va_list * args);
 void memif_dma_completion_cb (vlib_main_t *vm, vlib_dma_batch_t *b);
 void memif_tx_dma_completion_cb (vlib_main_t *vm, vlib_dma_batch_t *b);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

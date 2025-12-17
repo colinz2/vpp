@@ -1,19 +1,8 @@
-/*
- * l2_fwd.c : layer 2 forwarding using l2fib
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2013 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* l2_fwd.c : layer 2 forwarding using l2fib */
 
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
@@ -288,7 +277,6 @@ l2fwd_node_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
 #ifdef COUNTERS
       em->counters[node_counter_base_index + L2FWD_ERROR_L2FWD] += 4;
 #endif
-      /* *INDENT-OFF* */
       l2fib_lookup_4 (msm->mac_table, &cached_key, &cached_result,
                       h0->dst_address, h1->dst_address,
                       h2->dst_address, h3->dst_address,
@@ -304,7 +292,6 @@ l2fwd_node_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
                       &result1,
                       &result2,
                       &result3);
-      /* *INDENT-ON* */
       l2fwd_process (vm, node, msm, em, b[0], sw_if_index0, &result0, next);
       l2fwd_process (vm, node, msm, em, b[1], sw_if_index1, &result1,
 		     next + 1);
@@ -414,7 +401,6 @@ VLIB_NODE_FN (l2fwd_node) (vlib_main_t * vm,
   return l2fwd_node_inline (vm, node, frame, 0 /* do_trace */ );
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (l2fwd_node) = {
   .name = "l2-fwd",
   .vector_size = sizeof (u32),
@@ -432,7 +418,6 @@ VLIB_REGISTER_NODE (l2fwd_node) = {
     [L2FWD_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 #ifndef CLIB_MARCH_VARIANT
 clib_error_t *
@@ -527,20 +512,10 @@ done:
  * Example of how to disable forwarding:
  * @cliexcmd{set interface l2 forward GigabitEthernet0/8/0 disable}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (int_fwd_cli, static) = {
   .path = "set interface l2 forward",
   .short_help = "set interface l2 forward <interface> [disable]",
   .function = int_fwd,
 };
-/* *INDENT-ON* */
 
 #endif
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

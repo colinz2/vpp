@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * lisp_gpe_api.c - lisp_gpe api
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * lisp_gpe_api.c - lisp_gpe api
  */
 
 #include <vnet/vnet.h>
@@ -212,7 +201,6 @@ vl_api_gpe_fwd_entry_vnis_get_t_handler (vl_api_gpe_fwd_entry_vnis_get_t * mp)
   u32 *vnis = vnet_lisp_gpe_get_fwd_entry_vnis ();
   u32 size = hash_elts (vnis) * sizeof (u32);
 
-  /* *INDENT-OFF* */
   REPLY_MACRO4 (VL_API_GPE_FWD_ENTRY_VNIS_GET_REPLY, size,
   {
     rmp->count = clib_host_to_net_u32 (hash_elts (vnis));
@@ -221,7 +209,6 @@ vl_api_gpe_fwd_entry_vnis_get_t_handler (vl_api_gpe_fwd_entry_vnis_get_t * mp)
       rmp->vnis[i++] = clib_host_to_net_u32 (p->key);
     }));
   });
-  /* *INDENT-ON* */
 
   hash_free (vnis);
 }
@@ -239,14 +226,12 @@ vl_api_gpe_fwd_entries_get_t_handler (vl_api_gpe_fwd_entries_get_t * mp)
   e = vnet_lisp_gpe_fwd_entries_get_by_vni (mp->vni);
   size = vec_len (e) * sizeof (vl_api_gpe_fwd_entry_t);
 
-  /* *INDENT-OFF* */
   REPLY_MACRO4 (VL_API_GPE_FWD_ENTRIES_GET_REPLY, size,
   {
     rmp->count = vec_len (e);
     gpe_fwd_entries_copy (rmp->entries, e);
     gpe_fwd_entries_get_reply_t_host_to_net (rmp);
   });
-  /* *INDENT-ON* */
 
   vec_free (e);
 }
@@ -294,12 +279,10 @@ vl_api_gpe_add_del_fwd_entry_t_handler (vl_api_gpe_add_del_fwd_entry_t * mp)
   rv = vnet_lisp_gpe_add_del_fwd_entry (a, 0);
   vec_free (pairs);
 send_reply:
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_GPE_ADD_DEL_FWD_ENTRY_REPLY,
   {
     rmp->fwd_entry_index = clib_host_to_net_u32 (a->fwd_entry_index);
   });
-  /* *INDENT-ON* */
 }
 
 static void
@@ -365,12 +348,10 @@ vl_api_gpe_get_encap_mode_t_handler (vl_api_gpe_get_encap_mode_t * mp)
   vl_api_gpe_get_encap_mode_reply_t *rmp;
   int rv = 0;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_GPE_GET_ENCAP_MODE_REPLY,
   ({
     rmp->encap_mode = vnet_gpe_get_encap_mode ();
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -464,7 +445,6 @@ vl_api_gpe_native_fwd_rpaths_get_t_handler (vl_api_gpe_native_fwd_rpaths_get_t
   size = vec_len (lgm->native_fwd_rpath[rpath_index])
     * sizeof (vl_api_gpe_native_fwd_rpath_t);
 
-  /* *INDENT-OFF* */
   REPLY_MACRO4 (VL_API_GPE_NATIVE_FWD_RPATHS_GET_REPLY, size,
   {
     rmp->count = vec_len (lgm->native_fwd_rpath[rpath_index]);
@@ -472,7 +452,6 @@ vl_api_gpe_native_fwd_rpaths_get_t_handler (vl_api_gpe_native_fwd_rpaths_get_t
 				lgm->native_fwd_rpath[rpath_index]);
     gpe_native_fwd_rpaths_get_reply_t_host_to_net (rmp);
   });
-  /* *INDENT-ON* */
 }
 
 /*
@@ -496,11 +475,3 @@ gpe_api_hookup (vlib_main_t * vm)
 }
 
 VLIB_API_INIT_FUNCTION (gpe_api_hookup);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

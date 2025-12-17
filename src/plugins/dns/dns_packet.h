@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef included_dns_packet_h
@@ -20,7 +10,6 @@
  * DNS packet header format
  */
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   u16 id;                       /**< transaction ID */
   u16 flags;                    /**< flags  */
@@ -29,7 +18,6 @@ typedef CLIB_PACKED (struct {
   u16 nscount;                  /**< number of name servers */
   u16 arcount;                  /**< number of additional records */
 }) dns_header_t;
-/* *INDENT-ON* */
 
 #define DNS_RCODE_MASK (0xf)
 #define DNS_RCODE_NO_ERROR 0
@@ -99,17 +87,14 @@ typedef CLIB_PACKED (struct {
 /**
  * DNS "question" fixed header.
  */
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   u16 type;	/**< record type requested */
   u16 class;	/**< class, 1 = internet */
 }) dns_query_t;
-/* *INDENT-ON* */
 
 /**
  * DNS RR fixed header.
  */
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   u16 type;	/**< record type */
   u16 class;	/**< class, 1 = internet */
@@ -118,7 +103,6 @@ typedef CLIB_PACKED (struct {
   /**< length of r */
   u8 rdata[0];
 }) dns_rr_t;
-/* *INDENT-ON* */
 
 /*
  * There are quite a number of DNS record types
@@ -144,13 +128,4 @@ typedef enum
 
 #define DNS_CLASS_IN	1	/**< The Internet */
 
-
 #endif /* included_dns_packet_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

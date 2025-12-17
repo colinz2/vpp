@@ -1,18 +1,6 @@
 /*
- *------------------------------------------------------------------
- * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2018-2025 Cisco and/or its affiliates.
  */
 #include <vlib/vlib.h>
 #include <vlib/unix/unix.h>
@@ -28,21 +16,25 @@ virtio_pci_create_command_fn (vlib_main_t * vm, unformat_input_t * input,
 			      vlib_cli_command_t * cmd)
 {
   unformat_input_t _line_input, *line_input = &_line_input;
-  virtio_pci_create_if_args_t args;
+  virtio_pci_create_if_args_t args = {};
   u64 feature_mask = (u64) ~ (0ULL);
   u32 buffering_size = 0;
+  u32 txq_size = 0;
 
   /* Get a line of input. */
   if (!unformat_user (input, unformat_line_input, line_input))
     return 0;
 
-  memset (&args, 0, sizeof (args));
   while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
     {
       if (unformat (line_input, "%U", unformat_vlib_pci_addr, &args.addr))
 	;
+      else if (unformat (line_input, "if-name %s", &args.if_name))
+	;
       else if (unformat (line_input, "feature-mask 0x%llx", &feature_mask))
 	args.features = feature_mask;
+      else if (unformat (line_input, "tx-queue-size %u", &txq_size))
+	args.tx_queue_size = txq_size;
       else if (unformat (line_input, "gso-enabled"))
 	args.gso_enabled = 1;
       else if (unformat (line_input, "csum-enabled"))
@@ -59,6 +51,10 @@ virtio_pci_create_command_fn (vlib_main_t * vm, unformat_input_t * input,
 	args.bind = VIRTIO_BIND_FORCE;
       else if (unformat (line_input, "bind"))
 	args.bind = VIRTIO_BIND_DEFAULT;
+      else if (unformat (line_input, "rss-enabled"))
+	args.rss_enabled = 1;
+      else if (unformat (line_input, "consistent-qp"))
+	args.virtio_flags |= VIRTIO_FLAG_CONSISTENT_QP;
       else
 	return clib_error_return (0, "unknown input `%U'",
 				  format_unformat_error, input);
@@ -67,18 +63,19 @@ virtio_pci_create_command_fn (vlib_main_t * vm, unformat_input_t * input,
 
   virtio_pci_create_if (vm, &args);
 
+  vec_free (args.if_name);
+
   return args.error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (virtio_pci_create_command, static) = {
   .path = "create interface virtio",
-  .short_help = "create interface virtio <pci-address> "
-		"[feature-mask <hex-mask>] [gso-enabled] [csum-enabled] "
+  .short_help = "create interface virtio <pci-address> [if-name <if-name>] "
+		"[feature-mask <hex-mask>] [tx-queue-size <size>] "
+		"[gso-enabled] [csum-enabled] [rss-enabled] "
 		"[buffering [size <buffering-szie>]] [packed] [bind [force]]",
   .function = virtio_pci_create_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 virtio_pci_delete_command_fn (vlib_main_t * vm, unformat_input_t * input,
@@ -124,14 +121,12 @@ virtio_pci_delete_command_fn (vlib_main_t * vm, unformat_input_t * input,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (virtio_pci_delete_command, static) = {
   .path = "delete interface virtio",
   .short_help = "delete interface virtio "
     "{<interface> | sw_if_index <sw_idx>}",
   .function = virtio_pci_delete_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 virtio_pci_enable_command_fn (vlib_main_t * vm, unformat_input_t * input,
@@ -186,14 +181,12 @@ virtio_pci_enable_command_fn (vlib_main_t * vm, unformat_input_t * input,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (virtio_pci_enable_command, static) = {
   .path = "set virtio pci",
   .short_help = "set virtio pci {<interface> | sw_if_index <sw_idx>}"
                 " [gso-enabled | csum-offload-enabled | offloads-disabled]",
   .function = virtio_pci_enable_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 show_virtio_pci_fn (vlib_main_t * vm, unformat_input_t * input,
@@ -205,7 +198,7 @@ show_virtio_pci_fn (vlib_main_t * vm, unformat_input_t * input,
   clib_error_t *error = 0;
   u32 hw_if_index, *hw_if_indices = 0;
   vnet_hw_interface_t *hi;
-  u8 show_descr = 0, show_device_config = 0;
+  u8 show_descr = 0;
 
   while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
     {
@@ -223,8 +216,6 @@ show_virtio_pci_fn (vlib_main_t * vm, unformat_input_t * input,
 	}
       else if (unformat (input, "descriptors") || unformat (input, "desc"))
 	show_descr = 1;
-      else if (unformat (input, "debug-device"))
-	show_device_config = 1;
       else
 	{
 	  error = clib_error_return (0, "unknown input `%U'",
@@ -238,27 +229,19 @@ show_virtio_pci_fn (vlib_main_t * vm, unformat_input_t * input,
       pool_foreach (vif, vim->interfaces)
 	vec_add1 (hw_if_indices, vif->hw_if_index);
     }
-  else if (show_device_config)
-    {
-      vif = pool_elt_at_index (vim->interfaces, hi->dev_instance);
-      if (vif->type == VIRTIO_IF_TYPE_PCI)
-	vif->virtio_pci_func->device_debug_config_space (vm, vif);
-    }
 
-  virtio_show (vm, hw_if_indices, show_descr, VIRTIO_IF_TYPE_PCI);
+  virtio_show (vm, hw_if_indices, show_descr);
 
 done:
   vec_free (hw_if_indices);
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_virtio_pci_command, static) = {
   .path = "show virtio pci",
   .short_help = "show virtio pci [<interface>] [descriptors | desc] [debug-device]",
   .function = show_virtio_pci_fn,
 };
-/* *INDENT-ON* */
 
 clib_error_t *
 virtio_pci_cli_init (vlib_main_t * vm)
@@ -267,11 +250,3 @@ virtio_pci_cli_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (virtio_pci_cli_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <sys/socket.h>
@@ -32,7 +22,11 @@
 #define TELOPTS
 #endif
 
+#include <vppinfra/clib.h>
 #include <arpa/telnet.h>
+#ifndef STATIC_VPPCTL
+#include <vpp/vnet/config.h>
+#endif
 
 #define SOCKET_FILE "/run/vpp/cli.sock"
 
@@ -160,6 +154,14 @@ process_input (int sock_fd, unsigned char *rx_buf, int rx_buf_len,
   return j;
 }
 
+#if !defined(STATIC_VPPCTL) && defined(CLIB_SANITIZE_ADDR)
+/* default options for Address Sanitizer */
+const char *
+__asan_default_options (void)
+{
+  return VPP_SANITIZE_ADDR_OPTIONS;
+}
+#endif /* CLIB_SANITIZE_ADDR */
 
 int
 main (int argc, char *argv[])
@@ -291,17 +293,20 @@ main (int argc, char *argv[])
   efd = epoll_create1 (0);
 
   /* register STDIN */
-  event.events = EPOLLIN | EPOLLPRI | EPOLLERR;
-  event.data.fd = STDIN_FILENO;
-  if (epoll_ctl (efd, EPOLL_CTL_ADD, STDIN_FILENO, &event) != 0)
+  if (cmd == 0)
     {
-      /* ignore EPERM; it means stdin is something like /dev/null */
-      if (errno != EPERM)
+      event.events = EPOLLIN | EPOLLPRI | EPOLLERR;
+      event.data.fd = STDIN_FILENO;
+      if (epoll_ctl (efd, EPOLL_CTL_ADD, STDIN_FILENO, &event) != 0)
 	{
-	  error = errno;
-	  fprintf (stderr, "epoll_ctl[%d]", STDIN_FILENO);
-	  perror (0);
-	  goto done;
+	  /* ignore EPERM; it means stdin is something like /dev/null */
+	  if (errno != EPERM)
+	    {
+	      error = errno;
+	      fprintf (stderr, "epoll_ctl[%d]", STDIN_FILENO);
+	      perror (0);
+	      goto done;
+	    }
 	}
     }
 
@@ -341,7 +346,7 @@ main (int argc, char *argv[])
       if (n == 0)
 	continue;
 
-      if (event.data.fd == STDIN_FILENO)
+      if (event.data.fd == STDIN_FILENO && cmd == 0)
 	{
 	  int n;
 	  char c[100];
@@ -463,13 +468,3 @@ done:
 
   return 0;
 }
-
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,22 +1,11 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/fib/fib_table.h>
 #include <nat/lib/ipfix_logging.h>
 #include <nat/lib/nat_syslog.h>
-#include <nat/lib/inlines.h>
 #include <nat/nat64/nat64_db.h>
 
 int
@@ -54,13 +43,11 @@ nat64_db_free (nat64_db_t * db)
   clib_bihash_free_48_8 (&db->st.in2out);
   clib_bihash_free_48_8 (&db->st.out2in);
 
-/* *INDENT-OFF* */
 #define _(N, i, n, s) \
   pool_free (db->bib._##n##_bib); \
   pool_free (db->st._##n##_st);
   foreach_nat_protocol
 #undef _
-/* *INDENT-ON* */
 
   pool_free (db->bib._unk_proto_bib);
   pool_free (db->st._unk_proto_st);
@@ -82,14 +69,13 @@ nat64_db_bib_entry_create (u32 thread_index, nat64_db_t * db,
   if (db->bib.bib_entries_num >= db->bib.limit)
     {
       db->free_addr_port_cb (db, out_addr, out_port, proto);
-      //nat_ipfix_logging_max_bibs (thread_index, db->bib.limit);
+      nat_ipfix_logging_max_bibs (thread_index, db->bib.limit);
       return 0;
     }
 
   /* create pool entry */
   switch (ip_proto_to_nat_proto (proto))
     {
-/* *INDENT-OFF* */
 #define _(N, i, n, s) \
     case NAT_PROTOCOL_##N: \
       pool_get (db->bib._##n##_bib, bibe); \
@@ -97,7 +83,6 @@ nat64_db_bib_entry_create (u32 thread_index, nat64_db_t * db,
       break;
       foreach_nat_protocol
 #undef _
-/* *INDENT-ON* */
     default:
       pool_get (db->bib._unk_proto_bib, bibe);
       kv.value = bibe - db->bib._unk_proto_bib;
@@ -155,7 +140,6 @@ nat64_db_bib_entry_free (u32 thread_index, nat64_db_t * db,
 
   switch (ip_proto_to_nat_proto (bibe->proto))
     {
-/* *INDENT-OFF* */
 #define _(N, i, n, s) \
     case NAT_PROTOCOL_##N: \
       bib = db->bib._##n##_bib; \
@@ -163,7 +147,6 @@ nat64_db_bib_entry_free (u32 thread_index, nat64_db_t * db,
       break;
       foreach_nat_protocol
 #undef _
-/* *INDENT-ON* */
     default:
       bib = db->bib._unk_proto_bib;
       st = db->st._unk_proto_st;
@@ -232,14 +215,12 @@ nat64_db_bib_entry_find (nat64_db_t * db, ip46_address_t * addr, u16 port,
 
   switch (ip_proto_to_nat_proto (proto))
     {
-/* *INDENT-OFF* */
 #define _(N, i, n, s) \
     case NAT_PROTOCOL_##N: \
       bib = db->bib._##n##_bib; \
       break;
       foreach_nat_protocol
 #undef _
-/* *INDENT-ON* */
     default:
       bib = db->bib._unk_proto_bib;
       break;
@@ -271,7 +252,6 @@ nat64_db_bib_walk (nat64_db_t * db, u8 proto,
 
   if (proto == 255)
     {
-    /* *INDENT-OFF* */
     #define _(N, i, n, s) \
       bib = db->bib._##n##_bib; \
       pool_foreach (bibe, bib)  { \
@@ -285,32 +265,27 @@ nat64_db_bib_walk (nat64_db_t * db, u8 proto,
         if (fn (bibe, ctx))
           return;
       }
-    /* *INDENT-ON* */
     }
   else
     {
       switch (ip_proto_to_nat_proto (proto))
 	{
-    /* *INDENT-OFF* */
     #define _(N, i, n, s) \
         case NAT_PROTOCOL_##N: \
           bib = db->bib._##n##_bib; \
           break;
           foreach_nat_protocol
     #undef _
-    /* *INDENT-ON* */
 	default:
 	  bib = db->bib._unk_proto_bib;
 	  break;
 	}
 
-      /* *INDENT-OFF* */
       pool_foreach (bibe, bib)
        {
         if (fn (bibe, ctx))
           return;
       }
-      /* *INDENT-ON* */
     }
 }
 
@@ -321,14 +296,12 @@ nat64_db_bib_entry_by_index (nat64_db_t * db, u8 proto, u32 bibe_index)
 
   switch (ip_proto_to_nat_proto (proto))
     {
-/* *INDENT-OFF* */
 #define _(N, i, n, s) \
     case NAT_PROTOCOL_##N: \
       bib = db->bib._##n##_bib; \
       break;
       foreach_nat_protocol
 #undef _
-/* *INDENT-ON* */
     default:
       bib = db->bib._unk_proto_bib;
       break;
@@ -345,7 +318,6 @@ nat64_db_st_walk (nat64_db_t * db, u8 proto,
 
   if (proto == 255)
     {
-    /* *INDENT-OFF* */
     #define _(N, i, n, s) \
       st = db->st._##n##_st; \
       pool_foreach (ste, st)  { \
@@ -359,32 +331,27 @@ nat64_db_st_walk (nat64_db_t * db, u8 proto,
         if (fn (ste, ctx))
           return;
       }
-    /* *INDENT-ON* */
     }
   else
     {
       switch (ip_proto_to_nat_proto (proto))
 	{
-    /* *INDENT-OFF* */
     #define _(N, i, n, s) \
         case NAT_PROTOCOL_##N: \
           st = db->st._##n##_st; \
           break;
           foreach_nat_protocol
     #undef _
-    /* *INDENT-ON* */
 	default:
 	  st = db->st._unk_proto_st;
 	  break;
 	}
 
-      /* *INDENT-OFF* */
       pool_foreach (ste, st)
        {
         if (fn (ste, ctx))
           return;
       }
-      /* *INDENT-ON* */
     }
 }
 
@@ -401,14 +368,13 @@ nat64_db_st_entry_create (u32 thread_index, nat64_db_t * db,
 
   if (db->st.st_entries_num >= db->st.limit)
     {
-      //nat_ipfix_logging_max_sessions (thread_index, db->st.limit);
+      nat_ipfix_logging_max_sessions (thread_index, db->st.limit);
       return 0;
     }
 
   /* create pool entry */
   switch (ip_proto_to_nat_proto (bibe->proto))
     {
-/* *INDENT-OFF* */
 #define _(N, i, n, s) \
     case NAT_PROTOCOL_##N: \
       pool_get (db->st._##n##_st, ste); \
@@ -417,7 +383,6 @@ nat64_db_st_entry_create (u32 thread_index, nat64_db_t * db,
       break;
       foreach_nat_protocol
 #undef _
-/* *INDENT-ON* */
     default:
       pool_get (db->st._unk_proto_st, ste);
       kv.value = ste - db->st._unk_proto_st;
@@ -494,7 +459,6 @@ nat64_db_st_entry_free (u32 thread_index,
 
   switch (ip_proto_to_nat_proto (ste->proto))
     {
-/* *INDENT-OFF* */
 #define _(N, i, n, s) \
     case NAT_PROTOCOL_##N: \
       st = db->st._##n##_st; \
@@ -502,7 +466,6 @@ nat64_db_st_entry_free (u32 thread_index,
       break;
       foreach_nat_protocol
 #undef _
-/* *INDENT-ON* */
     default:
       st = db->st._unk_proto_st;
       bib = db->bib._unk_proto_bib;
@@ -579,14 +542,12 @@ nat64_db_st_entry_find (nat64_db_t * db, ip46_address_t * l_addr,
 
   switch (ip_proto_to_nat_proto (proto))
     {
-/* *INDENT-OFF* */
 #define _(N, i, n, s) \
     case NAT_PROTOCOL_##N: \
       st = db->st._##n##_st; \
       break;
       foreach_nat_protocol
 #undef _
-/* *INDENT-ON* */
     default:
       st = db->st._unk_proto_st;
       break;
@@ -622,14 +583,12 @@ nat64_db_st_entry_get_index (nat64_db_t * db, nat64_db_st_entry_t * ste)
 
   switch (ip_proto_to_nat_proto (ste->proto))
     {
-/* *INDENT-OFF* */
 #define _(N, i, n, s) \
     case NAT_PROTOCOL_##N: \
       st = db->st._##n##_st; \
       break;
       foreach_nat_protocol
 #undef _
-/* *INDENT-ON* */
     default:
       st = db->st._unk_proto_st;
       return (u32) ~ 0;
@@ -645,14 +604,12 @@ nat64_db_st_entry_by_index (nat64_db_t * db, u8 proto, u32 ste_index)
 
   switch (ip_proto_to_nat_proto (proto))
     {
-/* *INDENT-OFF* */
 #define _(N, i, n, s) \
     case NAT_PROTOCOL_##N: \
       st = db->st._##n##_st; \
       break;
       foreach_nat_protocol
 #undef _
-/* *INDENT-ON* */
     default:
       st = db->st._unk_proto_st;
       break;
@@ -667,7 +624,6 @@ nad64_db_st_free_expired (u32 thread_index, nat64_db_t * db, u32 now)
   u32 *ste_to_be_free = 0, *ste_index;
   nat64_db_st_entry_t *st, *ste;
 
-/* *INDENT-OFF* */
 #define _(N, i, n, s) \
   st = db->st._##n##_st; \
   pool_foreach (ste, st) {\
@@ -692,7 +648,6 @@ nad64_db_st_free_expired (u32 thread_index, nat64_db_t * db, u32 now)
     nat64_db_st_entry_free (thread_index, db,
                             pool_elt_at_index(st, ste_index[0]));
   vec_free (ste_to_be_free);
-/* *INDENT-ON* */
 }
 
 void
@@ -704,7 +659,6 @@ nat64_db_free_out_addr (u32 thread_index,
   nat64_db_bib_entry_t *bibe;
 
   db->addr_free = 1;
-/* *INDENT-OFF* */
 #define _(N, i, n, s) \
   st = db->st._##n##_st; \
   pool_foreach (ste, st) { \
@@ -730,13 +684,4 @@ nat64_db_free_out_addr (u32 thread_index,
                             pool_elt_at_index(st, ste_index[0]));
   vec_free (ste_to_be_free);
   db->addr_free = 0;
-/* *INDENT-ON* */
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

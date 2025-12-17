@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /**
  * @file
  * @brief NAT44 endpoint-dependent inside to outside network translation
@@ -155,7 +146,9 @@ nat_ed_alloc_addr_and_port (snat_main_t *sm, u32 rx_fib_index,
 {
   if (vec_len (sm->addresses) > 0)
     {
-      u32 s_addr_offset = s_addr.as_u32 % vec_len (sm->addresses);
+      u32 s_addr_offset = (s_addr.as_u32 + (s_addr.as_u32 >> 8) +
+			   (s_addr.as_u32 >> 16) + (s_addr.as_u32 >> 24)) %
+			  vec_len (sm->addresses);
       snat_address_t *a, *ja = 0, *ra = 0, *ba = 0;
       int i;
 
@@ -521,6 +514,7 @@ slow_path_ed (vlib_main_t *vm, snat_main_t *sm, vlib_buffer_t *b,
 	  nat_6t_flow_dport_rewrite_set (&s->o2i, l_port);
 	}
       nat_6t_flow_txfib_rewrite_set (&s->o2i, rx_fib_index);
+      nat_6t_flow_saddr_rewrite_set (&s->o2i, r_addr.as_u32);
 
       if (nat_ed_alloc_addr_and_port (
 	    sm, rx_fib_index, tx_sw_if_index, proto, thread_index, l_addr,
@@ -565,6 +559,7 @@ slow_path_ed (vlib_main_t *vm, snat_main_t *sm, vlib_buffer_t *b,
 	}
       nat_6t_flow_daddr_rewrite_set (&s->o2i, l_addr.as_u32);
       nat_6t_flow_txfib_rewrite_set (&s->o2i, rx_fib_index);
+      nat_6t_flow_saddr_rewrite_set (&s->o2i, r_addr.as_u32);
       if (nat_ed_ses_o2i_flow_hash_add_del (sm, thread_index, s, 2))
 	{
 	  nat_elog_notice (sm, "out2in key add failed");
@@ -1721,11 +1716,3 @@ VLIB_REGISTER_NODE (nat_pre_in2out_output_node) = {
   .type = VLIB_NODE_TYPE_INTERNAL,
   .n_errors = 0,
 };
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

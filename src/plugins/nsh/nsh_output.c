@@ -1,19 +1,8 @@
-/*
- * nsh_output.c: NSH Adj rewrite
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017-2019 Intel and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* nsh_output.c: NSH Adj rewrite */
 
 #include <vlib/vlib.h>
 #include <vnet/ip/ip.h>
@@ -366,7 +355,6 @@ VNET_FEATURE_INIT (nsh_interface_output, static) = {
 };
 
 /* Built-in ip4 tx feature path definition */
-/* *INDENT-OFF* */
 VNET_FEATURE_ARC_INIT (nsh_eth_output, static) =
 {
   .arc_name  = "nsh-eth-output",
@@ -379,7 +367,6 @@ VNET_FEATURE_INIT (nsh_eth_tx_drop, static) =
   .node_name = "error-drop",
   .runs_before = 0,     /* not before any other features */
 };
-/* *INDENT-ON* */
 /**
  * @brief Next index values from the NSH incomplete adj node
  */

@@ -1,45 +1,12 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * ip/ip6_input.c: IP v6 input node
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* ip/ip6_input.c: IP v6 input node */
 
 #include <vnet/ip/ip6_input.h>
 #include <vnet/ethernet/ethernet.h>
-#include <vnet/ppp/ppp.h>
 #include <vnet/hdlc/hdlc.h>
 #include <vnet/pg/pg.h>
 
@@ -74,7 +41,7 @@ VLIB_NODE_FN (ip6_input_node) (vlib_main_t * vm, vlib_node_runtime_t * node,
   vlib_node_runtime_t *error_node =
     vlib_node_get_runtime (vm, ip6_input_node.index);
   vlib_simple_counter_main_t *cm;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
 
   from = vlib_frame_vector_args (frame);
   n_left_from = frame->n_vectors;
@@ -219,7 +186,6 @@ VLIB_NODE_FN (ip6_input_node) (vlib_main_t * vm, vlib_node_runtime_t * node,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_input_node) = {
   .name = "ip6-input",
   .vector_size = sizeof (u32),
@@ -238,13 +204,11 @@ VLIB_REGISTER_NODE (ip6_input_node) = {
   .format_buffer = format_ip6_header,
   .format_trace = format_ip6_input_trace,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 ip6_init (vlib_main_t * vm)
 {
   ethernet_register_input_type (vm, ETHERNET_TYPE_IP6, ip6_input_node.index);
-  ppp_register_input_protocol (vm, PPP_PROTOCOL_ip6, ip6_input_node.index);
   hdlc_register_input_protocol (vm, HDLC_PROTOCOL_ip6, ip6_input_node.index);
 
   {
@@ -272,11 +236,3 @@ ip6_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (ip6_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

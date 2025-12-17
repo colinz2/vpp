@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef __AH_H__
 #define __AH_H__
 
@@ -30,19 +21,15 @@ typedef struct
 } ah_header_t;
 
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   ip4_header_t ip4;
   ah_header_t ah;
 }) ip4_and_ah_header_t;
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   ip6_header_t ip6;
   ah_header_t ah;
 }) ip6_and_ah_header_t;
-/* *INDENT-ON* */
 
 always_inline u32
 ah_encrypt_err_to_sa_err (u32 err)
@@ -78,8 +65,8 @@ ah_decrypt_err_to_sa_err (u32 err)
 
 always_inline void
 ah_encrypt_set_next_index (vlib_buffer_t *b, vlib_node_runtime_t *node,
-			   u32 thread_index, u32 err, u16 index, u16 *nexts,
-			   u16 drop_next, u32 sa_index)
+			   clib_thread_index_t thread_index, u32 err,
+			   u16 index, u16 *nexts, u16 drop_next, u32 sa_index)
 {
   ipsec_set_next_index (b, node, thread_index, err,
 			ah_encrypt_err_to_sa_err (err), index, nexts,
@@ -88,8 +75,8 @@ ah_encrypt_set_next_index (vlib_buffer_t *b, vlib_node_runtime_t *node,
 
 always_inline void
 ah_decrypt_set_next_index (vlib_buffer_t *b, vlib_node_runtime_t *node,
-			   u32 thread_index, u32 err, u16 index, u16 *nexts,
-			   u16 drop_next, u32 sa_index)
+			   clib_thread_index_t thread_index, u32 err,
+			   u16 index, u16 *nexts, u16 drop_next, u32 sa_index)
 {
   ipsec_set_next_index (b, node, thread_index, err,
 			ah_decrypt_err_to_sa_err (err), index, nexts,
@@ -106,11 +93,3 @@ ah_calc_icv_padding_len (u8 icv_size, int is_ipv6)
 }
 
 #endif /* __AH_H__ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

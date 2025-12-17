@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <plugins/svs/svs.h>
@@ -363,7 +353,6 @@ format_svs_input_trace (u8 * s, va_list * args)
   return s;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (svs_ip4_node) =
 {
   .function = svs_input_ip4,
@@ -402,7 +391,6 @@ VNET_FEATURE_INIT (svs_ip6_feat, static) =
   .arc_name = "ip6-unicast",
   .node_name = "svs-ip6",
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 svs_table_cli (vlib_main_t * vm,
@@ -443,13 +431,11 @@ svs_table_cli (vlib_main_t * vm,
   return (NULL);
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (svs_table_cmd_cli, static) = {
     .path = "svs table",
     .short_help = "Source VRF select table [add|delete] [ip4|ip6] table-id X",
     .function = svs_table_cli,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 svs_enable_cli (vlib_main_t * vm,
@@ -497,13 +483,11 @@ svs_enable_cli (vlib_main_t * vm,
   return (NULL);
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (svs_enable_cli_cmd, static) = {
     .path = "svs enable",
     .short_help = "Source VRF select [enable|disable] [ip4|ip6] <table-id> X <interface>",
     .function = svs_enable_cli,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 svs_route_cli (vlib_main_t * vm,
@@ -559,13 +543,11 @@ svs_route_cli (vlib_main_t * vm,
   return (NULL);
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (svs_route_cmd_cli, static) = {
     .path = "svs route",
     .short_help = "Source VRF select route [add|delete] <table-id> <prefix> <src-table-id>",
     .function = svs_route_cli,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 svs_show_cli (vlib_main_t * vm,
@@ -588,13 +570,11 @@ svs_show_cli (vlib_main_t * vm,
   return (NULL);
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (svs_show_cli_cmd, static) = {
   .path = "show svs",
   .short_help = "Source VRF select show",
   .function = svs_show_cli,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 svs_init (vlib_main_t * vm)
@@ -617,11 +597,3 @@ svs_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (svs_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

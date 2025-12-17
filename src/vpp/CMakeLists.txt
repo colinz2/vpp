@@ -20,7 +20,7 @@ add_custom_command(
   COMMAND mkdir
   ARGS -p ${CMAKE_CURRENT_BINARY_DIR}/app
   COMMAND scripts/generate_version_h
-  ARGS ${CMAKE_CURRENT_BINARY_DIR}/app/version.h
+  ARGS ${CMAKE_CURRENT_BINARY_DIR}/app/version.h ${VPP_PLATFORM}
   COMMENT "Generating VPP version.h"
 )
 
@@ -90,7 +90,7 @@ endif()
 add_vpp_executable(vpp
   ENABLE_EXPORTS
   SOURCES ${VPP_SOURCES}
-  LINK_LIBRARIES svm vlib vppinfra vlibmemory vnet Threads::Threads ${CMAKE_DL_LIBS}
+  LINK_LIBRARIES svm vlib vppinfra vlibmemory vnet Threads::Threads ${CMAKE_DL_LIBS} ${EPOLL_LIB}
   DEPENDS vpp_version_h api_headers
 )
 
@@ -99,7 +99,7 @@ add_vpp_executable(vpp
 ##############################################################################
 add_vpp_executable(vppctl
   SOURCES app/vppctl.c
-  LINK_LIBRARIES vppinfra
+  LINK_LIBRARIES vppinfra ${EPOLL_LIB}
 )
 
 ##############################################################################
@@ -121,17 +121,15 @@ add_vpp_executable(vpp_get_stats
 )
 
 add_vpp_executable(vpp_prometheus_export
-  SOURCES app/vpp_prometheus_export.c
-  LINK_LIBRARIES vppapiclient vppinfra svm vlibmemoryclient
+  SOURCES app/vpp_prometheus_export.c app/dump_metrics.c
+  LINK_LIBRARIES vppapiclient vppinfra svm vlibmemoryclient ${EPOLL_LIB}
   DEPENDS api_headers
 )
 
-##############################################################################
-# vppmem_preload library
-##############################################################################
-add_vpp_library(vppmem_preload
-  SOURCES mem/mem.c
-  LINK_LIBRARIES vppinfra
+add_vpp_executable(vpp_prometheus_push
+   SOURCES app/vpp_prometheus_push.c app/dump_metrics.c
+   LINK_LIBRARIES vppapiclient vppinfra svm vlibmemoryclient ssl crypto ${EPOLL_LIB}
+   DEPENDS api_headers
 )
 
 install(FILES conf/startup.conf DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/vpp COMPONENT vpp)

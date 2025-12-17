@@ -5,7 +5,7 @@ import os
 import re
 import subprocess
 
-from asfframework import VppTestCase, VppTestRunner
+from asfframework import VppAsfTestCase, VppTestRunner
 from vpp_ip_route import VppIpTable, VppIpRoute, VppRoutePath
 
 
@@ -52,7 +52,7 @@ def checkAll():
     return ret
 
 
-class TestTLS(VppTestCase):
+class TestTLS(VppAsfTestCase):
     """TLS Qat Test Case."""
 
     @classmethod
@@ -91,6 +91,12 @@ class TestTLS(VppTestCase):
         )
 
     def tearDown(self):
+        self.vapi.app_namespace_add_del_v4(
+            is_add=0, namespace_id="0", sw_if_index=self.loop0.sw_if_index
+        )
+        self.vapi.app_namespace_add_del_v4(
+            is_add=0, namespace_id="1", sw_if_index=self.loop1.sw_if_index
+        )
         for i in self.lo_interfaces:
             i.unconfig_ip4()
             i.set_table_ip4(0)
@@ -129,15 +135,15 @@ class TestTLS(VppTestCase):
         # Start builtin server and client
         uri = "tls://" + self.loop0.local_ip4 + "/1234"
         error = self.vapi.cli(
-            "test echo server appns 0 fifo-size 4 tls-engine 1 uri " + uri
+            "test echo server appns 0 fifo-size 4k tls-engine 1 uri " + uri
         )
         if error:
             self.logger.critical(error)
             self.assertNotIn("failed", error)
 
         error = self.vapi.cli(
-            "test echo client mbytes 10 appns 1 "
-            "fifo-size 4 no-output test-bytes "
+            "test echo client bytes 10m appns 1 "
+            "fifo-size 4k test-bytes "
             "tls-engine 1 "
             "syn-timeout 2 uri " + uri
         )

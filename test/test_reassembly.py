@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
 import unittest
-from random import shuffle, choice, randrange
+from random import shuffle, randrange
 
-from framework import VppTestCase, VppTestRunner
+from framework import VppTestCase
+from asfframework import VppTestRunner
 
-import scapy.compat
 from scapy.packet import Raw
 from scapy.layers.l2 import Ether, GRE
 from scapy.layers.inet import IP, UDP, ICMP, icmptypes
@@ -21,12 +21,11 @@ from scapy.layers.inet6 import (
     ICMPv6EchoRequest,
     ICMPv6EchoReply,
 )
-from framework import VppTestCase, VppTestRunner
-from util import ppp, ppc, fragment_rfc791, fragment_rfc8200
+from util import ppp, fragment_rfc791, fragment_rfc8200
 from vpp_gre_interface import VppGreInterface
-from vpp_ip import DpoProto
-from vpp_ip_route import VppIpRoute, VppRoutePath, FibPathProto
+from vpp_ip_route import VppIpRoute, VppRoutePath
 from vpp_papi import VppEnum
+from config import config
 
 # 35 is enough to have >257 400-byte fragments
 test_packet_count = 35
@@ -590,6 +589,9 @@ Ethernet-Payload.IPv4-Packet.IPv4-Header.Fragment-Offset; Test-case: 5737"""
         self.verify_capture(packets, dropped_packet_indexes)
         self.src_if.assert_nothing_captured()
 
+    @unittest.skipIf(
+        "ping" in config.excluded_plugins, "Exclude tests requiring Ping plugin"
+    )
     def test_local_enable_disable(self):
         """local reassembly enabled/disable"""
         self.vapi.ip_reassembly_enable_disable(
@@ -1098,7 +1100,7 @@ class TestIPv4MWReassembly(VppTestCase):
         first_packets = [[] for n in range(self.vpp_worker_count)]
         second_packets = [[] for n in range(self.vpp_worker_count)]
         rest_of_packets = [[] for n in range(self.vpp_worker_count)]
-        for (_, p) in self.pkt_infos:
+        for _, p in self.pkt_infos:
             wi = randrange(self.vpp_worker_count)
             second_packets[wi].append(p[0])
             if len(p) <= 1:
@@ -1606,16 +1608,6 @@ class TestIPv6Reassembly(VppTestCase):
         self.assertIn(ICMPv6ParamProblem, icmp)
         self.assert_equal(icmp[ICMPv6ParamProblem].code, 3, "ICMP code")
 
-    def test_truncated_fragment(self):
-        """truncated fragment"""
-        pkt = (
-            Ether(src=self.pg0.local_mac, dst=self.pg0.remote_mac)
-            / IPv6(src=self.pg0.remote_ip6, dst=self.pg0.local_ip6, nh=44, plen=2)
-            / IPv6ExtHdrFragment(nh=6)
-        )
-
-        self.send_and_assert_no_replies(self.pg0, [pkt], self.pg0)
-
     def test_invalid_frag_size(self):
         """fragment size not a multiple of 8"""
         p = (
@@ -1659,7 +1651,7 @@ class TestIPv6Reassembly(VppTestCase):
     def test_atomic_fragment(self):
         """IPv6 atomic fragment"""
         pkt = (
-            Ether(src=self.pg0.local_mac, dst=self.pg0.remote_mac)
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
             / IPv6(src=self.pg0.remote_ip6, dst=self.pg0.local_ip6, nh=44, plen=65535)
             / IPv6ExtHdrFragment(
                 offset=8191, m=1, res1=0xFF, res2=0xFF, nh=255, id=0xFFFF
@@ -1681,16 +1673,19 @@ class TestIPv6Reassembly(VppTestCase):
         self.send_and_assert_no_replies(self.pg0, [pkt])
 
         pkt = (
-            Ether(src=self.pg0.local_mac, dst=self.pg0.remote_mac)
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
             / IPv6(src=self.pg0.remote_ip6, dst=self.pg0.remote_ip6)
             / ICMPv6EchoRequest()
         )
         rx = self.send_and_expect(self.pg0, [pkt], self.pg0)
 
+    @unittest.skipIf(
+        "ping" in config.excluded_plugins, "Exclude tests requiring Ping plugin"
+    )
     def test_one_fragment(self):
         """whole packet in one fragment processed independently"""
         pkt = (
-            Ether(src=self.pg0.local_mac, dst=self.pg0.remote_mac)
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
             / IPv6(src=self.pg0.remote_ip6, dst=self.pg0.local_ip6)
             / ICMPv6EchoRequest()
             / Raw("X" * 1600)
@@ -1702,7 +1697,7 @@ class TestIPv6Reassembly(VppTestCase):
 
         # send an atomic fragment with same id - should be reassembled
         pkt = (
-            Ether(src=self.pg0.local_mac, dst=self.pg0.remote_mac)
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
             / IPv6(src=self.pg0.remote_ip6, dst=self.pg0.local_ip6)
             / IPv6ExtHdrFragment(id=1)
             / ICMPv6EchoRequest()
@@ -1714,10 +1709,13 @@ class TestIPv6Reassembly(VppTestCase):
         rx = self.send_and_expect(self.pg0, frags[1:], self.pg0, n_rx=1)
         self.assertNotIn(IPv6ExtHdrFragment, rx)
 
+    @unittest.skipIf(
+        "ping" in config.excluded_plugins, "Exclude tests requiring Ping plugin"
+    )
     def test_bunch_of_fragments(self):
         """valid fragments followed by rogue fragments and atomic fragment"""
         pkt = (
-            Ether(src=self.pg0.local_mac, dst=self.pg0.remote_mac)
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
             / IPv6(src=self.pg0.remote_ip6, dst=self.pg0.local_ip6)
             / ICMPv6EchoRequest()
             / Raw("X" * 1600)
@@ -1735,7 +1733,7 @@ class TestIPv6Reassembly(VppTestCase):
         self.send_and_assert_no_replies(self.pg0, inc_frag * 604)
 
         pkt = (
-            Ether(src=self.pg0.local_mac, dst=self.pg0.remote_mac)
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
             / IPv6(src=self.pg0.remote_ip6, dst=self.pg0.local_ip6)
             / IPv6ExtHdrFragment(id=1)
             / ICMPv6EchoRequest()
@@ -1743,6 +1741,9 @@ class TestIPv6Reassembly(VppTestCase):
         rx = self.send_and_expect(self.pg0, [pkt], self.pg0)
         self.assertNotIn(IPv6ExtHdrFragment, rx)
 
+    @unittest.skipIf(
+        "ping" in config.excluded_plugins, "Exclude tests requiring Ping plugin"
+    )
     def test_local_enable_disable(self):
         """local reassembly enabled/disable"""
         self.vapi.ip_reassembly_enable_disable(
@@ -1750,7 +1751,7 @@ class TestIPv6Reassembly(VppTestCase):
         )
         self.vapi.ip_local_reass_enable_disable(enable_ip6=True)
         pkt = (
-            Ether(src=self.src_if.local_mac, dst=self.src_if.remote_mac)
+            Ether(src=self.src_if.remote_mac, dst=self.src_if.local_mac)
             / IPv6(src=self.src_if.remote_ip6, dst=self.src_if.local_ip6)
             / ICMPv6EchoRequest(id=1234)
             / Raw("X" * 1600)
@@ -1930,7 +1931,7 @@ class TestIPv6MWReassembly(VppTestCase):
         first_packets = [[] for n in range(self.vpp_worker_count)]
         second_packets = [[] for n in range(self.vpp_worker_count)]
         rest_of_packets = [[] for n in range(self.vpp_worker_count)]
-        for (_, p) in self.pkt_infos:
+        for _, p in self.pkt_infos:
             wi = randrange(self.vpp_worker_count)
             second_packets[wi].append(p[0])
             if len(p) <= 1:
@@ -2196,7 +2197,7 @@ class TestIPv6SVReassembly(VppTestCase):
     def test_one_fragment(self):
         """whole packet in one fragment processed independently"""
         pkt = (
-            Ether(src=self.src_if.local_mac, dst=self.src_if.remote_mac)
+            Ether(src=self.src_if.remote_mac, dst=self.src_if.local_mac)
             / IPv6(src=self.src_if.remote_ip6, dst=self.dst_if.remote_ip6)
             / ICMPv6EchoRequest()
             / Raw("X" * 1600)
@@ -2208,7 +2209,7 @@ class TestIPv6SVReassembly(VppTestCase):
 
         # send an atomic fragment with same id - should be reassembled
         pkt = (
-            Ether(src=self.src_if.local_mac, dst=self.src_if.remote_mac)
+            Ether(src=self.src_if.remote_mac, dst=self.src_if.local_mac)
             / IPv6(src=self.src_if.remote_ip6, dst=self.dst_if.remote_ip6)
             / IPv6ExtHdrFragment(id=1)
             / ICMPv6EchoRequest()
@@ -2221,7 +2222,7 @@ class TestIPv6SVReassembly(VppTestCase):
     def test_bunch_of_fragments(self):
         """valid fragments followed by rogue fragments and atomic fragment"""
         pkt = (
-            Ether(src=self.src_if.local_mac, dst=self.src_if.remote_mac)
+            Ether(src=self.src_if.remote_mac, dst=self.src_if.local_mac)
             / IPv6(src=self.src_if.remote_ip6, dst=self.dst_if.remote_ip6)
             / ICMPv6EchoRequest()
             / Raw("X" * 1600)
@@ -2230,7 +2231,7 @@ class TestIPv6SVReassembly(VppTestCase):
         rx = self.send_and_expect(self.src_if, frags, self.dst_if)
 
         rogue = (
-            Ether(src=self.src_if.local_mac, dst=self.src_if.remote_mac)
+            Ether(src=self.src_if.remote_mac, dst=self.src_if.local_mac)
             / IPv6(src=self.src_if.remote_ip6, dst=self.dst_if.remote_ip6)
             / IPv6ExtHdrFragment(id=1, nh=58, offset=608)
             / Raw("X" * 308)
@@ -2239,7 +2240,7 @@ class TestIPv6SVReassembly(VppTestCase):
         self.send_and_expect(self.src_if, rogue * 604, self.dst_if)
 
         pkt = (
-            Ether(src=self.src_if.local_mac, dst=self.src_if.remote_mac)
+            Ether(src=self.src_if.remote_mac, dst=self.src_if.local_mac)
             / IPv6(src=self.src_if.remote_ip6, dst=self.dst_if.remote_ip6)
             / IPv6ExtHdrFragment(id=1)
             / ICMPv6EchoRequest()
@@ -2378,6 +2379,9 @@ class TestIPv4ReassemblyLocalNode(VppTestCase):
                 index, seen, "Packet with packet_index %d not received" % index
             )
 
+    @unittest.skipIf(
+        "ping" in config.excluded_plugins, "Exclude tests requiring Ping plugin"
+    )
     def test_reassembly(self):
         """basic reassembly"""
 
@@ -2504,6 +2508,9 @@ class TestFIFReassembly(VppTestCase):
                 "Packet with packet_index %d not received" % index,
             )
 
+    @unittest.skipIf(
+        "gre" in config.excluded_plugins, "Exclude tests requiring GRE plugin"
+    )
     def test_fif4(self):
         """Fragments in fragments (4o4)"""
 
@@ -2579,6 +2586,9 @@ class TestFIFReassembly(VppTestCase):
         self.gre4.remove_vpp_config()
         self.logger.debug(self.vapi.ppcli("show interface"))
 
+    @unittest.skipIf(
+        "gre" in config.excluded_plugins, "Exclude tests requiring GRE plugin"
+    )
     def test_fif6(self):
         """Fragments in fragments (6o6)"""
         # TODO this should be ideally in setUpClass, but then we hit a bug

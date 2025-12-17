@@ -1,47 +1,15 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * ethernet_interface.c: ethernet interfaces
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* ethernet_interface.c: ethernet interfaces */
 
 #include <vnet/vnet.h>
 #include <vnet/ip/ip.h>
 #include <vnet/pg/pg.h>
 #include <vnet/ethernet/ethernet.h>
-//#include <vnet/ethernet/arp.h>
+// #include <vnet/ethernet/arp.h>
 #include <vnet/l2/l2_input.h>
 #include <vnet/l2/l2_bd.h>
 #include <vnet/adj/adj.h>
@@ -303,8 +271,17 @@ ethernet_mac_change (vnet_hw_interface_t * hi,
 
   {
     ethernet_address_change_ctx_t *cb;
+    u32 id, sw_if_index;
     vec_foreach (cb, em->address_change_callbacks)
-      cb->function (em, hi->sw_if_index, cb->function_opaque);
+      {
+	cb->function (em, hi->sw_if_index, cb->function_opaque);
+	/* clang-format off */
+	hash_foreach (id, sw_if_index, hi->sub_interface_sw_if_index_by_id,
+	({
+	  cb->function (em, sw_if_index, cb->function_opaque);
+	}));
+	/* clang-format on */
+      }
   }
 
   return (NULL);
@@ -325,7 +302,6 @@ ethernet_set_max_frame_size (vnet_main_t *vnm, vnet_hw_interface_t *hi,
     "underlying driver doesn't support changing Max Frame Size");
 }
 
-/* *INDENT-OFF* */
 VNET_HW_INTERFACE_CLASS (ethernet_hw_interface_class) = {
   .name = "Ethernet",
   .tx_hash_fn_type = VNET_HASH_FN_TYPE_ETHERNET,
@@ -338,7 +314,6 @@ VNET_HW_INTERFACE_CLASS (ethernet_hw_interface_class) = {
   .mac_addr_change_function = ethernet_mac_change,
   .set_max_frame_size = ethernet_set_max_frame_size,
 };
-/* *INDENT-ON* */
 
 uword
 unformat_ethernet_interface (unformat_input_t * input, va_list * args)
@@ -500,7 +475,7 @@ simulated_ethernet_interface_tx (vlib_main_t * vm,
   u32 n_left_from, *from;
   u32 next_index = 0;
   u32 n_bytes;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   vnet_main_t *vnm = vnet_get_main ();
   vnet_interface_main_t *im = &vnm->interface_main;
   l2_input_config_t *config;
@@ -751,7 +726,6 @@ simulated_ethernet_mac_change (vnet_hw_interface_t * hi,
 }
 
 
-/* *INDENT-OFF* */
 VNET_DEVICE_CLASS (ethernet_simulated_device_class) = {
   .name = "Loopback",
   .format_device_name = format_simulated_ethernet_name,
@@ -759,7 +733,6 @@ VNET_DEVICE_CLASS (ethernet_simulated_device_class) = {
   .admin_up_down_function = simulated_ethernet_admin_up_down,
   .mac_addr_change_function = simulated_ethernet_mac_change,
 };
-/* *INDENT-ON* */
 
 /*
  * Maintain a bitmap of allocated loopback instance numbers.
@@ -948,13 +921,11 @@ create_simulated_ethernet_interfaces (vlib_main_t * vm,
  * Example of how to create a loopback interface:
  * @cliexcmd{loopback create-interface}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (create_simulated_ethernet_interface_command, static) = {
   .path = "loopback create-interface",
   .short_help = "loopback create-interface [mac <mac-addr>] [instance <instance>]",
   .function = create_simulated_ethernet_interfaces,
 };
-/* *INDENT-ON* */
 
 /*?
  * Create a loopback interface. Optionally, a MAC Address can be
@@ -967,13 +938,11 @@ VLIB_CLI_COMMAND (create_simulated_ethernet_interface_command, static) = {
  * Example of how to create a loopback interface:
  * @cliexcmd{create loopback interface}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (create_loopback_interface_command, static) = {
   .path = "create loopback interface",
   .short_help = "create loopback interface [mac <mac-addr>] [instance <instance>]",
   .function = create_simulated_ethernet_interfaces,
 };
-/* *INDENT-ON* */
 
 ethernet_interface_t *
 ethernet_get_interface (ethernet_main_t * em, u32 hw_if_index)
@@ -1184,13 +1153,11 @@ delete_sub_interface (vlib_main_t * vm,
  * Example of how to delete a loopback interface:
  * @cliexcmd{loopback delete-interface intfc loop0}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (delete_simulated_ethernet_interface_command, static) = {
   .path = "loopback delete-interface",
   .short_help = "loopback delete-interface intfc <interface>",
   .function = delete_simulated_ethernet_interfaces,
 };
-/* *INDENT-ON* */
 
 /*?
  * Delete a loopback interface.
@@ -1202,13 +1169,11 @@ VLIB_CLI_COMMAND (delete_simulated_ethernet_interface_command, static) = {
  * Example of how to delete a loopback interface:
  * @cliexcmd{delete loopback interface intfc loop0}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (delete_loopback_interface_command, static) = {
   .path = "delete loopback interface",
   .short_help = "delete loopback interface intfc <interface>",
   .function = delete_simulated_ethernet_interfaces,
 };
-/* *INDENT-ON* */
 
 /*?
  * Delete a sub-interface.
@@ -1217,13 +1182,11 @@ VLIB_CLI_COMMAND (delete_loopback_interface_command, static) = {
  * Example of how to delete a sub-interface:
  * @cliexcmd{delete sub-interface GigabitEthernet0/8/0.200}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (delete_sub_interface_command, static) = {
   .path = "delete sub-interface",
   .short_help = "delete sub-interface <interface>",
   .function = delete_sub_interface,
 };
-/* *INDENT-ON* */
 
 /* ethernet { ... } configuration. */
 /*?
@@ -1254,11 +1217,3 @@ ethernet_config (vlib_main_t * vm, unformat_input_t * input)
 }
 
 VLIB_CONFIG_FUNCTION (ethernet_config, "ethernet");
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

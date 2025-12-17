@@ -1,19 +1,8 @@
-/*
- * sr_steering.c: ipv6 segment routing steering into SR policy
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* sr_steering.c: ipv6 segment routing steering into SR policy */
 
 /**
  * @file
@@ -456,7 +445,6 @@ sr_steer_policy_command_fn (vlib_main_t * vm, unformat_input_t * input,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (sr_steer_policy_command, static) = {
   .path = "sr steer",
   .short_help = "sr steer (del) [l3 <ip_addr/mask>|l2 <sf_if>] "
@@ -471,7 +459,6 @@ VLIB_CLI_COMMAND (sr_steer_policy_command, static) = {
     "\t\tsr steer del l3 2001::/64 via sr_policy index 5\n",
   .function = sr_steer_policy_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 show_sr_steering_policies_command_fn (vlib_main_t * vm,
@@ -488,9 +475,7 @@ show_sr_steering_policies_command_fn (vlib_main_t * vm,
   int i;
 
   vlib_cli_output (vm, "SR steering policies:");
-  /* *INDENT-OFF* */
   pool_foreach (steer_pl, sm->steer_policies) {vec_add1(steer_policies, steer_pl);}
-  /* *INDENT-ON* */
   vlib_cli_output (vm, "Traffic\t\tSR policy BSID");
   for (i = 0; i < vec_len (steer_policies); i++)
     {
@@ -523,13 +508,11 @@ show_sr_steering_policies_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_sr_steering_policies_command, static) = {
   .path = "show sr steering-policies",
   .short_help = "show sr steering-policies",
   .function = show_sr_steering_policies_command_fn,
 };
-/* *INDENT-ON* */
 
 clib_error_t *
 sr_steering_init (vlib_main_t * vm)
@@ -547,23 +530,10 @@ sr_steering_init (vlib_main_t * vm)
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_INIT_FUNCTION (sr_steering_init);
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
-VNET_FEATURE_INIT (sr_pl_rewrite_encaps_l2, static) =
-{
+VNET_FEATURE_INIT (sr_pl_rewrite_encaps_l2, static) = {
   .arc_name = "device-input",
   .node_name = "sr-pl-rewrite-encaps-l2",
   .runs_before = VNET_FEATURES ("ethernet-input"),
 };
-/* *INDENT-ON* */
-
-/*
-* fd.io coding-style-patch-verification: ON
-*
-* Local Variables:
-* eval: (c-set-style "gnu")
-* End:
-*/

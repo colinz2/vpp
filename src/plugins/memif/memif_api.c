@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * memif_api.c - memif api
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * memif_api.c - memif api
  */
 
 #include <vlib/vlib.h>
@@ -195,12 +184,10 @@ vl_api_memif_create_t_handler (vl_api_memif_create_t * mp)
   vec_free (args.secret);
 
 reply:
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_MEMIF_CREATE_REPLY,
     ({
       rmp->sw_if_index = htonl (args.sw_if_index);
     }));
-  /* *INDENT-ON* */
 }
 
 /**
@@ -397,7 +384,6 @@ vl_api_memif_dump_t_handler (vl_api_memif_dump_t * mp)
   if (!reg)
     return;
 
-  /* *INDENT-OFF* */
   pool_foreach (mif, mm->interfaces)
      {
       swif = vnet_get_sw_interface (vnm, mif->sw_if_index);
@@ -409,7 +395,6 @@ vl_api_memif_dump_t_handler (vl_api_memif_dump_t * mp)
       send_memif_details (reg, mif, swif, if_name, mp->context);
       vec_set_len (if_name, 0);
     }
-  /* *INDENT-ON* */
 
   vec_free (if_name);
 }
@@ -453,7 +438,6 @@ void
   if (!reg)
     return;
 
-  /* *INDENT-OFF* */
   hash_foreach (sock_id, msf_idx, mm->socket_file_index_by_sock_id,
     ({
       memif_socket_file_t *msf;
@@ -463,7 +447,6 @@ void
       filename = msf->filename;
       send_memif_socket_filename_details(reg, sock_id, filename, mp->context);
     }));
-  /* *INDENT-ON* */
 }
 
 /* Set up the API message handling tables */
@@ -477,11 +460,3 @@ memif_plugin_api_hookup (vlib_main_t * vm)
   mm->msg_id_base = setup_message_id_table ();
   return 0;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

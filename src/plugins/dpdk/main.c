@@ -1,24 +1,7 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
-
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <linux/vfio.h>
-#include <sys/ioctl.h>
 
 #include <vnet/vnet.h>
 #include <vnet/plugin/plugin.h>
@@ -57,7 +40,7 @@ rte_delay_us_override (unsigned us)
 	{
 	  /* Only suspend for the admin_down_process */
 	  vlib_process_t *proc = vlib_get_current_process (vm);
-	  if (!(proc->flags & VLIB_PROCESS_IS_RUNNING) ||
+	  if (proc->state != VLIB_PROCESS_STATE_RUNNING ||
 	      (proc->node_runtime.node_index !=
 	       admin_up_down_process_node.index))
 	    return 0;
@@ -87,7 +70,6 @@ static clib_error_t * dpdk_main_init (vlib_main_t * vm)
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_INIT_FUNCTION (dpdk_main_init) =
 {
     .runs_after = VLIB_INITS("dpdk_init"),
@@ -97,4 +79,3 @@ VLIB_PLUGIN_REGISTER () = {
     .version = VPP_BUILD_VER,
     .description = "Data Plane Development Kit (DPDK)",
 };
-/* *INDENT-ON* */

@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef included_vlib_log_h
@@ -41,7 +31,8 @@ typedef enum
 
 typedef struct
 {
-  vlib_log_level_t level;
+  clib_thread_index_t thread_index;
+  u8 level; /* vlib_log_level_t */
   vlib_log_class_t class;
   f64 timestamp;
   u8 *string;
@@ -95,6 +86,7 @@ typedef struct
   vlib_log_entry_t *entries;
   vlib_log_class_data_t *classes;
   int size, next, count;
+  u8 lock;
 
   int default_rate_limit;
   int default_log_level;
@@ -124,6 +116,8 @@ vlib_log_register_class_rate_limit (char *class, char *subclass,
 				    u32 rate_limit);
 void vlib_log (vlib_log_level_t level, vlib_log_class_t class, char *fmt,
 	       ...);
+void vlib_log_va (vlib_log_level_t level, vlib_log_class_t class, char *fmt,
+		  va_list *va);
 int last_log_entry ();
 u8 *format_vlib_log_class (u8 * s, va_list * args);
 u8 *format_vlib_log_level (u8 * s, va_list * args);
@@ -149,12 +143,32 @@ __vlib_add_log_registration_##x (void)		\
   }						\
 __VA_ARGS__  vlib_log_class_registration_t x
 
-#endif /* included_vlib_log_h */
+static_always_inline vlib_log_class_data_t *
+vlib_log_get_class_data (vlib_log_class_t ci)
+{
+  vlib_log_main_t *lm = &log_main;
+  return vec_elt_at_index (lm->classes, (ci >> 16));
+}
 
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+static_always_inline vlib_log_subclass_data_t *
+vlib_log_get_subclass_data (vlib_log_class_t ci)
+{
+  vlib_log_class_data_t *c = vlib_log_get_class_data (ci);
+  return vec_elt_at_index (c->subclasses, (ci & 0xffff));
+}
+
+static_always_inline int
+vlib_log_is_enabled (vlib_log_level_t level, vlib_log_class_t class)
+{
+  vlib_log_subclass_data_t *sc = vlib_log_get_subclass_data (class);
+
+  if (level <= sc->level && sc->level != VLIB_LOG_LEVEL_DISABLED)
+    return 1;
+
+  if (level <= sc->syslog_level && sc->syslog_level != VLIB_LOG_LEVEL_DISABLED)
+    return 1;
+
+  return 0;
+}
+
+#endif /* included_vlib_log_h */

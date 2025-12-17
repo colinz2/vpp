@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vnet/plugin/plugin.h>
 #include <nat/dslite/dslite.h>
 #include <nat/dslite/dslite_dpo.h>
@@ -101,7 +92,6 @@ dslite_init_datastructures (void)
   u32 b4_buckets = 128;
   u32 b4_memory_size = 64 << 20;
 
-  /* *INDENT-OFF* */
   vec_foreach (td, dm->per_thread_data)
     {
       clib_bihash_init_24_8 (&td->in2out, "dslite in2out", translation_buckets,
@@ -112,7 +102,6 @@ dslite_init_datastructures (void)
 
       clib_bihash_init_16_8 (&td->b4_hash, "dslite b4s", b4_buckets, b4_memory_size);
     }
-  /* *INDENT-ON* */
   dm->is_enabled = 1;
 }
 
@@ -281,18 +270,7 @@ format_dslite_ce_trace (u8 * s, va_list * args)
 
 VLIB_INIT_FUNCTION (dslite_init);
 
-/* *INDENT-OFF* */
-VLIB_PLUGIN_REGISTER () =
-{
+VLIB_PLUGIN_REGISTER () = {
   .version = VPP_BUILD_VER,
   .description = "Dual-Stack Lite",
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

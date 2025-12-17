@@ -1,19 +1,9 @@
-/*
- * mss_clamp_node.c - Node implementing TCP MSS clamping
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* mss_clamp_node.c - Node implementing TCP MSS clamping */
+
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
 #include <vnet/pg/pg.h>
@@ -182,17 +172,15 @@ mssc_inline (vlib_main_t *vm, vlib_node_runtime_t *node, vlib_frame_t *frame,
 	{
 	  ip6_header_t *ip0 = (ip6_header_t *) h0;
 	  ip6_header_t *ip1 = (ip6_header_t *) h1;
+	  tcp_header_t *tcp0 =
+	    ip6_ext_header_find (vm, b[0], ip0, IP_PROTOCOL_TCP, NULL);
+	  tcp_header_t *tcp1 =
+	    ip6_ext_header_find (vm, b[1], ip1, IP_PROTOCOL_TCP, NULL);
 
-	  if (IP_PROTOCOL_TCP == ip0->protocol)
-	    {
-	      clamped0 = mssc_mss_fixup (b[0], ip6_next_header (ip0),
-					 cm->max_mss6[sw_if_index0]);
-	    }
-	  if (IP_PROTOCOL_TCP == ip1->protocol)
-	    {
-	      clamped1 = mssc_mss_fixup (b[1], ip6_next_header (ip1),
-					 cm->max_mss6[sw_if_index1]);
-	    }
+	  if (tcp0)
+	    clamped0 = mssc_mss_fixup (b[0], tcp0, cm->max_mss6[sw_if_index0]);
+	  if (tcp1)
+	    clamped1 = mssc_mss_fixup (b[1], tcp1, cm->max_mss6[sw_if_index1]);
 	}
 
       pkts_clamped += clamped0 + clamped1;
@@ -255,12 +243,11 @@ mssc_inline (vlib_main_t *vm, vlib_node_runtime_t *node, vlib_frame_t *frame,
       else if (FIB_PROTOCOL_IP6 == fproto)
 	{
 	  ip6_header_t *ip0 = (ip6_header_t *) h0;
+	  tcp_header_t *tcp0 =
+	    ip6_ext_header_find (vm, b[0], ip0, IP_PROTOCOL_TCP, NULL);
 
-	  if (IP_PROTOCOL_TCP == ip0->protocol)
-	    {
-	      clamped0 = mssc_mss_fixup (b[0], ip6_next_header (ip0),
-					 cm->max_mss6[sw_if_index0]);
-	    }
+	  if (tcp0)
+	    clamped0 = mssc_mss_fixup (b[0], tcp0, cm->max_mss6[sw_if_index0]);
 	}
 
       pkts_clamped += clamped0;
@@ -402,11 +389,3 @@ VNET_FEATURE_INIT (mssc_ip6_out_feat, static) = {
   .arc_name = "ip6-output",
   .node_name = "tcp-mss-clamping-ip6-out",
 };
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

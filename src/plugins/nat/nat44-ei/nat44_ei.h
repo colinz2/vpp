@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /**
  * @file nat44_ei.h
  * NAT44 endpoint independent plugin declarations
@@ -35,7 +26,6 @@
 #include <vppinfra/hash.h>
 
 #include <nat/lib/lib.h>
-#include <nat/lib/inlines.h>
 #include <nat/lib/nat_proto.h>
 
 /* default number of worker handoff frame queue elements */
@@ -83,12 +73,6 @@ typedef int (nat44_ei_alloc_out_addr_and_port_function_t) (
   nat44_ei_address_t *addresses, u32 fib_index, u32 thread_index,
   nat_protocol_t proto, ip4_address_t s_addr, ip4_address_t *addr, u16 *port,
   u16 port_per_thread, u32 snat_thread_index);
-
-typedef struct
-{
-  u16 identifier;
-  u16 sequence;
-} icmp_echo_header_t;
 
 typedef struct
 {
@@ -682,10 +666,3 @@ is_sm_switch_address (u32 f)
   vlib_log (VLIB_LOG_LEVEL_DEBUG, nat44_ei_main.log_class, __VA_ARGS__)
 
 #endif /* __included_nat44_ei_h__ */
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

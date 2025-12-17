@@ -2,14 +2,19 @@
 import re
 import unittest
 import platform
-from asfframework import VppTestCase
+from asfframework import VppAsfTestCase
 
 
 def checkX86():
-    return platform.machine() in ["x86_64", "AMD64"]
+    return platform.machine() in ["x86_64", "AMD64", "amd64"]
 
 
 def skipVariant(variant):
+    # TODO: We don't have cpu feature detection on FreeBSD yet, so always return
+    # that we don't have the requested variant.
+    if platform.uname().system == "FreeBSD":
+        return False
+
     with open("/proc/cpuinfo") as f:
         cpuinfo = f.read()
 
@@ -19,7 +24,7 @@ def skipVariant(variant):
     return checkX86() and match is not None
 
 
-class TestNodeVariant(VppTestCase):
+class TestNodeVariant(VppAsfTestCase):
     """Test Node Variants"""
 
     @classmethod

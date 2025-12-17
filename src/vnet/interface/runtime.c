@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/vnet.h>
@@ -71,6 +61,9 @@ vnet_hw_if_update_runtime_data (vnet_main_t *vnm, u32 hw_if_index)
   int something_changed_on_tx = 0;
   clib_bitmap_t *pending_int = 0;
   int last_int = -1;
+
+  if (node_index == 0)
+    return;
 
   log_debug ("update node '%U' triggered by interface %v",
 	     format_vlib_node_name, vm, node_index, hi->name);
@@ -289,10 +282,9 @@ vnet_hw_if_update_runtime_data (vnet_main_t *vnm, u32 hw_if_index)
 		{
 		  void *in = rt->rxq_interrupts;
 		  int int_num = -1;
-		  while ((int_num = clib_interrupt_get_next (in, int_num)) !=
-			 -1)
+		  while ((int_num = clib_interrupt_get_next_and_clear (
+			    in, int_num)) != -1)
 		    {
-		      clib_interrupt_clear (in, int_num);
 		      pending_int = clib_bitmap_set (pending_int, int_num, 1);
 		      last_int = clib_max (last_int, int_num);
 		    }

@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * llc_node.c: llc packet processing
- *
  * Copyright (c) 2010 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* llc_node.c: llc packet processing */
 
 #include <vlib/vlib.h>
 #include <vnet/pg/pg.h>
@@ -246,7 +214,6 @@ static char *llc_error_strings[] = {
 #undef _
 };
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (llc_input_node) = {
   .function = llc_input,
   .name = "llc-input",
@@ -267,7 +234,6 @@ VLIB_REGISTER_NODE (llc_input_node) = {
   .format_trace = format_llc_input_trace,
   .unformat_buffer = unformat_llc_header,
 };
-/* *INDENT-ON* */
 
 static void
 llc_setup_node (vlib_main_t *vm, u32 node_index)
@@ -315,10 +281,6 @@ llc_register_input_protocol (vlib_main_t * vm,
     clib_error_t *error = vlib_call_init_function (vm, llc_input_init);
     if (error)
       clib_error_report (error);
-    /* Otherwise, osi_input_init will wipe out e.g. the snap init */
-    error = vlib_call_init_function (vm, osi_input_init);
-    if (error)
-      clib_error_report (error);
   }
 
   pi = llc_get_protocol_info (lm, protocol);
@@ -327,11 +289,3 @@ llc_register_input_protocol (vlib_main_t * vm,
 
   lm->input_next_by_protocol[protocol] = pi->next_index;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -73,14 +73,20 @@ ifeq ($(V),)
 V=0
 endif
 
+MACHINE=$(shell uname -m)
+ifeq ($(shell test -d /opt/vpp/optional/${MACHINE}/lib64 && echo yes),yes)
+VPP_OPT_DEPS_LIBRARY_PATH?=/opt/vpp/optional/${MACHINE}/lib64
+endif
+
 PYTHON_VERSION=$(shell $(PYTHON_INTERP) -c 'import sys; print(sys.version_info.major)')
-PIP_VERSION=22.0.4
+PIP_VERSION=25.3
 # Keep in sync with requirements.txt
-PIP_TOOLS_VERSION=6.6.0
-PIP_SETUPTOOLS_VERSION=62.1.0
+PIP_TOOLS_VERSION=7.5.2
+PIP_SETUPTOOLS_VERSION=80.9.0
 PYTHON_DEPENDS=requirements-$(PYTHON_VERSION).txt
 SCAPY_SOURCE=$(shell find $(VENV_PATH)/lib/python* -name site-packages)
-BUILD_COV_DIR=$(TEST_BR)/coverage
+SCAPY_VERSION=$(shell grep scapy $(TEST_DIR)/requirements.txt | cut -d'=' -f3 | cut -d';' -f1)
+BUILD_COV_DIR=$(BR)/test-coverage
 
 PIP_TOOLS_INSTALL_DONE=$(VENV_RUN_DIR)/pip-tools-install-$(PYTHON_VERSION)-$(PIP_TOOLS_VERSION).done
 PIP_INSTALL_DONE=$(VENV_RUN_DIR)/pip-install-$(PYTHON_VERSION)-$(PIP_VERSION).done
@@ -107,7 +113,7 @@ $(PIP_TOOLS_INSTALL_DONE):
 
 $(PYTHON_DEPENDS): requirements.txt
 	@bash -c "source $(VENV_PATH)/bin/activate && \
-		  CUSTOM_COMPILE_COMMAND='make test-refresh-deps (or update requirements.txt)' \
+		  CUSTOM_COMPILE_COMMAND='$(MAKE) test-refresh-deps (or update requirements.txt)' \
 		  python3 -m piptools compile -q --generate-hashes requirements.txt --output-file $@"
 
 $(PIP_INSTALL_DONE): $(PIP_TOOLS_INSTALL_DONE) $(PYTHON_DEPENDS)
@@ -118,7 +124,7 @@ $(PIP_INSTALL_DONE): $(PIP_TOOLS_INSTALL_DONE) $(PYTHON_DEPENDS)
 $(PIP_PATCH_DONE): $(PIP_INSTALL_DONE)
 	@echo --- patching ---
 	@sleep 1 # Ensure python recompiles patched *.py files -> *.pyc
-	for f in $(CURDIR)/patches/scapy-2.4.3/*.patch ; do \
+	for f in $(CURDIR)/patches/scapy-$(SCAPY_VERSION)/*.patch ; do \
 		echo Applying patch: $$(basename $$f) ; \
 		patch --forward -p1 -d $(SCAPY_SOURCE) < $$f ; \
 		retCode=$$?; \
@@ -131,7 +137,7 @@ $(PAPI_INSTALL_DONE): $(PIP_PATCH_DONE)
 	@touch $@
 
 .PHONY: refresh-deps
-refresh-deps: clean-deps $(PYTHON_DEPENDS)
+refresh-deps: clean-deps $(PIP_INSTALL_DONE) $(PYTHON_DEPENDS)
 
 .PHONY: clean-deps
 clean-deps:
@@ -200,7 +206,7 @@ ARG6=--step
 endif
 
 ARG7=
-ifneq ($(findstring $(TESTS_GCOV),1 y yes),)
+ifneq ($(findstring $(TEST_GCOV),1 y yes),)
 ARG7=--gcov
 endif
 
@@ -254,9 +260,34 @@ ifneq ($(EXTERN_APIDIR),)
 ARG17=--extern-apidir=$(EXTERN_APIDIR)
 endif
 
-EXTRA_ARGS=$(ARG0) $(ARG1) $(ARG2) $(ARG3) $(ARG4) $(ARG5) $(ARG6) $(ARG7) $(ARG8) $(ARG9) $(ARG10) $(ARG11) $(ARG12) $(ARG13) $(ARG14) $(ARG15) $(ARG16) $(ARG17)
+ARG18=
+ifneq ($(DECODE_PCAPS),)
+ARG18=--decode-pcaps=$(DECODE_PCAPS)
+endif
 
-RUN_TESTS_ARGS=--failed-dir=$(FAILED_DIR) --verbose=$(V) --jobs=$(TEST_JOBS) --filter=$(TEST) --retries=$(RETRIES) --venv-dir=$(VENV_PATH) --vpp-ws-dir=$(WS_ROOT) --vpp-tag=$(TAG) --rnd-seed=$(RND_SEED) --vpp-worker-count="$(VPP_WORKER_COUNT)" --keep-pcaps $(PLUGIN_PATH_ARGS) $(TEST_PLUGIN_PATH_ARGS) $(EXTRA_ARGS)
+ifneq ($(findstring $(API_PRELOAD),1 y yes),)
+ARG19=--api-preload
+else
+ARG19=
+endif
+
+ifneq ($(VPP_OPT_DEPS_LIBRARY_PATH),)
+ARG20=--vpp-opt-deps-library-path=$(VPP_OPT_DEPS_LIBRARY_PATH)
+else
+ARG20=
+endif
+
+EXC_PLUGINS_ARG=
+ifneq ($(VPP_EXCLUDED_PLUGINS),)
+# convert the comma-separated list into N invocations of the argument to exclude a plugin
+EXC_PLUGINS_ARG=$(shell echo "${VPP_EXCLUDED_PLUGINS}" | sed 's/\([^,]*\)/--excluded-plugin=\1/g; s/,/ /g')
+endif
+
+
+
+EXTRA_ARGS=$(ARG0) $(ARG1) $(ARG2) $(ARG3) $(ARG4) $(ARG5) $(ARG6) $(ARG7) $(ARG8) $(ARG9) $(ARG10) $(ARG11) $(ARG12) $(ARG13) $(ARG14) $(ARG15) $(ARG16) $(ARG17) $(ARG18) $(ARG19) $(ARG20)
+
+RUN_TESTS_ARGS=--failed-dir=$(FAILED_DIR) --verbose=$(V) --jobs=$(TEST_JOBS) --filter=$(TEST) --skip-filter=$(SKIP_TESTS) --retries=$(RETRIES) --venv-dir=$(VENV_PATH) --vpp-ws-dir=$(WS_ROOT) --vpp-tag=$(TAG) --rnd-seed=$(RND_SEED) --vpp-worker-count="$(VPP_WORKER_COUNT)" --keep-pcaps $(PLUGIN_PATH_ARGS) $(EXC_PLUGINS_ARG) $(TEST_PLUGIN_PATH_ARGS) $(EXTRA_ARGS)
 RUN_SCRIPT_ARGS=--python-opts=$(PYTHON_OPTS)
 
 define retest-func
@@ -326,18 +357,101 @@ wipe: reset
 $(BUILD_COV_DIR):
 	@mkdir -p $@
 
-.PHONY: cov
-cov: wipe-cov test-dep ext $(BUILD_COV_DIR)
+.PHONY: cov-prep
+cov-prep: test-dep
 	@lcov --zerocounters --directory $(VPP_BUILD_DIR)
 	@test -z "$(EXTERN_COV_DIR)" || lcov --zerocounters --directory $(EXTERN_COV_DIR)
-	$(call retest-func)
-	@lcov --capture --directory $(VPP_BUILD_DIR) --output-file $(BUILD_COV_DIR)/coverage.info
-	@test -z "$(EXTERN_COV_DIR)" || lcov --capture --directory $(EXTERN_COV_DIR) --output-file $(BUILD_COV_DIR)/extern-coverage.info
-	@genhtml $(BUILD_COV_DIR)/coverage.info --output-directory $(BUILD_COV_DIR)/html
-	@test -z "$(EXTERN_COV_DIR)" || genhtml $(BUILD_COV_DIR)/extern-coverage.info --output-directory $(BUILD_COV_DIR)/extern-html
+
+COV_REM_NOT_CODE="/usr/include/*" "*/build-root/*" "/opt/*" "/usr/lib/*" \
+				 "*_test.*" "*test_*" "*vat*"  "*/vnet/unix/gdb_funcs.c" \
+				 "*pg.c"
+
+COV_REM_DRIVERS="*rdma*" "*/plugins/af_packet/*" "*/plugins/af_xdp/*" \
+				"*/plugins/avf/*" "*/plugins/dma_intel/*" "*/vlib/pci/*" \
+				"*/vnet/devices/*" "*/vlib/dma/*" "*/plugins/vmxnet3/*" \
+				"*/vnet/devices/virtio/*" "*/plugins/perfmon/arm*" \
+				"*/plugins/perfmon/intel/*" "*/vlib/vmbus/*" \
+				"*/vnet/dev/*" "*/plugins/dev_ena/*" "*/plugins/dev_iavf/*"
+
+COV_REM_UNUSED_FEAT="*/vnet/srp/*" \
+					"*/lawful-intercept/*" "*/lisp/*" "*/plugins/osi/*" \
+					"*/plugins/nsh/*"
+
+COV_REM_TODO_NO_TEST="*/vpp-api/client/*" \
+					 "*/plugins/tlspicotls/*" "*/plugins/tlsmbedtls/*" \
+					 "*/vppinfra/perfmon/*" "*/plugins/ila/*" \
+					 "*/vlib/linux/*" "*/vnet/util/radix.c" "*/vapi/vapi.hpp" \
+					 "*/vpp/api/types.c" "*/vpp/api/json_format.c" \
+					 "*/plugins/ioam/*/*.h" "*/linux/netns.c" "*/vnet/flow/*" \
+					 "*/vppinfra/random.c" "*/vppinfra/ring.h" \
+				 	 "*/vppinfra/bihash_vec8_8.h" "*/vppinfra/maplog.c" \
+					 "*/vppinfra/format_table.c" "*/vppinfra/timing_wheel.c" \
+					 "*/vppinfra/macros.c" "*/vppinfra/valloc.c" \
+					 "*/vlibapi/jsonformat.c" "*/vppinfra/vector/array_mask.h" \
+					 "*/vppinfra/vector/toeplitz.c" "*/plugins/vrrp/vrrp_packet.h" \
+					 "*/vnet/srv6/sr.h" "*/vlibapi/api_format.c" \
+					 "*/vlibapi/node_serialize.c" "*/plugins/quic/error.c" \
+					 "*/vnet/ipfix-export/flow_report_classify.h" \
+					 "*/vnet/ip/ip6_ll_types.c" "*/vnet/ip/ip_psh_cksum.h" \
+					 "*/vnet/ip/ip6_hop_by_hop.h" "*/vnet/ip/ip_format_fns.h" \
+					 "*/vnet/dpo/classify_dpo.h" "*/vnet/dpo/l3_proxy_dpo.h" \
+					 "*/vnet/ipsec/esp_format.c" "*/vnet/ethernet/sfp.c" \
+					 "*/vnet/ethernet/ethernet_format_fns.h" \
+					 "*/plugins/ikev2/ikev2_format.c" "*/vnet/bier/bier_types.c" \
+					 "*/plugins/ioam/*" "*/plugins/vxlan-gpe/*" "*/plugins/ioam/*" \
+					 "*/api/api_format.c" "*/*/api.c" "*/*/*_api.c" "*/plugins/hs_apps/alpn_*"
+ifeq ($(HS_TEST),1)
+COV_REM_HST_UNUSED_FEAT= "*/plugins/ping/*" "*/plugins/unittest/mpcap_node.c" "*/vnet/bfd/*" \
+			                 "*/vnet/bier/*" "*/vnet/bonding/*" "*/vnet/classify/*" \
+					 "*/vnet/gso/*" "*/vnet/ipfix-export/*" "*/vnet/ipip/*" \
+					 "*/vnet/ipsec/*" "*/vnet/l2/*" "*/vnet/mpls/*" \
+					 "*/vnet/pg/*" "*/vnet/policer/*" "*/vnet/snap/*" \
+					 "*/vnet/span/*" "*/vnet/srv6/*" "*/vnet/teib/*" \
+					 "*/vnet/tunnel/*" "*/vpp-api/vapi/*" "*/vpp/app/vpe_cli.c" \
+					 "*/vppinfra/pcap.c" "*/vppinfra/pcap_funcs.h"
+else
+COV_REM_TODO_NO_TEST := $(COV_REM_TODO_NO_TEST) "*/plugins/http/http2/*" "*/plugins/prom/*"
+endif
+
+LCOV_VERSION=$(shell lcov --version | sed -E 's/^lcov: LCOV version ([0-9]+)[.].*/\1/')
+LCOV_IGNORE_ERRORS=
+ifeq ($(LCOV_VERSION),2)
+LCOV_IGNORE_ERRORS=--ignore-errors unused,empty,mismatch,gcov,negative
+endif
+
+.PHONY: cov-post
+cov-post: wipe-cov $(BUILD_COV_DIR)
+	@lcov $(LCOV_IGNORE_ERRORS) --capture \
+		--directory $(VPP_BUILD_DIR) \
+		--output-file $(BUILD_COV_DIR)/coverage$(HS_TEST).info
+	@test -z "$(EXTERN_COV_DIR)" || \
+		lcov $(LCOV_IGNORE_ERRORS) --capture \
+		--directory $(EXTERN_COV_DIR) \
+		--output-file $(BUILD_COV_DIR)/extern-coverage$(HS_TEST).info
+	@lcov $(LCOV_IGNORE_ERRORS) --remove $(BUILD_COV_DIR)/coverage$(HS_TEST).info \
+		$(COV_REM_NOT_CODE) \
+		$(COV_REM_DRIVERS)  \
+		$(COV_REM_TODO_NO_TEST) \
+		$(COV_REM_UNUSED_FEAT) \
+		$(COV_REM_HST_UNUSED_FEAT) \
+		-o $(BUILD_COV_DIR)/coverage-filtered$(HS_TEST).info
+	@genhtml $(BUILD_COV_DIR)/coverage-filtered$(HS_TEST).info \
+		--output-directory $(BUILD_COV_DIR)/html
+	@rm -f $(BUILD_COV_DIR)/html/cmd_line
+	@test -z "$(EXTERN_COV_DIR)" || \
+		genhtml $(BUILD_COV_DIR)/extern-coverage$(HS_TEST).info \
+			--output-directory $(BUILD_COV_DIR)/extern-html
 	@echo
 	@echo "Build finished. Code coverage report is in $(BUILD_COV_DIR)/html/index.html"
 	@test -z "$(EXTERN_COV_DIR)" || echo "Code coverage report for out-of-tree objects is in $(BUILD_COV_DIR)/extern-html/index.html"
+	@mkdir -p $(BR)/test-coverage-merged
+	@cp -f $(BUILD_COV_DIR)/coverage-filtered$(HS_TEST).info $(BR)/test-coverage-merged
+
+.PHONY: cov
+cov:
+	$(MAKE) -C . cov-prep
+	-$(MAKE) -C . test
+	$(MAKE) -C . cov-post
 
 .PHONY: wipe-cov
 wipe-cov: wipe
@@ -388,14 +502,18 @@ help:
 	@echo ""
 	@echo " test                   - build and run (basic) functional tests"
 	@echo " test-debug             - build and run (basic) functional tests (debug build)"
+	@echo " test-cov               - generate code coverage report for functional tests"
+	@echo " test-cov-prep          - coverage phase #1 : prepare lcov"
+	@echo " test-cov-build         - coverage phase #2 : build gcov image & run tests against it (use TEST=)"
+	@echo " test-cov-post          - coverage phase #3 : generate lcov html report"
+	@echo " test-cov-both          - generate and merge code coverage report for Python and Golang tests"
 	@echo " test-all               - build and run functional and extended tests"
 	@echo " test-all-debug         - build and run functional and extended tests (debug build)"
+	@echo " test-all-cov           - generate code coverage report for functional and extended tests"
 	@echo " retest                 - run functional tests"
 	@echo " retest-debug           - run functional tests (debug build)"
 	@echo " retest-all             - run functional and extended tests"
 	@echo " retest-all-debug       - run functional and extended tests (debug build)"
-	@echo " test-cov               - generate code coverage report for test framework"
-	@echo " test-gcov              - build and run functional tests (gcov build)"
 	@echo " test-wipe              - wipe (temporary) files generated by unit tests"
 	@echo " test-wipe-cov          - wipe code coverage report for test framework"
 	@echo " test-wipe-papi         - rebuild vpp_papi sources"
@@ -511,6 +629,12 @@ help:
 	@echo "                    'test_icmp_error' in all files"
 	@echo "       (default: '')"
 	@echo ""
+	@echo "   SKIP_TESTS=<filter>,[<filter>],..."
+	@echo "       Skip tests matching one or more comma-delimited"
+	@echo "       filter expressions, even if they were selected by TEST"
+	@echo ""
+	@echo "       (default: '')"
+	@echo ""
 	@echo "   VARIANT=<variant>"
 	@echo "       specify which march node variant to unit test"
 	@echo "           e.g. VARIANT=skx test the skx march variants"
@@ -556,6 +680,10 @@ help:
 	@echo "       enable debugging of the test framework itself (expert)"
 	@echo "       (default: no)"
 	@echo ""
+	@echo "   TEST_GCOV=[1|y|yes]"
+	@echo "       enable tests specifically designed soley for code coverage"
+	@echo "       (default: no)"
+	@echo ""
 	@echo "   API_FUZZ=[1|y|yes]"
 	@echo "       enable VPP api fuzz testing"
 	@echo "       (default: no)"
@@ -564,12 +692,12 @@ help:
 	@echo "       random seed used by test framework"
 	@echo "       (default: time.time())"
 	@echo ""
+	@echo "   DECODE_PCAPS=[all|failed|none]"
+	@echo "       decode pcap files using tshark - all, only failed or none"
+	@echo "       (default: failed)"
+	@echo ""
 	@echo "Starting VPP in GDB for use with DEBUG=attach:"
 	@echo ""
 	@echo " test-start-vpp-in-gdb       - start VPP in gdb (release)"
 	@echo " test-start-vpp-debug-in-gdb - start VPP in gdb (debug)"
 	@echo ""
-	@echo "Creating test code coverage report:"
-	@echo ""
-	@echo " test-cov               - generate code coverage report for test framework"
-	@echo " test-wipe-cov          - wipe code coverage report for test framework"

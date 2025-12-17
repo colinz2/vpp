@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 /**
@@ -24,6 +14,8 @@
 #include <vnet/fib/fib.h>
 #include <vnet/dpo/load_balance.h>
 #include <math.h>
+
+#include <vlib/stats/stats.h>
 
 tcp_main_t tcp_main;
 
@@ -240,8 +232,8 @@ tcp_connection_cleanup (tcp_connection_t * tc)
 
   /* Cleanup local endpoint if this was an active connect */
   if (!(tc->cfg_flags & TCP_CFG_F_NO_ENDPOINT))
-    transport_release_local_endpoint (TRANSPORT_PROTO_TCP, &tc->c_lcl_ip,
-				      tc->c_lcl_port);
+    transport_release_local_endpoint (TRANSPORT_PROTO_TCP, tc->c_fib_index,
+				      &tc->c_lcl_ip, tc->c_lcl_port);
 
   /* Check if connection is not yet fully established */
   if (tc->state == TCP_STATE_SYN_SENT)
@@ -281,10 +273,10 @@ tcp_connection_cleanup (tcp_connection_t * tc)
  * just remove the connection, call tcp_connection_cleanup instead.
  */
 void
-tcp_connection_del (tcp_connection_t * tc)
+tcp_connection_cleanup_and_notify (tcp_connection_t *tc)
 {
-  session_transport_delete_notify (&tc->connection);
-  tcp_connection_cleanup (tc);
+  tcp_connection_timers_reset (tc);
+  session_transport_delete_request (&tc->connection, tcp_connection_cleanup);
 }
 
 tcp_connection_t *
@@ -354,11 +346,10 @@ tcp_program_cleanup (tcp_worker_ctx_t * wrk, tcp_connection_t * tc)
  * If at the end the connection is not in CLOSED state, it is not removed.
  * Instead, we rely on on TCP to advance through state machine to either
  * 1) LAST_ACK (passive close) whereby when the last ACK is received
- * tcp_connection_del is called. This notifies session of the delete and
- * calls cleanup.
- * 2) TIME_WAIT (active close) whereby after 2MSL the 2MSL timer triggers
- * and cleanup is called.
- *
+ * tcp_connection_cleanup_and_notify is called. This notifies session of the
+ * delete and calls cleanup.
+ * 2) TIME_WAIT (active close) whereby after 2MSL the 2MSL timer triggers and
+ * cleanup is called.
  */
 void
 tcp_connection_close (tcp_connection_t * tc)
@@ -408,8 +399,8 @@ tcp_connection_close (tcp_connection_t * tc)
     case TCP_STATE_CLOSE_WAIT:
       if (!transport_max_tx_dequeue (&tc->connection))
 	{
-	  tcp_send_fin (tc);
 	  tcp_connection_timers_reset (tc);
+	  tcp_send_fin (tc);
 	  tcp_connection_set_state (tc, TCP_STATE_LAST_ACK);
 	  tcp_timer_update (&wrk->timer_wheel, tc, TCP_TIMER_WAITCLOSE,
 			    tcp_cfg.lastack_time);
@@ -430,7 +421,7 @@ tcp_connection_close (tcp_connection_t * tc)
 }
 
 static void
-tcp_session_half_close (u32 conn_index, u32 thread_index)
+tcp_session_half_close (u32 conn_index, clib_thread_index_t thread_index)
 {
   tcp_worker_ctx_t *wrk;
   tcp_connection_t *tc;
@@ -454,7 +445,7 @@ tcp_session_half_close (u32 conn_index, u32 thread_index)
 }
 
 static void
-tcp_session_close (u32 conn_index, u32 thread_index)
+tcp_session_close (u32 conn_index, clib_thread_index_t thread_index)
 {
   tcp_connection_t *tc;
   tc = tcp_connection_get (conn_index, thread_index);
@@ -462,7 +453,7 @@ tcp_session_close (u32 conn_index, u32 thread_index)
 }
 
 static void
-tcp_session_cleanup (u32 conn_index, u32 thread_index)
+tcp_session_cleanup (u32 conn_index, clib_thread_index_t thread_index)
 {
   tcp_connection_t *tc;
   tc = tcp_connection_get (conn_index, thread_index);
@@ -485,7 +476,7 @@ tcp_session_cleanup_ho (u32 conn_index)
 }
 
 static void
-tcp_session_reset (u32 conn_index, u32 thread_index)
+tcp_session_reset (u32 conn_index, clib_thread_index_t thread_index)
 {
   tcp_connection_t *tc;
   tc = tcp_connection_get (conn_index, thread_index);
@@ -829,7 +820,7 @@ tcp_session_open (transport_endpoint_cfg_t * rmt)
   ip_copy (&tc->c_rmt_ip, &rmt->ip, rmt->is_ip4);
   ip_copy (&tc->c_lcl_ip, &lcl_addr, rmt->is_ip4);
   tc->c_rmt_port = rmt->port;
-  tc->c_lcl_port = clib_host_to_net_u16 (lcl_port);
+  tc->c_lcl_port = lcl_port;
   tc->c_is_ip4 = rmt->is_ip4;
   tc->c_proto = TRANSPORT_PROTO_TCP;
   tc->c_fib_index = rmt->fib_index;
@@ -854,7 +845,7 @@ static u8 *
 format_tcp_session (u8 * s, va_list * args)
 {
   u32 tci = va_arg (*args, u32);
-  u32 thread_index = va_arg (*args, u32);
+  clib_thread_index_t thread_index = va_arg (*args, u32);
   u32 verbose = va_arg (*args, u32);
   tcp_connection_t *tc;
 
@@ -877,6 +868,8 @@ format_tcp_listener_session (u8 * s, va_list * args)
   if (verbose)
     s = format (s, "%-" SESSION_CLI_STATE_LEN "U", format_tcp_state,
 		tc->state);
+  if (verbose == 2)
+    s = format (s, "\n%U", format_tcp_listener_connection, tc);
   return s;
 }
 
@@ -902,7 +895,7 @@ format_tcp_half_open_session (u8 * s, va_list * args)
 }
 
 static transport_connection_t *
-tcp_session_get_transport (u32 conn_index, u32 thread_index)
+tcp_session_get_transport (u32 conn_index, clib_thread_index_t thread_index)
 {
   tcp_connection_t *tc = tcp_connection_get (conn_index, thread_index);
   if (PREDICT_FALSE (!tc))
@@ -1012,8 +1005,8 @@ tcp_get_attribute (tcp_connection_t *tc, transport_endpt_attr_t *attr)
 }
 
 static int
-tcp_session_attribute (u32 conn_index, u32 thread_index, u8 is_get,
-		       transport_endpt_attr_t *attr)
+tcp_session_attribute (u32 conn_index, clib_thread_index_t thread_index,
+		       u8 is_get, transport_endpt_attr_t *attr)
 {
   tcp_connection_t *tc = tcp_connection_get (conn_index, thread_index);
 
@@ -1221,7 +1214,6 @@ tcp_timer_waitclose_handler (tcp_connection_t * tc)
     }
 }
 
-/* *INDENT-OFF* */
 static timer_expiration_handler *timer_expiration_handlers[TCP_N_TIMERS] =
 {
     tcp_timer_retransmit_handler,
@@ -1229,7 +1221,6 @@ static timer_expiration_handler *timer_expiration_handlers[TCP_N_TIMERS] =
     tcp_timer_waitclose_handler,
     tcp_timer_retransmit_syn_handler,
 };
-/* *INDENT-ON* */
 
 static void
 tcp_dispatch_pending_timers (tcp_worker_ctx_t * wrk)
@@ -1277,7 +1268,7 @@ tcp_dispatch_pending_timers (tcp_worker_ctx_t * wrk)
 static void
 tcp_handle_cleanups (tcp_worker_ctx_t * wrk, clib_time_type_t now)
 {
-  u32 thread_index = wrk->vm->thread_index;
+  clib_thread_index_t thread_index = wrk->vm->thread_index;
   tcp_cleanup_req_t *req;
   tcp_connection_t *tc;
 
@@ -1290,8 +1281,7 @@ tcp_handle_cleanups (tcp_worker_ctx_t * wrk, clib_time_type_t now)
       tc = tcp_connection_get (req->connection_index, thread_index);
       if (PREDICT_FALSE (!tc))
 	continue;
-      session_transport_delete_notify (&tc->connection);
-      tcp_connection_cleanup (tc);
+      tcp_connection_cleanup_and_notify (tc);
     }
 }
 
@@ -1337,7 +1327,6 @@ tcp_session_app_rx_evt (transport_connection_t *conn)
   return 0;
 }
 
-/* *INDENT-OFF* */
 const static transport_proto_vft_t tcp_proto = {
   .enable = vnet_tcp_enable_disable,
   .start_listen = tcp_session_bind,
@@ -1368,7 +1357,6 @@ const static transport_proto_vft_t tcp_proto = {
     .service_type = TRANSPORT_SERVICE_VC,
   },
 };
-/* *INDENT-ON* */
 
 void
 tcp_connection_tx_pacer_update (tcp_connection_t * tc)
@@ -1404,7 +1392,8 @@ tcp_reschedule (tcp_connection_t * tc)
 static void
 tcp_expired_timers_dispatch (u32 * expired_timers)
 {
-  u32 thread_index = vlib_get_thread_index (), n_left, max_per_loop;
+  clib_thread_index_t thread_index = vlib_get_thread_index (), n_left,
+		      max_per_loop;
   u32 connection_index, timer_id, n_expired, max_loops;
   tcp_worker_ctx_t *wrk;
   tcp_connection_t *tc;
@@ -1458,6 +1447,51 @@ tcp_initialize_iss_seed (tcp_main_t * tm)
   tm->iss_seed.second = random_u64 (&time_now);
 }
 
+static void
+tcp_stats_collector_fn (vlib_stats_collector_data_t *d)
+{
+  tcp_main_t *tm = vnet_get_tcp_main ();
+  counter_t **counters = d->entry->data;
+  counter_t *cb = counters[0];
+  tcp_wrk_stats_t acc = {};
+  tcp_worker_ctx_t *wrk;
+
+  vec_foreach (wrk, tm->wrk)
+    {
+#define _(name, type, str) acc.name += wrk->stats.name;
+      foreach_tcp_wrk_stat
+#undef _
+    }
+
+#define _(name, type, str) cb[TCP_STAT_##name] = acc.name;
+  foreach_tcp_wrk_stat
+#undef _
+}
+
+static void
+tcp_counters_init (tcp_main_t *tm)
+{
+  vlib_stats_collector_reg_t r = {};
+  u32 idx;
+
+  if (tm->counters_init)
+    return;
+
+  r.entry_index = idx = vlib_stats_add_counter_vector ("/sys/tcp");
+  r.collect_fn = tcp_stats_collector_fn;
+  vlib_stats_validate (idx, 0, TCP_STAT_no_buffer);
+
+#define _(name, type, str)                                                    \
+  vlib_stats_add_symlink (idx, TCP_STAT_##name, "/sys/tcp/%s",                \
+			  CLIB_STRING_MACRO (name));
+  foreach_tcp_wrk_stat
+#undef _
+
+    vlib_stats_register_collector_fn (&r);
+
+  tm->counters_init = 1;
+}
+
 static clib_error_t *
 tcp_main_enable (vlib_main_t * vm)
 {
@@ -1468,6 +1502,10 @@ tcp_main_enable (vlib_main_t * vm)
   tcp_worker_ctx_t *wrk;
   clib_error_t *error = 0;
   int thread;
+
+  /* Already initialized */
+  if (tm->wrk)
+    return 0;
 
   if ((error = vlib_call_init_function (vm, ip_main_init)))
     return error;
@@ -1488,11 +1526,11 @@ tcp_main_enable (vlib_main_t * vm)
    */
 
   num_threads = 1 /* main thread */  + vtm->n_threads;
-  vec_validate (tm->wrk_ctx, num_threads - 1);
+  vec_validate (tm->wrk, num_threads - 1);
   n_workers = num_threads == 1 ? 1 : vtm->n_threads;
   prealloc_conn_per_wrk = tcp_cfg.preallocated_connections / n_workers;
 
-  wrk = &tm->wrk_ctx[0];
+  wrk = &tm->wrk[0];
   wrk->tco_next_node[0] = vlib_node_get_next (vm, session_queue_node.index,
 					      tcp4_output_node.index);
   wrk->tco_next_node[1] = vlib_node_get_next (vm, session_queue_node.index,
@@ -1500,7 +1538,7 @@ tcp_main_enable (vlib_main_t * vm)
 
   for (thread = 0; thread < num_threads; thread++)
     {
-      wrk = &tm->wrk_ctx[thread];
+      wrk = &tm->wrk[thread];
 
       vec_validate (wrk->pending_deq_acked, 255);
       vec_validate (wrk->pending_disconnects, 255);
@@ -1513,8 +1551,8 @@ tcp_main_enable (vlib_main_t * vm)
 
       if (thread > 0)
 	{
-	  wrk->tco_next_node[0] = tm->wrk_ctx[0].tco_next_node[0];
-	  wrk->tco_next_node[1] = tm->wrk_ctx[0].tco_next_node[1];
+	  wrk->tco_next_node[0] = tm->wrk[0].tco_next_node[0];
+	  wrk->tco_next_node[1] = tm->wrk[0].tco_next_node[1];
 	}
 
       /*
@@ -1533,6 +1571,8 @@ tcp_main_enable (vlib_main_t * vm)
 
   tm->bytes_per_buffer = vlib_buffer_get_default_data_size (vm);
   tm->cc_last_type = TCP_CC_LAST;
+
+  tcp_counters_init (tm);
 
   return error;
 }
@@ -1563,6 +1603,14 @@ tcp_punt_unknown (vlib_main_t * vm, u8 is_ip4, u8 is_add)
     tm->punt_unknown4 = is_add;
   else
     tm->punt_unknown6 = is_add;
+}
+
+void
+tcp_sdl_enable_disable (tcp_sdl_cb_fn_t fp)
+{
+  tcp_main_t *tm = &tcp_main;
+
+  tm->sdl_cb = fp;
 }
 
 /**
@@ -1597,6 +1645,9 @@ tcp_configuration_init (void)
 
   /* This value is seconds */
   tcp_cfg.cleanup_time = 0.1;	/* 100ms */
+
+  /* Time constants defined as tcp tick (1us) multiples */
+  tcp_cfg.syn_rcvd_time = TCP_ESTABLISH_TIME;
 }
 
 static clib_error_t *
@@ -1630,11 +1681,3 @@ tcp_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (tcp_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef __IP6_FIB_H__
@@ -26,36 +16,15 @@
 #include <vppinfra/bihash_template.h>
 
 /*
- * Default size of the ip6 fib hash table
+ * Default size of the ip6 fib forwarding hash table
  */
 #define IP6_FIB_DEFAULT_HASH_NUM_BUCKETS (64 * 1024)
 #define IP6_FIB_DEFAULT_HASH_MEMORY_SIZE (32<<20)
 
 /**
- * Enumeration of the FIB table instance types
+ * A representation the forwarding IP6 table
  */
-typedef enum ip6_fib_table_instance_type_t_
-{
-    /**
-     * This table stores the routes that are used to forward traffic.
-     * The key is the prefix, the result the adjacency to forward on.
-     */
-  IP6_FIB_TABLE_FWDING,
-    /**
-     * The table that stores ALL routes learned by the DP.
-     * Some of these routes may not be ready to install in forwarding
-     * at a given time.
-     * The key in this table is the prefix, the result is the fib_entry_t
-     */
-  IP6_FIB_TABLE_NON_FWDING,
-} ip6_fib_table_instance_type_t;
-
-#define IP6_FIB_NUM_TABLES (IP6_FIB_TABLE_NON_FWDING+1)
-
-/**
- * A representation of a single IP6 table
- */
-typedef struct ip6_fib_table_instance_t_
+typedef struct ip6_fib_fwding_table_instance_t_
 {
   /* The hash table */
   clib_bihash_24_8_t ip6_hash;
@@ -64,12 +33,12 @@ typedef struct ip6_fib_table_instance_t_
   uword *non_empty_dst_address_length_bitmap;
   u8 *prefix_lengths_in_search_order;
   i32 dst_address_length_refcounts[129];
-} ip6_fib_table_instance_t;
+} ip6_fib_fwding_table_instance_t;
 
 /**
  * The two FIB tables; fwding and non-fwding
  */
-extern ip6_fib_table_instance_t ip6_fib_table[IP6_FIB_NUM_TABLES];
+extern ip6_fib_fwding_table_instance_t ip6_fib_fwding_table;
 
 extern fib_node_index_t ip6_fib_table_lookup(u32 fib_index,
 					     const ip6_address_t *addr,
@@ -115,13 +84,13 @@ always_inline u32
 ip6_fib_table_fwding_lookup (u32 fib_index,
                              const ip6_address_t * dst)
 {
-    ip6_fib_table_instance_t *table;
+    ip6_fib_fwding_table_instance_t *table;
     clib_bihash_kv_24_8_t kv, value;
     int i, len;
     int rv;
     u64 fib;
 
-    table = &ip6_fib_table[IP6_FIB_TABLE_FWDING];
+    table = &ip6_fib_fwding_table;
     len = vec_len (table->prefix_lengths_in_search_order);
 
     kv.key[0] = dst->as_u64[0];
@@ -230,6 +199,7 @@ u32 ip6_fib_index_from_table_id (u32 table_id)
 }
 
 extern u32 ip6_fib_table_get_index_for_sw_if_index(u32 sw_if_index);
+extern void ip6_fib_table_show (vlib_main_t *vm, fib_table_t *fib_table, int summary);
 
 #endif
 

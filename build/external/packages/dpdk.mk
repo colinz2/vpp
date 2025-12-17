@@ -16,22 +16,28 @@ DPDK_USE_LIBBSD              ?= n
 DPDK_DEBUG                   ?= n
 DPDK_TAP_PMD                 ?= n
 DPDK_FAILSAFE_PMD            ?= n
-DPDK_MACHINE                 ?= default
+DPDK_MACHINE                 ?= generic
 DPDK_MLX_IBV_LINK            ?= static
+# On most of the systems, default value for max lcores is 128
+DPDK_MAX_LCORES              ?=
 
-dpdk_version                 ?= 23.03
+dpdk_version                 ?= 25.11
 dpdk_base_url                ?= http://fast.dpdk.org/rel
 dpdk_tarball                 := dpdk-$(dpdk_version).tar.xz
-dpdk_tarball_md5sum_23.03    := 3cf8ebbcd412d5726db230f2eeb90cc9
-dpdk_tarball_md5sum_22.11.1  := 0594708fe42ce186a55b0235c6e20cfe
-dpdk_tarball_md5sum_22.07    := fb73b58b80b1349cd05fe9cf6984afd4
-dpdk_tarball_md5sum_22.03    := a07ca8839f98062f46e1cc359735cce8
-dpdk_tarball_md5sum_21.11    := 58660bbbe9e95abce86e47692b196555
-dpdk_tarball_md5sum          := $(dpdk_tarball_md5sum_$(dpdk_version))
+
+dpdk_tarball_sha256sum_25.11 := 52e90d2a531ef3ded0283bd91abc94980698f1f6471fa09658a0217cf6609526
+
+dpdk_tarball_sha256sum       := $(dpdk_tarball_sha256sum_$(dpdk_version))
 dpdk_url                     := $(dpdk_base_url)/$(dpdk_tarball)
 dpdk_tarball_strip_dirs      := 1
+ifeq ($(shell uname), FreeBSD)
+dpdk_depends		     := $(if $(ARCH_X86_64), ipsec-mb)
+else
 dpdk_depends		     := rdma-core $(if $(ARCH_X86_64), ipsec-mb)
-
+endif
+ifeq ($(rdma-core_version),)
+$(error Missing rdma-core_version)
+endif
 DPDK_MLX_DEFAULT             := $(shell if grep -q "rdma=$(rdma-core_version) dpdk=$(dpdk_version)" mlx_rdma_dpdk_matrix.txt; then echo 'y'; else echo 'n'; fi)
 DPDK_MLX4_PMD                ?= $(DPDK_MLX_DEFAULT)
 DPDK_MLX5_PMD                ?= $(DPDK_MLX_DEFAULT)
@@ -41,6 +47,11 @@ DPDK_MLX5_COMMON_PMD         ?= $(DPDK_MLX_DEFAULT)
 DPDK_BUILD_TYPE:=release
 ifeq ($(DPDK_DEBUG), y)
 DPDK_BUILD_TYPE:=debug
+endif
+
+DPDK_MAX_LCORES_FLAG :=
+ifneq ($(DPDK_MAX_LCORES),)
+DPDK_MAX_LCORES_FLAG := "-Dmax_lcores=$(DPDK_MAX_LCORES)"
 endif
 
 DPDK_DRIVERS_DISABLED := baseband/\*,	\
@@ -131,14 +142,19 @@ endif
 DPDK_DRIVERS_DISABLED := $(shell echo $(DPDK_DRIVERS_DISABLED) | tr -d '\\\t ')
 DPDK_LIBS_DISABLED := $(shell echo $(DPDK_LIBS_DISABLED) | tr -d '\\\t ')
 
+SED=sed
+ifeq ($(shell uname), FreeBSD)
+SED=gsed
+endif
+
 HASH := \#
 # post-meson-setup snippet to alter rte_build_config.h
 define dpdk_config
 if grep -q RTE_$(1) $(dpdk_src_dir)/config/rte_config.h ; then	\
-sed -i -e 's/$(HASH)define RTE_$(1).*/$(HASH)define RTE_$(1) $(DPDK_$(1))/' \
+$(SED) -i -e 's/$(HASH)define RTE_$(1).*/$(HASH)define RTE_$(1) $(DPDK_$(1))/' \
 	$(dpdk_src_dir)/config/rte_config.h; \
 elif grep -q RTE_$(1) $(dpdk_build_dir)/rte_build_config.h ; then \
-sed -i -e 's/$(HASH)define RTE_$(1).*/$(HASH)define RTE_$(1) $(DPDK_$(1))/' \
+$(SED) -i -e 's/$(HASH)define RTE_$(1).*/$(HASH)define RTE_$(1) $(DPDK_$(1))/' \
 	$(dpdk_build_dir)/rte_build_config.h; \
 else \
 echo '$(HASH)define RTE_$(1) $(DPDK_$(1))' \
@@ -154,7 +170,7 @@ if [[ "$(DPDK_$(1))" == "y" ]]; then \
           >> $(dpdk_build_dir)/rte_build_config.h ; \
     fi; \
 elif [[ "$(DPDK_$(1))" == "n" ]]; then \
-    sed -i '/$(HASH)define RTE_$(1) .*/d' $(dpdk_build_dir)/rte_build_config.h \
+    $(SED) -i '/$(HASH)define RTE_$(1) .*/d' $(dpdk_build_dir)/rte_build_config.h \
       $(dpdk_src_dir)/config/rte_config.h ; \
 fi
 endef
@@ -168,8 +184,10 @@ DPDK_MESON_ARGS = \
 	"-Ddisable_drivers=$(DPDK_DRIVERS_DISABLED)" \
 	"-Ddisable_libs=$(DPDK_LIBS_DISABLED)" \
 	-Db_pie=true \
-	-Dmachine=$(DPDK_MACHINE) \
-	--buildtype=$(DPDK_BUILD_TYPE) \
+	-Dplatform=$(DPDK_MACHINE) \
+	$(DPDK_MAX_LCORES_FLAG) \
+        --buildtype=$(DPDK_BUILD_TYPE) \
+	-Denable_kmods=false \
 	${DPDK_MLX_CONFIG_FLAG}
 
 PIP_DOWNLOAD_DIR = $(CURDIR)/downloads/
@@ -181,8 +199,8 @@ define dpdk_config_cmds
 	mkdir -p ../dpdk-meson-venv && \
 	python3 -m venv ../dpdk-meson-venv && \
 	source ../dpdk-meson-venv/bin/activate && \
-	(if ! ls $(PIP_DOWNLOAD_DIR)meson* ; then pip3 download -d $(PIP_DOWNLOAD_DIR) -f $(DL_CACHE_DIR) meson==0.55 setuptools wheel pyelftools; fi) && \
-	pip3 install --no-index --find-links=$(PIP_DOWNLOAD_DIR) meson==0.55 pyelftools && \
+	(if ! ls $(PIP_DOWNLOAD_DIR)meson* ; then pip3 download -d $(PIP_DOWNLOAD_DIR) -f $(DL_CACHE_DIR) meson==0.57.2 setuptools wheel pyelftools; fi) && \
+	pip3 install --no-index --find-links=$(PIP_DOWNLOAD_DIR) meson==0.57.2 pyelftools && \
 	PKG_CONFIG_PATH=$(dpdk_install_dir)/lib/pkgconfig meson setup $(dpdk_src_dir) \
 		$(dpdk_build_dir) \
 		$(DPDK_MESON_ARGS) \

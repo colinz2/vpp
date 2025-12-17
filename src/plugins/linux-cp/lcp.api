@@ -73,6 +73,8 @@ enum lcp_itf_host_type : u8
 */
 autoreply autoendian define lcp_itf_pair_add_del
 {
+  option deprecated;
+
   u32 client_index;
   u32 context;
   bool is_add;
@@ -80,10 +82,11 @@ autoreply autoendian define lcp_itf_pair_add_del
   string host_if_name[16];		/* IFNAMSIZ */
   vl_api_lcp_itf_host_type_t host_if_type;
   string netns[32];			/* LCP_NS_LEN */
-  option in_progress;
 };
 autoendian define lcp_itf_pair_add_del_v2
 {
+  option in_progress;
+
   u32 client_index;
   u32 context;
   bool is_add;
@@ -91,12 +94,34 @@ autoendian define lcp_itf_pair_add_del_v2
   string host_if_name[16];		/* IFNAMSIZ */
   vl_api_lcp_itf_host_type_t host_if_type;
   string netns[32];			/* LCP_NS_LEN */
-  option in_progress;
 };
 define lcp_itf_pair_add_del_v2_reply
 {
+  option in_progress;
+
   u32 context;
   i32 retval;
+  vl_api_interface_index_t host_sw_if_index;
+};
+autoendian define lcp_itf_pair_add_del_v3
+{
+  option in_progress;
+
+  u32 client_index;
+  u32 context;
+  bool is_add;
+  vl_api_interface_index_t sw_if_index;
+  string host_if_name[16];		/* IFNAMSIZ */
+  vl_api_lcp_itf_host_type_t host_if_type;
+  string netns[32];			/* LCP_NS_LEN */
+};
+define lcp_itf_pair_add_del_v3_reply
+{
+  option in_progress;
+
+  u32 context;
+  i32 retval;
+  u32 vif_index;
   vl_api_interface_index_t host_sw_if_index;
 };
 
@@ -112,6 +137,19 @@ autoendian define lcp_itf_pair_get
   u32 cursor;
 };
 autoendian define lcp_itf_pair_get_reply
+{
+  u32 context;
+  i32 retval;
+  u32 cursor;
+};
+autoendian define lcp_itf_pair_get_v2
+{
+  u32 client_index;
+  u32 context;
+  u32 cursor;
+  vl_api_interface_index_t sw_if_index;
+};
+autoendian define lcp_itf_pair_get_v2_reply
 {
   u32 context;
   i32 retval;
@@ -139,8 +177,49 @@ autoendian define lcp_itf_pair_details
   option in_progress;
 };
 
+/** \brief Enable linux-cp-punt-xc for a given ethertype
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param ethertype - the ethertype to enable
+*/
+autoreply define lcp_ethertype_enable
+{
+  u32 client_index;
+  u32 context;
+  u16 ethertype;
+};
+
+/** \brief Get the enabled ethertypes for linux-cp-punt-xc
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+*/
+define lcp_ethertype_get
+{
+  u32 client_index;
+  u32 context;
+};
+
+/** \brief Reply to get the enabled ethertypes for linux-cp-punt-xc
+    @param context - sender context, to match reply w/ request
+    @param retval - return code for the request
+    @param count - number of enabled ethertypes
+    @param ethertypes - array of enabled ethertypes
+*/
+define lcp_ethertype_get_reply
+{
+  u32 context;
+  i32 retval;
+  u16 count;
+  u16 ethertypes[count];
+};
+
 service {
   rpc lcp_itf_pair_get returns lcp_itf_pair_get_reply
+    stream lcp_itf_pair_details;
+};
+
+service {
+  rpc lcp_itf_pair_get_v2 returns lcp_itf_pair_get_v2_reply
     stream lcp_itf_pair_details;
 };
 

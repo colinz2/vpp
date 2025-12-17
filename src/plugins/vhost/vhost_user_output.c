@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * vhost-user-output
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2014-2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * vhost-user-output
  */
 
 #include <stddef.h>
@@ -32,7 +21,7 @@
 #include <linux/if_tun.h>
 
 #include <vlib/vlib.h>
-#include <vlib/unix/unix.h>
+#include <vlib/file.h>
 
 #include <vnet/ethernet/ethernet.h>
 #include <vnet/devices/devices.h>
@@ -382,7 +371,7 @@ vhost_user_device_class_packed (vlib_main_t *vm, vlib_node_runtime_t *node,
   vhost_user_main_t *vum = &vhost_user_main;
   u32 qid = rxvq->qid;
   u8 error;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   vhost_cpu_t *cpu = &vum->cpus[thread_index];
   u32 map_hint = 0;
   u8 retry = 8;
@@ -698,7 +687,7 @@ VNET_DEVICE_CLASS_TX_FN (vhost_user_device_class) (vlib_main_t * vm,
   u32 qid;
   vhost_user_vring_t *rxvq;
   u8 error;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   vhost_cpu_t *cpu = &vum->cpus[thread_index];
   u32 map_hint = 0;
   u8 retry = 8;
@@ -1051,7 +1040,7 @@ vhost_user_interface_rx_mode_change (vnet_main_t * vnm, u32 hw_if_index,
       return clib_error_return (0, "unsupported");
     }
 
-  if (txvq->thread_index == ~0)
+  if (txvq->thread_index == CLIB_INVALID_THREAD_INDEX)
     return clib_error_return (0, "Queue initialization is not finished yet");
 
   cpu = vec_elt_at_index (vum->cpus, txvq->thread_index);
@@ -1122,7 +1111,6 @@ vhost_user_interface_admin_up_down (vnet_main_t * vnm, u32 hw_if_index,
   return /* no error */ 0;
 }
 
-/* *INDENT-OFF* */
 VNET_DEVICE_CLASS (vhost_user_device_class) = {
   .name = "vhost-user",
   .tx_function_n_errors = VHOST_USER_TX_FUNC_N_ERROR,
@@ -1133,13 +1121,3 @@ VNET_DEVICE_CLASS (vhost_user_device_class) = {
   .rx_mode_change_function = vhost_user_interface_rx_mode_change,
   .format_tx_trace = format_vhost_trace,
 };
-
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

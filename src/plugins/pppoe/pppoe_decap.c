@@ -1,22 +1,11 @@
-/*
- * decap.c: pppoe session decap packet processing
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Intel and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
+/* decap.c: pppoe session decap packet processing */
+
 #include <vlib/vlib.h>
-#include <vnet/ppp/packet.h>
+#include <ppp/packet.h>
 #include <pppoe/pppoe.h>
 
 typedef struct {
@@ -54,7 +43,7 @@ VLIB_NODE_FN (pppoe_input_node) (vlib_main_t * vm,
   vnet_main_t * vnm = pem->vnet_main;
   vnet_interface_main_t * im = &vnm->interface_main;
   u32 pkts_decapsulated = 0;
-  u32 thread_index = vlib_get_thread_index();
+  clib_thread_index_t thread_index = vlib_get_thread_index ();
   u32 stats_sw_if_index, stats_n_packets, stats_n_bytes;
   pppoe_entry_key_t cached_key;
   pppoe_entry_result_t cached_result;
@@ -494,11 +483,9 @@ VLIB_REGISTER_NODE (pppoe_input_node) = {
   .format_trace = format_pppoe_rx_trace,
 };
 
-/* *INDENT-OFF* */
 VNET_FEATURE_INIT (pppoe_input_node, static) =
 {
   .arc_name = "device-input",
   .node_name = "pppoe-input",
   .runs_before = VNET_FEATURES ("ethernet-input"),
 };
-/* *INDENT-ON */

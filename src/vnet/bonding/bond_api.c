@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * bond_api.c - vnet bonding device driver API support
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * bond_api.c - vnet bonding device driver API support
  */
 
 #include <vnet/vnet.h>
@@ -43,8 +32,11 @@ vl_api_bond_delete_t_handler (vl_api_bond_delete_t * mp)
   vl_api_bond_delete_reply_t *rmp;
   u32 sw_if_index = ntohl (mp->sw_if_index);
 
+  VALIDATE_SW_IF_INDEX (mp);
+
   rv = bond_delete_if (vm, sw_if_index);
 
+  BAD_SW_IF_INDEX_LABEL;
   REPLY_MACRO (VL_API_BOND_DELETE_REPLY);
 }
 
@@ -72,12 +64,10 @@ vl_api_bond_create_t_handler (vl_api_bond_create_t * mp)
 
   int rv = ap->rv;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_BOND_CREATE_REPLY,
   ({
     rmp->sw_if_index = ntohl (ap->sw_if_index);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -105,12 +95,10 @@ vl_api_bond_create2_t_handler (vl_api_bond_create2_t * mp)
 
   int rv = ap->rv;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_BOND_CREATE2_REPLY,
   ({
     rmp->sw_if_index = ntohl (ap->sw_if_index);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -168,6 +156,8 @@ static void
   vl_api_sw_interface_set_bond_weight_reply_t *rmp;
   int rv = 0;
 
+  VALIDATE_SW_IF_INDEX (mp);
+
   clib_memset (ap, 0, sizeof (*ap));
 
   ap->sw_if_index = ntohl (mp->sw_if_index);
@@ -176,6 +166,7 @@ static void
   bond_set_intf_weight (vm, ap);
   rv = ap->rv;
 
+  BAD_SW_IF_INDEX_LABEL;
   REPLY_MACRO (VL_API_SW_INTERFACE_SET_BOND_WEIGHT_REPLY);
 }
 
@@ -187,12 +178,15 @@ vl_api_bond_detach_slave_t_handler (vl_api_bond_detach_slave_t * mp)
   bond_detach_member_args_t _a, *ap = &_a;
   int rv = 0;
 
+  VALIDATE_SW_IF_INDEX (mp);
+
   clib_memset (ap, 0, sizeof (*ap));
 
   ap->member = ntohl (mp->sw_if_index);
   bond_detach_member (vm, ap);
   rv = ap->rv;
 
+  BAD_SW_IF_INDEX_LABEL;
   REPLY_MACRO (VL_API_BOND_DETACH_SLAVE_REPLY);
 }
 
@@ -204,12 +198,15 @@ vl_api_bond_detach_member_t_handler (vl_api_bond_detach_member_t * mp)
   bond_detach_member_args_t _a, *ap = &_a;
   int rv = 0;
 
+  VALIDATE_SW_IF_INDEX (mp);
+
   clib_memset (ap, 0, sizeof (*ap));
 
   ap->member = ntohl (mp->sw_if_index);
   bond_detach_member (vm, ap);
   rv = ap->rv;
 
+  BAD_SW_IF_INDEX_LABEL;
   REPLY_MACRO (VL_API_BOND_DETACH_MEMBER_REPLY);
 }
 
@@ -440,11 +437,3 @@ bond_api_hookup (vlib_main_t * vm)
 }
 
 VLIB_API_INIT_FUNCTION (bond_api_hookup);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

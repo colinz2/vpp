@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /**
  * @brief
  *
@@ -39,6 +30,12 @@ typedef struct replicate_main_t_
 } replicate_main_t;
 
 extern replicate_main_t replicate_main;
+
+/**
+ * The number of buckets that a replicate object can have
+ * This must not overflow the rep_n_buckets field
+ */
+#define REP_MAX_BUCKETS 1024
 
 /**
  * The number of buckets that a load-balance object can have and still
@@ -108,6 +105,8 @@ typedef struct replicate_t_ {
 
 STATIC_ASSERT(sizeof(replicate_t) <= CLIB_CACHE_LINE_BYTES,
 	      "A replicate object size exceeds one cacheline");
+STATIC_ASSERT (REP_MAX_BUCKETS <= CLIB_U16_MAX,
+	       "Too many buckets for replicate object");
 
 /**
  * Flags controlling load-balance formatting/display

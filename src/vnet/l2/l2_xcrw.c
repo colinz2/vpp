@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vnet/l2/l2_xcrw.h>
 
 /**
@@ -238,7 +229,6 @@ VLIB_NODE_FN (l2_xcrw_node) (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (l2_xcrw_node) = {
   .name = "l2-xcrw",
   .vector_size = sizeof (u32),
@@ -255,7 +245,6 @@ VLIB_REGISTER_NODE (l2_xcrw_node) = {
         [L2_XCRW_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 #ifndef CLIB_MARCH_VARIANT
 clib_error_t *
@@ -279,12 +268,10 @@ format_xcrw_name (u8 * s, va_list * args)
   return format (s, "xcrw%d", dev_instance);
 }
 
-/* *INDENT-OFF* */
 VNET_DEVICE_CLASS (xcrw_device_class,static) = {
   .name = "Xcrw",
   .format_device_name = format_xcrw_name,
 };
-/* *INDENT-ON* */
 
 /* Create a sham tunnel interface and return its sw_if_index */
 static u32
@@ -496,7 +483,6 @@ done:
  * @todo This is incomplete. This needs a detailed description and a
  * practical example.
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_l2_xcrw_command, static) = {
   .path = "set interface l2 xcrw",
   .short_help =
@@ -504,7 +490,6 @@ VLIB_CLI_COMMAND (set_l2_xcrw_command, static) = {
   "    [del] [tx-fib-id <id>] [ipv6] rw <hex-bytes>",
   .function = set_l2_xcrw_command_fn,
 };
-/* *INDENT-ON* */
 
 #endif /* CLIB_MARCH_VARIANT */
 
@@ -568,12 +553,10 @@ show_l2xcrw_command_fn (vlib_main_t * vm,
 
   vlib_cli_output (vm, "%U", format_l2xcrw, 0, 0);
 
-  /* *INDENT-OFF* */
   pool_foreach (t, xcm->tunnels)
    {
     vlib_cli_output (vm, "%U", format_l2xcrw, vnm, t);
   }
-  /* *INDENT-ON* */
 
   return 0;
 }
@@ -585,18 +568,8 @@ show_l2xcrw_command_fn (vlib_main_t * vm,
  * @todo This is incomplete. This needs a detailed description and a
  * practical example.
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_l2xcrw_command, static) = {
   .path = "show l2xcrw",
   .short_help = "show l2xcrw",
   .function = show_l2xcrw_command_fn,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,19 +1,8 @@
-/*
- * l2_input.c : layer 2 input packet processing
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2013 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* l2_input.c : layer 2 input packet processing */
 
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
@@ -215,7 +204,10 @@ classify_and_dispatch (l2input_main_t * msm, vlib_buffer_t * b0, u16 * next0)
       vnet_buffer (b0)->sw_if_index[VLIB_TX] = config->output_sw_if_index;
     }
   else
-    feat_mask = L2INPUT_FEAT_DROP;
+    {
+      *next0 = L2INPUT_NEXT_DROP;
+      return;
+    }
 
   /* mask out features from bitmap using packet type and bd config */
   u32 feature_bitmap = config->feature_bitmap & feat_mask;
@@ -251,11 +243,11 @@ l2input_node_inline (vlib_main_t * vm,
 
 	  /* Prefetch next iteration. */
 	  {
-	    /* Prefetch the buffer header and packet for the N+2 loop iteration */
-	    clib_prefetch_store (b + 4);
-	    clib_prefetch_store (b + 5);
-	    clib_prefetch_store (b + 6);
-	    clib_prefetch_store (b + 7);
+	    /* Prefetch the buffer header for the N+2 loop iteration */
+	    clib_prefetch_store (b[4]);
+	    clib_prefetch_store (b[5]);
+	    clib_prefetch_store (b[6]);
+	    clib_prefetch_store (b[7]);
 
 	    clib_prefetch_store (b[4]->data);
 	    clib_prefetch_store (b[5]->data);
@@ -365,7 +357,6 @@ VLIB_NODE_FN (l2input_node) (vlib_main_t * vm,
   return l2input_node_inline (vm, node, frame, 0 /* do_trace */ );
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (l2input_node) = {
   .name = "l2-input",
   .vector_size = sizeof (u32),
@@ -385,12 +376,3 @@ VLIB_REGISTER_NODE (l2input_node) = {
        [L2INPUT_NEXT_DROP]  = "error-drop",
   },
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

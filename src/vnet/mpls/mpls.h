@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef included_vnet_mpls_h
 #define included_vnet_mpls_h
 
@@ -23,14 +14,18 @@
 #include <vnet/fib/fib_node.h>
 #include <vnet/adj/adj.h>
 
+struct mpls_main_t;
+
 /**
  * @brief Definition of a callback for receiving MPLS interface state change
  * notifications
  */
-typedef void (*mpls_interface_state_change_callback_t) (u32 sw_if_index,
-							u32 is_enable);
+typedef void (mpls_interface_state_change_function_t) (struct mpls_main_t *mm,
+						       uword opaque,
+						       u32 sw_if_index,
+						       u32 is_enable);
 
-typedef struct
+typedef struct mpls_main_t
 {
   /* MPLS FIB index for each software interface */
   u32 *fib_index_by_sw_if_index;
@@ -77,10 +72,13 @@ unformat_function_t unformat_mpls_unicast_label;
 unformat_function_t unformat_mpls_header;
 unformat_function_t unformat_pg_mpls_header;
 
+u8 mpls_sw_interface_is_enabled (u32 sw_if_index);
+
+void mpls_interface_state_change_add_callback (
+  mpls_interface_state_change_function_t *function, uword opaque);
+
 int mpls_sw_interface_enable_disable (mpls_main_t *mm, u32 sw_if_index,
 				      u8 is_enable);
-
-u8 mpls_sw_interface_is_enabled (u32 sw_if_index);
 
 int mpls_dest_cmp (void *a1, void *a2);
 
@@ -92,11 +90,3 @@ void mpls_table_create (u32 table_id, u8 is_api, const u8 * name);
 void mpls_table_delete (u32 table_id, u8 is_api);
 
 #endif /* included_vnet_mpls_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

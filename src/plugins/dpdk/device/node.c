@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vnet/vnet.h>
 #include <vppinfra/vec.h>
 #include <vppinfra/error.h>
@@ -340,8 +331,9 @@ dpdk_process_lro_offload (dpdk_device_t *xd, dpdk_per_thread_data_t *ptd,
 }
 
 static_always_inline u32
-dpdk_device_input (vlib_main_t * vm, dpdk_main_t * dm, dpdk_device_t * xd,
-		   vlib_node_runtime_t * node, u32 thread_index, u16 queue_id)
+dpdk_device_input (vlib_main_t *vm, dpdk_main_t *dm, dpdk_device_t *xd,
+		   vlib_node_runtime_t *node, clib_thread_index_t thread_index,
+		   u16 queue_id)
 {
   uword n_rx_packets = 0, n_rx_bytes;
   dpdk_rx_queue_t *rxq = vec_elt_at_index (xd->rx_queues, queue_id);
@@ -396,7 +388,7 @@ dpdk_device_input (vlib_main_t * vm, dpdk_main_t * dm, dpdk_device_t * xd,
   /* as all packets belong to the same interface feature arc lookup
      can be don once and result stored in the buffer template */
   if (PREDICT_FALSE (vnet_device_input_have_features (xd->sw_if_index)))
-    vnet_feature_start_device_input_x1 (xd->sw_if_index, &next_index, bt);
+    vnet_feature_start_device_input (xd->sw_if_index, &next_index, bt);
 
   if (xd->flags & DPDK_DEVICE_FLAG_MAYBE_MULTISEG)
     n_rx_bytes = dpdk_process_rx_burst (vm, ptd, n_rx_packets, 1, &or_flags);
@@ -543,7 +535,7 @@ VLIB_NODE_FN (dpdk_input_node) (vlib_main_t * vm, vlib_node_runtime_t * node,
   dpdk_device_t *xd;
   uword n_rx_packets = 0;
   vnet_hw_if_rxq_poll_vector_t *pv;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
 
   /*
    * Poll all devices on this cpu for input/interrupts.
@@ -560,7 +552,6 @@ VLIB_NODE_FN (dpdk_input_node) (vlib_main_t * vm, vlib_node_runtime_t * node,
   return n_rx_packets;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (dpdk_input_node) = {
   .type = VLIB_NODE_TYPE_INPUT,
   .name = "dpdk-input",
@@ -576,12 +567,3 @@ VLIB_REGISTER_NODE (dpdk_input_node) = {
   .n_errors = DPDK_N_ERROR,
   .error_strings = dpdk_error_strings,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

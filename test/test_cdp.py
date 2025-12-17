@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-""" CDP tests """
+"""CDP tests"""
 
 from scapy.packet import Packet
 from scapy.all import ShortField, StrField
@@ -17,6 +17,7 @@ from scapy.all import raw
 from re import compile
 from time import sleep
 from util import ppp
+from config import config
 import platform
 import sys
 import unittest
@@ -39,6 +40,7 @@ class CustomTLV(Packet):
     ]
 
 
+@unittest.skipIf("cdp" in config.excluded_plugins, "Exclude CDP plugin tests")
 class TestCDP(VppTestCase):
     """CDP Test Case"""
 

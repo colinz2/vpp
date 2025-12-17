@@ -1,33 +1,16 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef __included_uri_h__
 #define __included_uri_h__
 
 #include <vlibmemory/api.h>
 #include <svm/message_queue.h>
+#include <vnet/session/application_crypto.h>
 #include <vnet/session/session_types.h>
-#include <vnet/tls/tls_test.h>
 #include <svm/fifo_segment.h>
-
-typedef struct certificate_
-{
-  u32 *app_interests;		/* vec of application index asking for deletion cb */
-  u32 cert_key_index;		/* index in cert & key pool */
-  u8 *key;
-  u8 *cert;
-} app_cert_key_pair_t;
 
 typedef struct session_cb_vft_
 {
@@ -62,19 +45,33 @@ typedef struct session_cb_vft_
   /** Notify app that session pool migration happened */
   void (*session_migrate_callback) (session_t * s, session_handle_t new_sh);
 
+  /** Notify app (external only) that listen was processed */
+  int (*session_listened_callback) (u32 app_wrk_index, u32 api_context,
+				    session_handle_t handle, int rv);
+  /** Notify app (external only) that unlisten was processed */
+  void (*session_unlistened_callback) (u32 app_wrk_index, session_handle_t sh,
+				       u32 context, int rv);
+
   /** Direct RX callback for built-in application */
   int (*builtin_app_rx_callback) (session_t * session);
 
   /** Direct TX callback for built-in application */
   int (*builtin_app_tx_callback) (session_t * session);
 
-  /** Cert and key pair delete notification */
-  int (*app_cert_key_pair_delete_callback) (app_cert_key_pair_t * ckpair);
-
   /** Delegate fifo-tuning-logic to application */
   int (*fifo_tuning_callback) (session_t * s, svm_fifo_t * f,
 			       session_ft_action_t act, u32 bytes);
+  /** Custom fifo allocation for proxy */
+  int (*proxy_alloc_session_fifos) (session_t *s);
 
+  /** Allow proxy to write early data */
+  int (*proxy_write_early_data) (session_t *s);
+
+  /** Collect and export session logs */
+  int (*app_evt_callback) (session_t *s);
+
+  /** Callback to handle async crypto requests */
+  int (*app_crypto_async) (app_crypto_async_req_t *req);
 } session_cb_vft_t;
 
 #define foreach_app_init_args			\
@@ -117,7 +114,7 @@ typedef struct _vnet_bind_args_t
   /*
    * Results
    */
-  u64 handle;
+  session_handle_t handle;
 } vnet_listen_args_t;
 
 typedef struct _vnet_unlisten_args_t
@@ -125,7 +122,7 @@ typedef struct _vnet_unlisten_args_t
   union
   {
     char *uri;
-    u64 handle;			/**< Session handle */
+    session_handle_t handle; /**< Session handle */
   };
   u32 app_index;		/**< Owning application index */
   u32 wrk_map_index;		/**< App's local pool worker index */
@@ -171,34 +168,6 @@ typedef struct _vnet_application_add_tls_key_args_t
   u8 *key;
 } vnet_app_add_tls_key_args_t;
 
-typedef enum crypto_engine_type_
-{
-  CRYPTO_ENGINE_NONE,
-  CRYPTO_ENGINE_OPENSSL,
-  CRYPTO_ENGINE_MBEDTLS,
-  CRYPTO_ENGINE_VPP,
-  CRYPTO_ENGINE_PICOTLS,
-  CRYPTO_ENGINE_LAST = CRYPTO_ENGINE_PICOTLS,
-} crypto_engine_type_t;
-
-typedef struct _vnet_app_add_cert_key_pair_args_
-{
-  u8 *cert;
-  u8 *key;
-  u32 cert_len;
-  u32 key_len;
-  u32 index;
-} vnet_app_add_cert_key_pair_args_t;
-
-typedef struct crypto_ctx_
-{
-  u32 ctx_index;		/**< index in crypto context pool */
-  u32 n_subscribers;		/**< refcount of sessions using said context */
-  u32 ckpair_index;		/**< certificate & key */
-  u8 crypto_engine;
-  void *data;			/**< protocol specific data */
-} crypto_context_t;
-
 /* Application attach options */
 typedef enum
 {
@@ -206,7 +175,7 @@ typedef enum
   APP_OPTIONS_EVT_QUEUE_SIZE,
   APP_OPTIONS_SEGMENT_SIZE,
   APP_OPTIONS_ADD_SEGMENT_SIZE,
-  APP_OPTIONS_PRIVATE_SEGMENT_COUNT,
+  APP_OPTIONS_MAX_FIFO_MEMORY,
   APP_OPTIONS_RX_FIFO_SIZE,
   APP_OPTIONS_TX_FIFO_SIZE,
   APP_OPTIONS_PREALLOC_FIFO_PAIRS,
@@ -214,7 +183,7 @@ typedef enum
   APP_OPTIONS_NAMESPACE,
   APP_OPTIONS_NAMESPACE_SECRET,
   APP_OPTIONS_PROXY_TRANSPORT,
-  APP_OPTIONS_ACCEPT_COOKIE,
+  APP_OPTIONS_UNUSED2,
   APP_OPTIONS_TLS_ENGINE,
   APP_OPTIONS_MAX_FIFO_SIZE,
   APP_OPTIONS_HIGH_WATERMARK,
@@ -233,7 +202,10 @@ typedef enum
   _ (USE_LOCAL_SCOPE, "App can use local session scope")                      \
   _ (EVT_MQ_USE_EVENTFD, "Use eventfds for signaling")                        \
   _ (MEMFD_FOR_BUILTIN, "Use memfd for builtin app segs")                     \
-  _ (USE_HUGE_PAGE, "Use huge page for FIFO")
+  _ (USE_HUGE_PAGE, "Use huge page for FIFO")                                 \
+  _ (GET_ORIGINAL_DST, "Get original dst enabled")                            \
+  _ (EVT_COLLECTOR, "App requests event collector")                           \
+  _ (NO_DUMP_SEGMENTS, "Do not dump segments in core dumps")
 
 typedef enum _app_options
 {
@@ -270,23 +242,23 @@ typedef enum session_fd_flag_
 #undef _
 } session_fd_flag_t;
 
-int parse_uri (char *uri, session_endpoint_cfg_t * sep);
-int vnet_bind_uri (vnet_listen_args_t *);
-int vnet_unbind_uri (vnet_unlisten_args_t * a);
-int vnet_connect_uri (vnet_connect_args_t * a);
+session_error_t parse_uri (char *uri, session_endpoint_cfg_t *sep);
+session_error_t parse_target (char **uri, char **target);
+session_error_t vnet_bind_uri (vnet_listen_args_t *);
+session_error_t vnet_unbind_uri (vnet_unlisten_args_t *a);
+session_error_t vnet_connect_uri (vnet_connect_args_t *a);
 
-int vnet_application_attach (vnet_app_attach_args_t * a);
-int vnet_application_detach (vnet_app_detach_args_t * a);
-int vnet_listen (vnet_listen_args_t * a);
-int vnet_connect (vnet_connect_args_t * a);
-int vnet_unlisten (vnet_unlisten_args_t * a);
-int vnet_shutdown_session (vnet_shutdown_args_t *a);
-int vnet_disconnect_session (vnet_disconnect_args_t * a);
+session_error_t vnet_application_attach (vnet_app_attach_args_t *a);
+session_error_t vnet_application_detach (vnet_app_detach_args_t *a);
+session_error_t vnet_listen (vnet_listen_args_t *a);
+session_error_t vnet_connect (vnet_connect_args_t *a);
+session_error_t vnet_connect_stream (vnet_connect_args_t *a);
+session_error_t vnet_unlisten (vnet_unlisten_args_t *a);
+session_error_t vnet_shutdown_session (vnet_shutdown_args_t *a);
+session_error_t vnet_disconnect_session (vnet_disconnect_args_t *a);
 
 int vnet_app_add_cert_key_pair (vnet_app_add_cert_key_pair_args_t * a);
 int vnet_app_del_cert_key_pair (u32 index);
-/** Ask for app cb on pair deletion */
-int vnet_app_add_cert_key_interest (u32 index, u32 app_index);
 
 uword unformat_vnet_uri (unformat_input_t *input, va_list *args);
 
@@ -299,15 +271,15 @@ typedef struct app_session_transport_
   u8 is_ip4;			/**< set if uses ip4 networking */
 } app_session_transport_t;
 
-#define foreach_app_session_field					\
-  _(svm_fifo_t, *rx_fifo)		/**< rx fifo */			\
-  _(svm_fifo_t, *tx_fifo)		/**< tx fifo */			\
-  _(session_type_t, session_type)	/**< session type */		\
-  _(volatile u8, session_state)		/**< session state */		\
-  _(u32, session_index)			/**< index in owning pool */	\
-  _(app_session_transport_t, transport)	/**< transport info */		\
-  _(svm_msg_q_t, *vpp_evt_q)		/**< vpp event queue  */	\
-  _(u8, is_dgram)			/**< flag for dgram mode */	\
+#define foreach_app_session_field                                             \
+  _ (svm_fifo_t, *rx_fifo)		 /**< rx fifo */                      \
+  _ (svm_fifo_t, *tx_fifo)		 /**< tx fifo */                      \
+  _ (session_type_t, session_type)	 /**< session type */                 \
+  _ (volatile u8, session_state)	 /**< session state */                \
+  _ (u32, session_index)		 /**< index in owning pool */         \
+  _ (app_session_transport_t, transport) /**< transport info */               \
+  _ (svm_msg_q_t, *vpp_evt_q)		 /**< vpp event queue  */             \
+  _ (u8, is_dgram)			 /**< flag for dgram mode */
 
 typedef struct
 {
@@ -328,6 +300,7 @@ typedef struct session_listen_msg_
   ip46_address_t ip;
   u8 flags;
   uword ext_config;
+  u8 dscp;
 } __clib_packed session_listen_msg_t;
 
 STATIC_ASSERT (sizeof (session_listen_msg_t) <= SESSION_CTRL_MSG_MAX_SIZE,
@@ -346,7 +319,7 @@ STATIC_ASSERT (sizeof (session_listen_uri_msg_t) <= SESSION_CTRL_MSG_MAX_SIZE,
 typedef struct session_bound_msg_
 {
   u32 context;
-  u64 handle;
+  session_handle_t handle;
   i32 retval;
   u8 lcl_is_ip4;
   u8 lcl_ip[16];
@@ -369,15 +342,15 @@ typedef struct session_unlisten_msg_
 typedef struct session_unlisten_reply_msg_
 {
   u32 context;
-  u64 handle;
+  session_handle_t handle;
   i32 retval;
 } __clib_packed session_unlisten_reply_msg_t;
 
 typedef struct session_accepted_msg_
 {
   u32 context;
-  u64 listener_handle;
-  u64 handle;
+  session_handle_t listener_handle;
+  session_handle_t handle;
   uword server_rx_fifo;
   uword server_tx_fifo;
   u64 segment_handle;
@@ -385,14 +358,17 @@ typedef struct session_accepted_msg_
   u32 mq_index;
   transport_endpoint_t lcl;
   transport_endpoint_t rmt;
-  u8 flags;
+  u16 flags;
+  /* TODO(fcoras) maybe refactor to pass as transport attr */
+  u32 original_dst_ip4;
+  u16 original_dst_port;
 } __clib_packed session_accepted_msg_t;
 
 typedef struct session_accepted_reply_msg_
 {
   u32 context;
   i32 retval;
-  u64 handle;
+  session_handle_t handle;
 } __clib_packed session_accepted_reply_msg_t;
 
 typedef struct session_connect_msg_
@@ -432,7 +408,7 @@ typedef struct session_connected_msg_
 {
   u32 context;
   i32 retval;
-  u64 handle;
+  session_handle_t handle;
   uword server_rx_fifo;
   uword server_tx_fifo;
   u64 segment_handle;
@@ -462,33 +438,33 @@ typedef struct session_disconnected_msg_
 {
   u32 client_index;
   u32 context;
-  u64 handle;
+  session_handle_t handle;
 } __clib_packed session_disconnected_msg_t;
 
 typedef struct session_disconnected_reply_msg_
 {
   u32 context;
   i32 retval;
-  u64 handle;
+  session_handle_t handle;
 } __clib_packed session_disconnected_reply_msg_t;
 
 typedef struct session_reset_msg_
 {
   u32 client_index;
   u32 context;
-  u64 handle;
+  session_handle_t handle;
 } __clib_packed session_reset_msg_t;
 
 typedef struct session_reset_reply_msg_
 {
   u32 context;
   i32 retval;
-  u64 handle;
+  session_handle_t handle;
 } __clib_packed session_reset_reply_msg_t;
 
 typedef struct session_req_worker_update_msg_
 {
-  u64 session_handle;
+  session_handle_t session_handle;
 } __clib_packed session_req_worker_update_msg_t;
 
 /* NOTE: using u16 for wrk indices because message needs to fit in 18B */
@@ -497,12 +473,12 @@ typedef struct session_worker_update_msg_
   u32 client_index;
   u16 wrk_index;
   u16 req_wrk_index;
-  u64 handle;
+  session_handle_t handle;
 } __clib_packed session_worker_update_msg_t;
 
 typedef struct session_worker_update_reply_msg_
 {
-  u64 handle;
+  session_handle_t handle;
   uword rx_fifo;
   uword tx_fifo;
   u64 segment_handle;
@@ -643,10 +619,55 @@ app_send_io_evt_to_vpp (svm_msg_q_t * mq, u32 session_index, u8 evt_type,
     }
 }
 
-#define app_send_dgram_raw(f, at, vpp_evt_q, data, len, evt_type, do_evt,     \
-			   noblock)                                           \
-  app_send_dgram_raw_gso (f, at, vpp_evt_q, data, len, 0, evt_type, do_evt,   \
-			  noblock)
+/* NOTE: Make sure the segs parameter has the first element of the array empty
+to write-in the header */
+always_inline u32
+app_gen_dgram_header (svm_fifo_seg_t *segs, u32 data_len,
+		      app_session_transport_t *at, u16 gso_size)
+{
+  session_dgram_hdr_t *hdr = (session_dgram_hdr_t *) segs[0].data;
+  u32 dgram_len = data_len;
+
+  ASSERT (segs != NULL);
+  ASSERT (segs[0].data != NULL);
+  ASSERT (segs[0].len == sizeof (session_dgram_hdr_t));
+
+  hdr->data_length = data_len;
+  hdr->data_offset = 0;
+  clib_memcpy_fast (&hdr->rmt_ip, &at->rmt_ip, sizeof (ip46_address_t));
+  hdr->is_ip4 = at->is_ip4;
+  hdr->rmt_port = at->rmt_port;
+  clib_memcpy_fast (&hdr->lcl_ip, &at->lcl_ip, sizeof (ip46_address_t));
+  hdr->lcl_port = at->lcl_port;
+  hdr->gso_size = gso_size;
+  dgram_len += segs[0].len;
+
+  return dgram_len;
+}
+
+always_inline int
+app_send_dgram_segs_raw (svm_fifo_t *f, app_session_transport_t *at,
+			 svm_msg_q_t *vpp_evt_q, svm_fifo_seg_t *segs,
+			 u32 nsegs, u32 seg_len, u8 evt_type, u8 do_evt,
+			 u8 noblock)
+{
+  int rv;
+
+  if (svm_fifo_max_enqueue_prod (f) < seg_len)
+    return -1;
+
+  rv = svm_fifo_enqueue_segments (f, segs, nsegs, 0 /* allow partial */);
+  if (PREDICT_FALSE (rv < 0))
+    return rv;
+
+  if (do_evt)
+    {
+      if (svm_fifo_set_event (f))
+	app_send_io_evt_to_vpp (vpp_evt_q, f->vpp_session_index, evt_type,
+				noblock);
+    }
+  return seg_len - sizeof (session_dgram_hdr_t);
+}
 
 always_inline int
 app_send_dgram_raw_gso (svm_fifo_t *f, app_session_transport_t *at,
@@ -654,34 +675,16 @@ app_send_dgram_raw_gso (svm_fifo_t *f, app_session_transport_t *at,
 			u16 gso_size, u8 evt_type, u8 do_evt, u8 noblock)
 {
   session_dgram_hdr_t hdr;
-  int rv;
-  if (svm_fifo_max_enqueue_prod (f) < (sizeof (session_dgram_hdr_t) + len))
-    return 0;
-
-  hdr.data_length = len;
-  hdr.data_offset = 0;
-  clib_memcpy_fast (&hdr.rmt_ip, &at->rmt_ip, sizeof (ip46_address_t));
-  hdr.is_ip4 = at->is_ip4;
-  hdr.rmt_port = at->rmt_port;
-  clib_memcpy_fast (&hdr.lcl_ip, &at->lcl_ip, sizeof (ip46_address_t));
-  hdr.lcl_port = at->lcl_port;
-  hdr.gso_size = gso_size;
-  /* *INDENT-OFF* */
-  svm_fifo_seg_t segs[2] = {{ (u8 *) &hdr, sizeof (hdr) }, { data, len }};
-  /* *INDENT-ON* */
-
-  rv = svm_fifo_enqueue_segments (f, segs, 2, 0 /* allow partial */ );
-  if (PREDICT_FALSE (rv < 0))
-    return 0;
-
-  if (do_evt)
-    {
-      if (svm_fifo_set_event (f))
-	app_send_io_evt_to_vpp (vpp_evt_q, f->shr->master_session_index,
-				evt_type, noblock);
-    }
-  return len;
+  svm_fifo_seg_t segs[2] = { { (u8 *) &hdr, sizeof (hdr) }, { data, len } };
+  u32 seg_len = app_gen_dgram_header (segs, len, at, gso_size);
+  return app_send_dgram_segs_raw (f, at, vpp_evt_q, segs, 2, seg_len, evt_type,
+				  do_evt, noblock);
 }
+
+#define app_send_dgram_raw(f, at, vpp_evt_q, data, len, evt_type, do_evt,     \
+			   noblock)                                           \
+  app_send_dgram_raw_gso (f, at, vpp_evt_q, data, len, 0, evt_type, do_evt,   \
+			  noblock)
 
 always_inline int
 app_send_dgram (app_session_t * s, u8 * data, u32 len, u8 noblock)
@@ -689,6 +692,22 @@ app_send_dgram (app_session_t * s, u8 * data, u32 len, u8 noblock)
   return app_send_dgram_raw (s->tx_fifo, &s->transport, s->vpp_evt_q, data,
 			     len, SESSION_IO_EVT_TX, 1 /* do_evt */ ,
 			     noblock);
+}
+
+always_inline int
+app_send_dgram_segs (app_session_t *s, svm_fifo_seg_t *segs, u32 data_nsegs,
+		     u32 data_len, u8 noblock)
+{
+  session_dgram_hdr_t hdr;
+  ASSERT (segs != NULL);
+  ASSERT (segs[0].len == 0);
+  segs[0].data = (u8 *) &hdr;
+  segs[0].len = sizeof (hdr);
+
+  u32 seg_len = app_gen_dgram_header (segs, data_len, &s->transport, 0);
+  return app_send_dgram_segs_raw (s->tx_fifo, &s->transport, s->vpp_evt_q,
+				  segs, data_nsegs + 1, seg_len,
+				  SESSION_IO_EVT_TX, 1 /* do_evt */, noblock);
 }
 
 always_inline int
@@ -701,8 +720,8 @@ app_send_stream_raw (svm_fifo_t * f, svm_msg_q_t * vpp_evt_q, u8 * data,
   if (do_evt)
     {
       if (rv > 0 && svm_fifo_set_event (f))
-	app_send_io_evt_to_vpp (vpp_evt_q, f->shr->master_session_index,
-				evt_type, noblock);
+	app_send_io_evt_to_vpp (vpp_evt_q, f->vpp_session_index, evt_type,
+				noblock);
     }
   return rv;
 }
@@ -730,23 +749,18 @@ app_recv_dgram_raw (svm_fifo_t * f, u8 * buf, u32 len,
   u32 max_deq;
   int rv;
 
-  max_deq = svm_fifo_max_dequeue_cons (f);
-  if (max_deq <= sizeof (session_dgram_hdr_t))
-    {
-      if (clear_evt)
-	svm_fifo_unset_event (f);
-      return 0;
-    }
-
   if (clear_evt)
     svm_fifo_unset_event (f);
+
+  max_deq = svm_fifo_max_dequeue_cons (f);
+  if (max_deq <= sizeof (session_dgram_hdr_t))
+    return 0;
 
   svm_fifo_peek (f, 0, sizeof (ph), (u8 *) & ph);
   ASSERT (ph.data_length >= ph.data_offset);
 
   /* Check if we have the full dgram */
-  if (max_deq < (ph.data_length + SESSION_CONN_HDR_LEN)
-      && len >= ph.data_length)
+  if (max_deq < (ph.data_length + SESSION_CONN_HDR_LEN))
     return 0;
 
   svm_fifo_peek (f, sizeof (ph), sizeof (*at), (u8 *) at);
@@ -793,13 +807,11 @@ app_recv (app_session_t * s, u8 * data, u32 len)
   return app_recv_stream (s, data, len);
 }
 
-/* *INDENT-OFF* */
 static char *session_error_str[] = {
 #define _(sym, str) str,
     foreach_session_error
 #undef _
 };
-/* *INDENT-ON* */
 
 static inline u8 *
 format_session_error (u8 * s, va_list * args)
@@ -901,25 +913,63 @@ typedef struct app_sapi_msg_
 } __clib_packed app_sapi_msg_t;
 
 static inline void
-session_endpoint_alloc_ext_cfg (session_endpoint_cfg_t *sep_ext,
-				transport_endpt_ext_cfg_type_t type)
+session_endpoint_init_ext_cfgs (session_endpoint_cfg_t *sep_ext, u32 len)
 {
-  transport_endpt_ext_cfg_t *cfg;
-  u32 cfg_size;
+  sep_ext->ext_cfgs.len = len;
+  sep_ext->ext_cfgs.data = clib_mem_alloc (len);
+  clib_memset (sep_ext->ext_cfgs.data, 0, len);
+}
 
-  cfg_size = sizeof (transport_endpt_ext_cfg_t);
-  cfg = clib_mem_alloc (cfg_size);
-  clib_memset (cfg, 0, cfg_size);
-  cfg->type = type;
-  sep_ext->ext_cfg = cfg;
+static inline transport_endpt_ext_cfg_t *
+session_endpoint_add_ext_cfg (session_endpoint_cfg_t *sep_ext,
+			      transport_endpt_ext_cfg_type_t type, u16 len)
+{
+  transport_endpt_ext_cfg_t *ext_cfg;
+
+  if (!sep_ext->ext_cfgs.len)
+    session_endpoint_init_ext_cfgs (sep_ext,
+				    TRANSPORT_ENDPT_EXT_CFGS_CHUNK_SIZE);
+
+  ASSERT (sep_ext->ext_cfgs.tail_offset + len +
+	    TRANSPORT_ENDPT_EXT_CFG_HEADER_SIZE <
+	  sep_ext->ext_cfgs.len);
+  ext_cfg = (transport_endpt_ext_cfg_t *) (sep_ext->ext_cfgs.data +
+					   sep_ext->ext_cfgs.tail_offset);
+  ext_cfg->len = len;
+  ext_cfg->type = type;
+  sep_ext->ext_cfgs.tail_offset += len + TRANSPORT_ENDPT_EXT_CFG_HEADER_SIZE;
+  return ext_cfg;
+}
+
+static inline transport_endpt_ext_cfg_t *
+session_endpoint_get_ext_cfg (session_endpoint_cfg_t *sep_ext,
+			      transport_endpt_ext_cfg_type_t type)
+{
+  transport_endpt_ext_cfg_t *ext_cfg;
+
+  if (!sep_ext->ext_cfgs.len)
+    return 0;
+
+  ext_cfg = (transport_endpt_ext_cfg_t *) sep_ext->ext_cfgs.data;
+  while ((u8 *) ext_cfg <
+	 sep_ext->ext_cfgs.data + sep_ext->ext_cfgs.tail_offset)
+    {
+      if (ext_cfg->type == type)
+	return ext_cfg;
+      ext_cfg = (transport_endpt_ext_cfg_t *) (ext_cfg->data + ext_cfg->len);
+    }
+  return 0;
+}
+
+static inline void
+session_endpoint_free_ext_cfgs (session_endpoint_cfg_t *sep_ext)
+{
+  if (!sep_ext->ext_cfgs.len)
+    return;
+  clib_mem_free (sep_ext->ext_cfgs.data);
+  sep_ext->ext_cfgs.len = 0;
+  sep_ext->ext_cfgs.tail_offset = 0;
+  sep_ext->ext_cfgs.data = 0;
 }
 
 #endif /* __included_uri_h__ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

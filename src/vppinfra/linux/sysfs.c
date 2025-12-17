@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vppinfra/clib.h>
@@ -87,32 +77,6 @@ clib_sysfs_read (char *file_name, char *fmt, ...)
   return 0;
 }
 
-__clib_export u8 *
-clib_sysfs_link_to_name (char *link)
-{
-  char *p, buffer[64];
-  unformat_input_t in;
-  u8 *s = 0;
-  int r;
-
-  r = readlink (link, buffer, sizeof (buffer) - 1);
-
-  if (r < 0)
-    return 0;
-
-  buffer[r] = 0;
-  p = strrchr (buffer, '/');
-
-  if (!p)
-    return 0;
-
-  unformat_init_string (&in, p + 1, strlen (p + 1));
-  if (unformat (&in, "%s", &s) != 1)
-    clib_unix_warning ("no string?");
-  unformat_free (&in);
-
-  return s;
-}
 
 clib_error_t *
 clib_sysfs_set_nr_hugepages (int numa_node, int log2_page_size, int nr)
@@ -263,13 +227,21 @@ clib_sysfs_prealloc_hugepages (int numa_node, int log2_page_size, int nr)
   return clib_sysfs_set_nr_hugepages (numa_node, log2_page_size, n + needed);
 }
 
-__clib_export uword *
-clib_sysfs_list_to_bitmap (char *filename)
+__clib_export clib_bitmap_t *
+clib_sysfs_read_bitmap (char *fmt, ...)
 {
   FILE *fp;
   uword *r = 0;
+  va_list va;
+  u8 *filename;
 
-  fp = fopen (filename, "r");
+  va_start (va, fmt);
+  filename = va_format (0, fmt, &va);
+  va_end (va);
+  vec_add1 (filename, 0);
+
+  fp = fopen ((char *) filename, "r");
+  vec_free (filename);
 
   if (fp != NULL)
     {
@@ -289,11 +261,3 @@ clib_sysfs_list_to_bitmap (char *filename)
     }
   return r;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

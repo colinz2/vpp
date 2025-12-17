@@ -1,19 +1,8 @@
-/*
- * ethernet/arp.c: IP v4 ARP node
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2010 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* ethernet/arp.c: IP v4 ARP node */
 
 #include <vnet/arp/arp.h>
 #include <vnet/arp/arp_packet.h>
@@ -191,7 +180,6 @@ always_inline u32
 arp_learn (u32 sw_if_index,
 	   const ethernet_arp_ip4_over_ethernet_address_t * addr)
 {
-  /* *INDENT-OFF* */
   ip_neighbor_learn_t l = {
     .ip = {
       .ip.ip4 = addr->ip4,
@@ -200,7 +188,6 @@ arp_learn (u32 sw_if_index,
     .mac = addr->mac,
     .sw_if_index = sw_if_index,
   };
-  /* *INDENT-ON* */
 
   ip_neighbor_learn_dp (&l);
 
@@ -354,7 +341,6 @@ arp_dst_fib_check (const fib_node_index_t fei, fib_entry_flag_t * flags)
   const fib_entry_t *entry = fib_entry_get (fei);
   const fib_entry_src_t *entry_src;
   fib_source_t src;
-  /* *INDENT-OFF* */
   FOR_EACH_SRC_ADDED(entry, entry_src, src,
   ({
     *flags = fib_entry_get_flags_for_source (fei, src);
@@ -363,7 +349,6 @@ arp_dst_fib_check (const fib_node_index_t fei, fib_entry_flag_t * flags)
       else if (FIB_ENTRY_FLAG_CONNECTED & *flags)
         return ARP_DST_FIB_CONN;
   }))
-  /* *INDENT-ON* */
 
   return ARP_DST_FIB_NONE;
 }
@@ -427,6 +412,10 @@ arp_reply (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
 
 	    }
 
+	  dst_fei = ip4_fib_table_lookup (ip4_fib_get (fib_index0),
+					  &arp0->ip4_over_ethernet[1].ip4, 32);
+	  conn_sw_if_index0 = fib_entry_get_any_resolving_interface (dst_fei);
+
 	  {
 	    /*
 	     * we're looking for FIB entries that indicate the source
@@ -459,7 +448,6 @@ arp_reply (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
 		 * flags we need, or the flags we must not have,
 		 * is not the best source, so check then all.
 		 */
-                /* *INDENT-OFF* */
                 FOR_EACH_SRC_ADDED(src_fib_entry, src, source,
                 ({
                   src_flags = fib_entry_get_flags_for_source (src_fei, source);
@@ -497,7 +485,6 @@ arp_reply (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
 		   *  nor is it a already learned host resp.
 		   */
                 }));
-                /* *INDENT-ON* */
 
 		/*
 		 * shorter mask lookup for the next iteration.
@@ -515,23 +502,19 @@ arp_reply (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
 	    while (!attached &&
 		   !fib_entry_is_sourced (src_fei, FIB_SOURCE_DEFAULT_ROUTE));
 
-	    if (!attached)
+	    if (!attached &&
+		!arp_unnumbered (p0, sw_if_index0, conn_sw_if_index0))
 	      {
 		/*
-		 * the matching route is a not attached, i.e. it was
-		 * added as a result of routing, rather than interface/ARP
-		 * configuration. If the matching route is not a host route
-		 * (i.e. a /32)
+		 * the matching route is a not attached and not unnumbered,
+		 * i.e. it was added as a result of routing, rather than
+		 * interface/ARP configuration. If the matching route is not
+		 * a host route (i.e. a /32)
 		 */
 		error0 = ARP_ERROR_L3_SRC_ADDRESS_NOT_LOCAL;
 		goto drop;
 	      }
 	  }
-
-	  dst_fei = ip4_fib_table_lookup (ip4_fib_get (fib_index0),
-					  &arp0->ip4_over_ethernet[1].ip4,
-					  32);
-	  conn_sw_if_index0 = fib_entry_get_any_resolving_interface (dst_fei);
 
 	  switch (arp_dst_fib_check (dst_fei, &dst_flags))
 	    {
@@ -625,9 +608,9 @@ arp_reply (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
 	      sw_if_index0 != fib_entry_get_resolving_interface (src_fei))
 	    {
 	      /*
-	       * The interface the ARP is sent to or was received on is not the
-	       * interface on which the covering prefix is configured.
-	       * Maybe this is a case for unnumbered.
+	       * The interface the ARP is sent to or was received on is
+	       * not the interface on which the covering prefix is
+	       * configured. Maybe this is a case for unnumbered.
 	       */
 	      if (!arp_unnumbered (p0, sw_if_index0, conn_sw_if_index0))
 		{
@@ -642,8 +625,7 @@ arp_reply (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
 	      goto drop;
 	    }
 
-	  next0 = arp_mk_reply (vnm, p0, sw_if_index0,
-				if_addr0, arp0, eth_rx);
+	  next0 = arp_mk_reply (vnm, p0, sw_if_index0, if_addr0, arp0, eth_rx);
 
 	  /* We are going to reply to this request, so, in the absence of
 	     errors, learn the sender */
@@ -677,7 +659,6 @@ arp_reply (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
 }
 
 
-/* *INDENT-OFF* */
 
 VLIB_REGISTER_NODE (arp_input_node, static) =
 {
@@ -764,7 +745,6 @@ VNET_FEATURE_INIT (arp_drop_feat_node, static) =
   .runs_before = 0,	/* last feature */
 };
 
-/* *INDENT-ON* */
 
 typedef struct
 {
@@ -936,18 +916,6 @@ ethernet_arp_init (vlib_main_t * vm)
   return 0;
 }
 
-/* *INDENT-OFF* */
-VLIB_INIT_FUNCTION (ethernet_arp_init) =
-{
-  .runs_after = VLIB_INITS("ethernet_init",
-                           "ip_neighbor_init"),
+VLIB_INIT_FUNCTION (ethernet_arp_init) = {
+  .runs_after = VLIB_INITS ("ethernet_init", "ip_neighbor_init"),
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

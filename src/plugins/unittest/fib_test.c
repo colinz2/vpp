@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/fib/fib_test.h>
@@ -778,6 +768,69 @@ fib_test_validate_entry (fib_node_index_t fei,
     dpo_reset(&dpo);
 
     return (res);
+}
+
+static int
+fib_test_multipath_v4 (const test_main_t *tm, const u32 fib_index,
+                       const fib_prefix_t *pfx, const int n_paths,
+                       const int expected_n_buckets)
+{
+    const int path_list_pool_size = fib_path_list_pool_size();
+    const int path_list_db_size = fib_path_list_db_size();
+    const int entry_pool_size = fib_entry_pool_size();
+    fib_route_path_t *r_paths = NULL;
+    const load_balance_t *lb;
+    const dpo_id_t *dpo;
+    u32 fei;
+    int res = 0;
+    int i;
+
+    for (i = 0; i < n_paths; i++)
+    {
+        fib_route_path_t r_path = {
+            .frp_proto = DPO_PROTO_IP4,
+            .frp_addr = {
+                .ip4.as_u32 = clib_host_to_net_u32(0x0a0a0a02 + i),
+            },
+            .frp_sw_if_index = tm->hw[0]->sw_if_index,
+            .frp_weight = 1,
+            .frp_fib_index = ~0,
+	    .frp_flags = FIB_ROUTE_PATH_ATTACHED,
+        };
+        vec_add1(r_paths, r_path);
+    }
+
+    fib_table_entry_update(fib_index,
+                           pfx,
+                           FIB_SOURCE_API,
+                           FIB_ENTRY_FLAG_NONE,
+                           r_paths);
+
+    fei = fib_table_lookup_exact_match(fib_index, pfx);
+    FIB_TEST((FIB_NODE_INDEX_INVALID != fei), "prefix present");
+    dpo = fib_entry_contribute_ip_forwarding(fei);
+
+    lb = load_balance_get(dpo->dpoi_index);
+    FIB_TEST((lb->lb_n_buckets == expected_n_buckets),
+             "prefix lb over %d paths", lb->lb_n_buckets);
+
+    fib_table_entry_delete(fib_index,
+                           pfx,
+                           FIB_SOURCE_API);
+    FIB_TEST(FIB_NODE_INDEX_INVALID ==
+             fib_table_lookup_exact_match(fib_index, pfx), "prefix removed");
+    vec_free(r_paths);
+
+    /*
+     * add-remove test. no change.
+     */
+    FIB_TEST((path_list_db_size == fib_path_list_db_size()),
+             "path list DB population:%d", fib_path_list_db_size());
+    FIB_TEST((path_list_pool_size == fib_path_list_pool_size()),
+             "path list pool size is %d", fib_path_list_pool_size());
+    FIB_TEST((entry_pool_size == fib_entry_pool_size()),
+             "entry pool size is %d", fib_entry_pool_size());
+    return res;
 }
 
 static int
@@ -3614,52 +3667,26 @@ fib_test_v4 (void)
     /*
      * A route with multiple paths at once
      */
-    fib_route_path_t *r_paths = NULL;
-
-    for (ii = 0; ii < 4; ii++)
-    {
-        fib_route_path_t r_path = {
-            .frp_proto = DPO_PROTO_IP4,
-            .frp_addr = {
-                .ip4.as_u32 = clib_host_to_net_u32(0x0a0a0a02 + ii),
-            },
-            .frp_sw_if_index = tm->hw[0]->sw_if_index,
-            .frp_weight = 1,
-            .frp_fib_index = ~0,
-        };
-        vec_add1(r_paths, r_path);
-    }
-
-    fib_table_entry_update(fib_index,
-                           &pfx_4_4_4_4_s_32,
-                           FIB_SOURCE_API,
-                           FIB_ENTRY_FLAG_NONE,
-                           r_paths);
-
-    fei = fib_table_lookup_exact_match(fib_index, &pfx_4_4_4_4_s_32);
-    FIB_TEST((FIB_NODE_INDEX_INVALID != fei), "4.4.4.4/32 present");
-    dpo = fib_entry_contribute_ip_forwarding(fei);
-
-    lb = load_balance_get(dpo->dpoi_index);
-    FIB_TEST((lb->lb_n_buckets == 4), "4.4.4.4/32 lb over %d paths", lb->lb_n_buckets);
-
-    fib_table_entry_delete(fib_index,
-                           &pfx_4_4_4_4_s_32,
-                           FIB_SOURCE_API);
-    FIB_TEST(FIB_NODE_INDEX_INVALID ==
-             fib_table_lookup_exact_match(fib_index, &pfx_4_4_4_4_s_32),
-             "4.4.4.4/32 removed");
-    vec_free(r_paths);
+    FIB_TEST(0 ==
+             fib_test_multipath_v4(tm, fib_index, &pfx_4_4_4_4_s_32, 4, 4),
+             "multipath with 4 nexthops");
 
     /*
-     * add-remove test. no change.
+     * A route with lots of multiple paths that will overflow max supported
+     * lb buckets because of normalization
      */
-    FIB_TEST((1  == fib_path_list_db_size()),   "path list DB population:%d",
-             fib_path_list_db_size());
-    FIB_TEST((PNBR+5 == fib_path_list_pool_size()), "path list pool size is %d",
-             fib_path_list_pool_size());
-    FIB_TEST((ENBR+7 == fib_entry_pool_size()), "entry pool size is %d",
-             fib_entry_pool_size());
+    FIB_TEST(0 ==
+             fib_test_multipath_v4(tm, fib_index, &pfx_4_4_4_4_s_32,
+				   LB_MAX_BUCKETS / 2 + 23, LB_MAX_BUCKETS),
+             "multipath with too many nexthops");
+
+    /*
+     * A route with more paths than max supported lb buckets
+     */
+    FIB_TEST(0 ==
+             fib_test_multipath_v4 (tm, fib_index, &pfx_4_4_4_4_s_32,
+                                    LB_MAX_BUCKETS + 13, LB_MAX_BUCKETS),
+             "multipath with too many nexthops");
 
     /*
      * A route deag route
@@ -3698,7 +3725,6 @@ fib_test_v4 (void)
     FIB_TEST(FIB_NODE_INDEX_INVALID ==
              fib_table_lookup_exact_match(fib_index, &pfx_4_4_4_4_s_32),
              "4.4.4.4/32 removed");
-    vec_free(r_paths);
 
     /*
      * A route deag route in a source lookup table
@@ -3737,7 +3763,6 @@ fib_test_v4 (void)
     FIB_TEST(FIB_NODE_INDEX_INVALID ==
              fib_table_lookup_exact_match(fib_index, &pfx_4_4_4_4_s_32),
              "4.4.4.4/32 removed");
-    vec_free(r_paths);
 
     /*
      * add-remove test. no change.
@@ -10229,7 +10254,57 @@ fib_test_inherit (void)
                                       &l99_o_10_10_10_3),
              "%U via interposer label",
              format_fib_prefix,&pfx_10_10_10_21_s_32);
+    fib_table_entry_special_remove(0,
+                                   &pfx_10_10_10_0_s_24,
+                                   FIB_SOURCE_SPECIAL);
 
+    const ip46_address_t nh_0_0_0_0 = {
+        .ip4.as_u32 = clib_host_to_net_u32(0x00000000),
+    };
+    const fib_prefix_t pfx_0_0_0_0_s_0 = {
+        .fp_len = 0,
+        .fp_proto = FIB_PROTOCOL_IP4,
+        .fp_addr = nh_0_0_0_0,
+    };
+
+     /* we have prio(API) < prio(hi_src) < prio(SPECIAL) */
+     /* Add/remove an interposer source from the top of the subtrie. The
+      * interposer source is inherited.
+      */
+     fib_table_entry_special_dpo_add(0,
+                                     &pfx_0_0_0_0_s_0,
+                                     hi_src,
+                                     (FIB_ENTRY_FLAG_COVERED_INHERIT |
+                                        FIB_ENTRY_FLAG_INTERPOSE),
+                                     &interposer);
+    /*
+     * Add/remove an interposer source from the top of the subtrie. The
+     * interposer source is inherited, the previous inheritance is discarded.
+     */
+    fib_table_entry_special_dpo_add(0,
+                                    &pfx_10_10_10_0_s_24,
+                                    FIB_SOURCE_SPECIAL,
+                                    (FIB_ENTRY_FLAG_COVERED_INHERIT |
+                                        FIB_ENTRY_FLAG_INTERPOSE),
+                                     &interposer);
+    /* force a tree walk */
+    fib_table_entry_update_one_path(0,
+                                    &pfx_0_0_0_0_s_0,
+                                    FIB_SOURCE_API,
+                                    FIB_ENTRY_FLAG_NONE,
+                                    DPO_PROTO_IP4,
+                                    &nh_10_10_10_3,
+                                    tm->hw[0]->sw_if_index,
+                                    ~0,
+                                    1,
+                                    NULL,
+                                    FIB_ROUTE_PATH_FLAG_NONE);
+    fib_table_entry_special_remove(0,
+                                   &pfx_10_10_10_0_s_24,
+                                   FIB_SOURCE_SPECIAL);
+    fib_table_entry_special_remove(0,
+                                   &pfx_0_0_0_0_s_0,
+                                   hi_src);
     /*
      * cleanup
      */
@@ -10240,6 +10315,7 @@ fib_test_inherit (void)
     fib_table_entry_delete(0, &pfx_10_10_10_0_s_24, FIB_SOURCE_API);
     fib_table_entry_delete(0, &pfx_10_10_0_0_s_16, FIB_SOURCE_API);
     fib_table_entry_delete(0, &pfx_10_10_10_0_s_24, FIB_SOURCE_SPECIAL);
+    fib_table_entry_delete(0, &pfx_0_0_0_0_s_0, FIB_SOURCE_API);
     adj_unlock(ai_10_10_10_1);
     adj_unlock(ai_10_10_10_2);
     adj_unlock(ai_10_10_10_3);

@@ -1,39 +1,7 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright (c) 2001, 2002, 2003 Eliot Dresselhaus
  */
-/*
-  Copyright (c) 2001, 2002, 2003 Eliot Dresselhaus
-
-  Permission is hereby granted, free of charge, to any person obtaining
-  a copy of this software and associated documentation files (the
-  "Software"), to deal in the Software without restriction, including
-  without limitation the rights to use, copy, modify, merge, publish,
-  distribute, sublicense, and/or sell copies of the Software, and to
-  permit persons to whom the Software is furnished to do so, subject to
-  the following conditions:
-
-  The above copyright notice and this permission notice shall be
-  included in all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
 
 #ifndef included_vec_h
 #define included_vec_h
@@ -446,8 +414,8 @@ _vec_dup (void *v, uword hdr_size, uword align, uword elt_sz)
     @param DST destination
     @param SRC source
 */
-#define vec_copy(DST,SRC) clib_memcpy_fast (DST, SRC, vec_len (DST) * \
-				       sizeof ((DST)[0]))
+#define vec_copy(DST, SRC)                                                    \
+  clib_memcpy_fast (DST, SRC, vec_len (DST) * _vec_elt_sz (DST))
 
 /** \brief Clone a vector. Make a new vector with the
     same size as a given vector but possibly with a different type.
@@ -480,7 +448,7 @@ _vec_zero_elts (void *v, uword first, uword count, uword elt_sz)
 {
   clib_memset_u8 (v + (first * elt_sz), 0, count * elt_sz);
 }
-#define vec_zero_elts(V, F, C) _vec_zero_elts (V, F, C, sizeof ((V)[0]))
+#define vec_zero_elts(V, F, C) _vec_zero_elts (V, F, C, _vec_elt_sz (V))
 
 static_always_inline void
 _vec_validate (void **vp, uword index, uword header_size, uword align,
@@ -518,7 +486,7 @@ _vec_validate (void **vp, uword index, uword header_size, uword align,
 }
 
 #define vec_validate_hap(V, I, H, A, P)                                       \
-  _vec_validate ((void **) &(V), I, H, _vec_align (V, A), 0, sizeof ((V)[0]))
+  _vec_validate ((void **) &(V), I, H, _vec_align (V, A), 0, _vec_elt_sz (V))
 
 /** \brief Make sure vector is long enough for given index
     (no header, unspecified alignment)
@@ -1067,26 +1035,28 @@ _vec_append (void **v1p, void *v2, uword v1_elt_sz, uword v2_elt_sz,
 #define vec_append(v1, v2) vec_append_aligned (v1, v2, 0)
 
 static_always_inline void
-_vec_prepend (void **v1p, void *v2, uword v1_elt_sz, uword v2_elt_sz,
-	      uword align)
+_vec_prepend (void *restrict *v1p, void *restrict v2, uword v1_elt_sz,
+	      uword v2_elt_sz, uword align)
 {
-  void *v1 = v1p[0];
+  void *restrict v1 = v1p[0];
   uword len1 = vec_len (v1);
   uword len2 = vec_len (v2);
 
   if (PREDICT_TRUE (len2 > 0))
     {
+      /* prepending vector to itself would result in use-after-free */
+      ASSERT (v1 != v2);
       const vec_attr_t va = { .elt_sz = v2_elt_sz, .align = align };
       v1 = _vec_resize_internal (v1, len1 + len2, &va);
-      clib_memmove (v1 + len2 * v2_elt_sz, v1p[0], len1 * v1_elt_sz);
+      clib_memmove (v1 + len2 * v2_elt_sz, v1, len1 * v1_elt_sz);
       clib_memcpy_fast (v1, v2, len2 * v2_elt_sz);
-      _vec_update_pointer (v1p, v1);
+      _vec_update_pointer ((void **) v1p, v1);
     }
 }
 
 /** \brief Prepend v2 before v1. Result in v1. Specified alignment
     @param V1 target vector
-    @param V2 vector to prepend
+    @param V2 vector to prepend, V1 != V2
     @param align required alignment
 */
 
@@ -1096,7 +1066,7 @@ _vec_prepend (void **v1p, void *v2, uword v1_elt_sz, uword v2_elt_sz,
 
 /** \brief Prepend v2 before v1. Result in v1.
     @param V1 target vector
-    @param V2 vector to prepend
+    @param V2 vector to prepend, V1 != V2
 */
 
 #define vec_prepend(v1, v2) vec_prepend_aligned (v1, v2, 0)
@@ -1226,11 +1196,13 @@ _vec_is_equal (void *v1, void *v2, uword v1_elt_sz, uword v2_elt_sz)
     @param vec vector to sort
     @param f comparison function
 */
-#define vec_sort_with_function(vec,f)                           \
-do {                                                            \
-  if (vec_len (vec) > 1)                                        \
-    qsort (vec, vec_len (vec), sizeof (vec[0]), (void *) (f));  \
-} while (0)
+#define vec_sort_with_function(vec, f)                                        \
+  do                                                                          \
+    {                                                                         \
+      if (vec_len (vec) > 1)                                                  \
+	qsort (vec, vec_len (vec), _vec_elt_sz (vec), (void *) (f));          \
+    }                                                                         \
+  while (0)
 
 /** \brief Make a vector containing a NULL terminated c-string.
 

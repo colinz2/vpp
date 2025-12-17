@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * pci.h: PCI definitions.
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* pci.h: PCI definitions. */
 
 #ifndef included_vlib_pci_h
 #define included_vlib_pci_h
@@ -43,7 +11,6 @@
 #include <vlib/vlib.h>
 #include <vlib/pci/pci_config.h>
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (union
 {
   struct
@@ -55,7 +22,6 @@ typedef CLIB_PACKED (union
     };
   u32 as_u32;
 }) vlib_pci_addr_t;
-/* *INDENT-ON* */
 
 typedef struct vlib_pci_device_info
 {
@@ -72,6 +38,7 @@ typedef struct vlib_pci_device_info
   u16 device_class;
   u16 vendor_id;
   u16 device_id;
+  u8 revision;
 
   /* Vital Product Data */
   u8 *product_name;
@@ -82,12 +49,7 @@ typedef struct vlib_pci_device_info
   u8 *driver_name;
 
   /* First 64 bytes of configuration space. */
-  union
-  {
-    pci_config_type0_regs_t config0;
-    pci_config_type1_regs_t config1;
-    u8 config_data[256];
-  };
+  vlib_pci_config_t config;
 
   /* IOMMU Group */
   int iommu_group;
@@ -128,6 +90,12 @@ typedef struct
 {
   u16 vendor_id, device_id;
 } pci_device_id_t;
+
+#define PCI_DEVICE_IDS(...)                                                   \
+  (pci_device_id_t[])                                                         \
+  {                                                                           \
+    __VA_ARGS__, {}                                                           \
+  }
 
 typedef void (pci_intx_handler_function_t) (vlib_main_t * vm,
 					    vlib_pci_dev_handle_t handle);
@@ -198,34 +166,19 @@ clib_error_t *vlib_pci_read_write_io (vlib_main_t * vm,
 				      vlib_read_or_write_t read_or_write,
 				      uword address, void *data, u32 n_bytes);
 
-
-#define _(t, x)								\
-static inline clib_error_t *						\
-vlib_pci_read_##x##_##t (vlib_main_t *vm, vlib_pci_dev_handle_t h,	\
-			  uword address, t * data)			\
-{									\
-  return vlib_pci_read_write_##x (vm, h, VLIB_READ,address, data,	\
-				     sizeof (data[0]));			\
-}
-
-_(u32, config);
-_(u16, config);
-_(u8, config);
-
-_(u32, io);
-_(u16, io);
-_(u8, io);
-
-#undef _
-
-#define _(t, x)								\
-static inline clib_error_t *						\
-vlib_pci_write_##x##_##t (vlib_main_t *vm, vlib_pci_dev_handle_t h,	\
-			   uword address, t * data)			\
-{									\
-  return vlib_pci_read_write_##x (vm, h, VLIB_WRITE,			\
-				   address, data, sizeof (data[0]));	\
-}
+#define _(t, x)                                                               \
+  static inline clib_error_t *vlib_pci_read_##x##_##t (                       \
+    vlib_main_t *vm, vlib_pci_dev_handle_t h, uword address, t *data)         \
+  {                                                                           \
+    return vlib_pci_read_write_##x (vm, h, VLIB_READ, address, data,          \
+				    sizeof (data[0]));                        \
+  }                                                                           \
+  static inline clib_error_t *vlib_pci_write_##x##_##t (                      \
+    vlib_main_t *vm, vlib_pci_dev_handle_t h, uword address, t *data)         \
+  {                                                                           \
+    return vlib_pci_read_write_##x (vm, h, VLIB_WRITE, address, data,         \
+				    sizeof (data[0]));                        \
+  }
 
 _(u32, config);
 _(u16, config);
@@ -236,58 +189,6 @@ _(u16, io);
 _(u8, io);
 
 #undef _
-
-static inline clib_error_t *
-vlib_pci_intr_enable (vlib_main_t * vm, vlib_pci_dev_handle_t h)
-{
-  u16 command;
-  clib_error_t *err;
-
-  err = vlib_pci_read_config_u16 (vm, h, 4, &command);
-
-  if (err)
-    return err;
-
-  command &= ~PCI_COMMAND_INTX_DISABLE;
-
-  return vlib_pci_write_config_u16 (vm, h, 4, &command);
-}
-
-static inline clib_error_t *
-vlib_pci_intr_disable (vlib_main_t * vm, vlib_pci_dev_handle_t h)
-{
-  u16 command;
-  clib_error_t *err;
-
-  err = vlib_pci_read_config_u16 (vm, h, 4, &command);
-
-  if (err)
-    return err;
-
-  command |= PCI_COMMAND_INTX_DISABLE;
-
-  return vlib_pci_write_config_u16 (vm, h, 4, &command);
-}
-
-static inline clib_error_t *
-vlib_pci_bus_master_enable (vlib_main_t * vm, vlib_pci_dev_handle_t h)
-{
-  clib_error_t *err;
-  u16 command;
-
-  /* Set bus master enable (BME) */
-  err = vlib_pci_read_config_u16 (vm, h, 4, &command);
-
-  if (err)
-    return err;
-
-  if (command & PCI_COMMAND_BUS_MASTER)
-    return 0;
-
-  command |= PCI_COMMAND_BUS_MASTER;
-
-  return vlib_pci_write_config_u16 (vm, h, 4, &command);
-}
 
 clib_error_t *vlib_pci_device_open (vlib_main_t * vm, vlib_pci_addr_t * addr,
 				    pci_device_id_t ids[],
@@ -305,11 +206,16 @@ clib_error_t *vlib_pci_register_intx_handler (vlib_main_t * vm,
 					      vlib_pci_dev_handle_t h,
 					      pci_intx_handler_function_t *
 					      intx_handler);
+clib_error_t *vlib_pci_unregister_intx_handler (vlib_main_t *vm,
+						vlib_pci_dev_handle_t h);
 clib_error_t *vlib_pci_register_msix_handler (vlib_main_t * vm,
 					      vlib_pci_dev_handle_t h,
 					      u32 start, u32 count,
 					      pci_msix_handler_function_t *
 					      msix_handler);
+clib_error_t *vlib_pci_unregister_msix_handler (vlib_main_t *vm,
+						vlib_pci_dev_handle_t h,
+						u32 start, u32 count);
 clib_error_t *vlib_pci_enable_msix_irq (vlib_main_t * vm,
 					vlib_pci_dev_handle_t h, u16 start,
 					u16 count);
@@ -323,19 +229,21 @@ uword vlib_pci_get_msix_file_index (vlib_main_t * vm, vlib_pci_dev_handle_t h,
 
 int vlib_pci_supports_virtual_addr_dma (vlib_main_t * vm,
 					vlib_pci_dev_handle_t h);
+clib_error_t *vlib_pci_intr_enable (vlib_main_t *, vlib_pci_dev_handle_t);
+clib_error_t *vlib_pci_intr_disable (vlib_main_t *, vlib_pci_dev_handle_t);
+clib_error_t *vlib_pci_bus_master_enable (vlib_main_t *,
+					  vlib_pci_dev_handle_t);
+clib_error_t *vlib_pci_bus_master_disable (vlib_main_t *,
+					   vlib_pci_dev_handle_t);
+clib_error_t *vlib_pci_function_level_reset (vlib_main_t *,
+					     vlib_pci_dev_handle_t);
 
 unformat_function_t unformat_vlib_pci_addr;
 format_function_t format_vlib_pci_addr;
 format_function_t format_vlib_pci_link_speed;
+format_function_t format_vlib_pci_link_speed_cap;
 format_function_t format_vlib_pci_link_port;
 format_function_t format_vlib_pci_vpd;
+format_function_t format_vlib_pci_log;
 
 #endif /* included_vlib_pci_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

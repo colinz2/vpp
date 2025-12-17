@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <unistd.h>
@@ -22,7 +12,6 @@
 #include <unistd.h>
 
 #include <vppinfra/clib.h>
-#include <vppinfra/linux/sysfs.h>
 #include <vlib/vlib.h>
 #include <vlib/physmem.h>
 #include <vlib/unix/unix.h>
@@ -104,8 +93,10 @@ vlib_physmem_init (vlib_main_t * vm)
     vpm->flags |= VLIB_PHYSMEM_MAIN_F_HAVE_PAGEMAP;
   vec_free (pt);
 
+#ifdef __linux__
   if ((error = linux_vfio_init (vm)))
     return error;
+#endif /* __linux__ */
 
   p = clib_mem_alloc_aligned (sizeof (clib_pmalloc_main_t),
 			      CLIB_CACHE_LINE_BYTES);
@@ -161,13 +152,11 @@ show_physmem (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_physmem_command, static) = {
   .path = "show physmem",
   .short_help = "show physmem [verbose | detail | map]",
   .function = show_physmem,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 vlib_physmem_config (vlib_main_t * vm, unformat_input_t * input)
@@ -190,11 +179,3 @@ vlib_physmem_config (vlib_main_t * vm, unformat_input_t * input)
 }
 
 VLIB_EARLY_CONFIG_FUNCTION (vlib_physmem_config, "physmem");
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

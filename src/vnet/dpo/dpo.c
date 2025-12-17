@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /**
  * @brief
  * A Data-Path Object is an object that represents actions that are
@@ -613,12 +604,10 @@ dpo_module_init (vlib_main_t * vm)
     return (NULL);
 }
 
-/* *INDENT-OFF* */
 VLIB_INIT_FUNCTION(dpo_module_init) =
 {
     .runs_before = VLIB_INITS ("ip_main_init"),
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 dpo_memory_show (vlib_main_t * vm,
@@ -640,7 +629,6 @@ dpo_memory_show (vlib_main_t * vm,
     return (NULL);
 }
 
-/* *INDENT-OFF* */
 /*?
  * The '<em>sh dpo memory </em>' command displays the memory usage for each
  * data-plane object type.
@@ -662,6 +650,5 @@ VLIB_CLI_COMMAND (show_fib_memory, static) = {
     .function = dpo_memory_show,
     .short_help = "show dpo memory",
 };
-/* *INDENT-ON* */
 
 // clang-format on

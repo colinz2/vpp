@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <vlib/vlib.h>
@@ -203,7 +190,7 @@ vmxnet3_device_input_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
   vmxnet3_rx_comp *rx_comp;
   u32 desc_idx;
   vmxnet3_rxq_t *rxq;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   u32 buffer_indices[VLIB_FRAME_SIZE], *bi;
   u16 nexts[VLIB_FRAME_SIZE], *next;
   vmxnet3_rx_ring *ring;
@@ -377,8 +364,8 @@ vmxnet3_device_input_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
 	  if (PREDICT_FALSE
 	      (vnet_device_input_have_features (vd->sw_if_index)))
 	    {
-	      vnet_feature_start_device_input_x1 (vd->sw_if_index,
-						  &next_index, hb);
+	      vnet_feature_start_device_input (vd->sw_if_index, &next_index,
+					       hb);
 	      known_next = 1;
 	    }
 
@@ -480,7 +467,6 @@ VLIB_NODE_FN (vmxnet3_input_node) (vlib_main_t * vm,
 }
 
 #ifndef CLIB_MARCH_VARIANT
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (vmxnet3_input_node) = {
   .name = "vmxnet3-input",
   .sibling_of = "device-input",
@@ -492,13 +478,3 @@ VLIB_REGISTER_NODE (vmxnet3_input_node) = {
   .error_strings = vmxnet3_input_error_strings,
 };
 #endif
-
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * ethernet_node.c: ethernet packet processing
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* ethernet_node.c: ethernet packet processing */
 
 #include <vlib/vlib.h>
 #include <vnet/pg/pg.h>
@@ -610,6 +578,7 @@ eth_input_tag_lookup (vlib_main_t * vm, vnet_main_t * vnm,
   vlib_buffer_advance (b, l->adv);
   vnet_buffer (b)->l2.l2_len = l->len;
   vnet_buffer (b)->l3_hdr_offset = vnet_buffer (b)->l2_hdr_offset + l->len;
+  b->flags |= VNET_BUFFER_F_L3_HDR_OFFSET_VALID;
 
   if (l->err == ETHERNET_ERROR_NONE)
     {
@@ -982,8 +951,31 @@ eth_input_process_frame (vlib_main_t * vm, vlib_node_runtime_t * node,
 	      else
 		{
 		  for (int j = 0; j < 16; j++)
-		    if (next[j] == 0)
-		      slowpath_indices[n_slowpath++] = i + j;
+		    {
+		      if (next[j] == 0)
+			slowpath_indices[n_slowpath++] = i + j;
+		      else if (dmac_check && main_is_l3 && dmacs_bad[i + j])
+			{
+			  next[j] = 0;
+			  slowpath_indices[n_slowpath++] = i + j;
+			}
+		    }
+		}
+	    }
+	  else
+	    {
+	      if (dmac_check && main_is_l3)
+		{
+		  u8x16 dmac_bad = u8x16_load_unaligned (&dmacs_bad[i]);
+		  if (!u8x16_is_all_zero (dmac_bad))
+		    {
+		      for (int j = 0; j < 16; j++)
+			if (dmacs_bad[i + j])
+			  {
+			    next[j] = 0;
+			    slowpath_indices[n_slowpath++] = i + j;
+			  }
+		    }
 		}
 	    }
 
@@ -994,7 +986,12 @@ eth_input_process_frame (vlib_main_t * vm, vlib_node_runtime_t * node,
 	  continue;
 	}
 #endif
-      if (main_is_l3 && etype[0] == et_ip4)
+      if (dmac_check && main_is_l3 && dmacs_bad[i])
+	{
+	  next[0] = 0;
+	  slowpath_indices[n_slowpath++] = i;
+	}
+      else if (main_is_l3 && etype[0] == et_ip4)
 	next[0] = next_ip4;
       else if (main_is_l3 && etype[0] == et_ip6)
 	next[0] = next_ip6;
@@ -1052,7 +1049,7 @@ eth_input_process_frame (vlib_main_t * vm, vlib_node_runtime_t * node,
 	    }
 	  else
 	    {
-	      /* untagged packet with not well known etyertype */
+	      /* untagged packet with not well known ethertype */
 	      if (last_unknown_etype != etype)
 		{
 		  last_unknown_etype = etype;
@@ -1190,7 +1187,7 @@ ethernet_input_inline (vlib_main_t * vm,
   vlib_node_runtime_t *error_node;
   u32 n_left_from, next_index, *to_next;
   u32 stats_sw_if_index, stats_n_packets, stats_n_bytes;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   u32 cached_sw_if_index = ~0;
   u32 cached_is_l2 = 0;		/* shut up gcc */
   vnet_hw_interface_t *hi = NULL;	/* used for main interface only */
@@ -2098,7 +2095,6 @@ static char *ethernet_error_strings[] = {
 #undef ethernet_error
 };
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ethernet_input_node) = {
   .name = "ethernet-input",
   /* Takes a vector of packets. */
@@ -2140,7 +2136,6 @@ VLIB_REGISTER_NODE (ethernet_input_not_l2_node) = {
 #undef _
   },
 };
-/* *INDENT-ON* */
 
 #ifndef CLIB_MARCH_VARIANT
 void
@@ -2354,11 +2349,3 @@ ethernet_register_l3_redirect (vlib_main_t * vm, u32 node_index)
   ASSERT (i == em->redirect_l3_next);
 }
 #endif
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

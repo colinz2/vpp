@@ -57,6 +57,23 @@ autoreply define ip_table_add_del
   vl_api_ip_table_t table;
 };
 
+/** \brief Add / del table request - version 2
+           A table can be added multiple times, but need be deleted only once.
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param table - the FIB table to add or del
+    @param create_mfib - whether to create mfib or not
+    @param is_add - add or del
+*/
+autoreply define ip_table_add_del_v2
+{
+  u32 client_index;
+  u32 context;
+  vl_api_ip_table_t table;
+  bool create_mfib [default=true];
+  bool is_add [default=true];
+};
+
 /** \brief Allocate an unused table
            A table can be added multiple times.
            If a large number of tables are in use (millions), this API might
@@ -429,6 +446,20 @@ autoreply define sw_interface_ip6_enable_disable
   bool enable;			/* set to true if enable */
 };
 
+/** \brief IPv4 interface enable / disable request
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param sw_if_index - interface used to reach neighbor
+    @param enable - if non-zero enable ip4 on interface, else disable
+*/
+autoendian autoreply define sw_interface_ip4_enable_disable
+{
+  u32 client_index;
+  u32 context;
+  vl_api_interface_index_t sw_if_index;
+  bool enable;			/* set to true if enable */
+};
+
 /** \brief Dump IP multicast fib table
     @param client_index - opaque cookie to identify the sender
 */
@@ -622,6 +653,7 @@ typedef punt_redirect
 autoreply define ip_punt_redirect
 {
   option deprecated;
+
   u32 client_index;
   u32 context;
   vl_api_punt_redirect_t punt;
@@ -630,6 +662,8 @@ autoreply define ip_punt_redirect
 
 define ip_punt_redirect_dump
 {
+  option deprecated;
+
   u32 client_index;
   u32 context;
   vl_api_interface_index_t sw_if_index;
@@ -638,6 +672,8 @@ define ip_punt_redirect_dump
 
 define ip_punt_redirect_details
 {
+  option deprecated;
+
   u32 context;
   vl_api_punt_redirect_t punt;
 };

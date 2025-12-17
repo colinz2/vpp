@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * ip/ip4_cli.c: ip4 commands
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* ip/ip4_cli.c: ip4 commands */
 
 #include <vnet/ip/ip.h>
 #include <vnet/ip/reass/ip4_full_reass.h>
@@ -71,12 +39,10 @@ ip6_address_compare (ip6_address_t * a1, ip6_address_t * a2)
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_interface_ip_command, static) = {
   .path = "set interface ip",
   .short_help = "IP4/IP6 commands",
 };
-/* *INDENT-ON* */
 
 void
 ip_del_all_interface_addresses (vlib_main_t * vm, u32 sw_if_index)
@@ -90,7 +56,6 @@ ip_del_all_interface_addresses (vlib_main_t * vm, u32 sw_if_index)
   ip_interface_address_t *ia;
   int i;
 
-  /* *INDENT-OFF* */
   foreach_ip_interface_address (&im4->lookup_main, ia, sw_if_index,
                                 0 /* honor unnumbered */,
   ({
@@ -99,9 +64,7 @@ ip_del_all_interface_addresses (vlib_main_t * vm, u32 sw_if_index)
     vec_add1 (ip4_addrs, x[0]);
     vec_add1 (ip4_masks, ia->address_length);
   }));
-  /* *INDENT-ON* */
 
-  /* *INDENT-OFF* */
   foreach_ip_interface_address (&im6->lookup_main, ia, sw_if_index,
                                 0 /* honor unnumbered */,
   ({
@@ -110,7 +73,6 @@ ip_del_all_interface_addresses (vlib_main_t * vm, u32 sw_if_index)
     vec_add1 (ip6_addrs, x[0]);
     vec_add1 (ip6_masks, ia->address_length);
   }));
-  /* *INDENT-ON* */
 
   for (i = 0; i < vec_len (ip4_addrs); i++)
     ip4_add_del_interface_address (vm, sw_if_index, &ip4_addrs[i],
@@ -212,13 +174,11 @@ done:
  * @cliexcmd{set interface ip address del GigabitEthernet2/0/0 all}
  * @endparblock
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_interface_ip_address_command, static) = {
   .path = "set interface ip address",
   .function = add_del_ip_address,
   .short_help = "set interface ip address [del] <interface> <ip-addr>/<mask> | [all]",
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 set_reassembly_command_fn (vlib_main_t * vm,
@@ -294,13 +254,50 @@ set_reassembly_command_fn (vlib_main_t * vm,
   return NULL;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_reassembly_command, static) = {
     .path = "set interface reassembly",
     .short_help = "set interface reassembly <interface-name> [on|off|ip4|ip6]",
     .function = set_reassembly_command_fn,
 };
-/* *INDENT-ON* */
+
+static clib_error_t *
+enable_ip4_interface_cmd (vlib_main_t *vm, unformat_input_t *input,
+			  vlib_cli_command_t *cmd)
+{
+  vnet_main_t *vnm = vnet_get_main ();
+  clib_error_t *error = NULL;
+  u32 sw_if_index;
+
+  sw_if_index = ~0;
+
+  if (unformat_user (input, unformat_vnet_sw_interface, vnm, &sw_if_index))
+    {
+      vnet_feature_enable_disable ("ip4-unicast", "ip4-not-enabled",
+				   sw_if_index, 0, 0, 0);
+
+      vnet_feature_enable_disable ("ip4-multicast", "ip4-not-enabled",
+				   sw_if_index, 0, 0, 0);
+    }
+  else
+    {
+      error = clib_error_return (0, "unknown interface\n'",
+				 format_unformat_error, input);
+    }
+  return error;
+}
+
+/*?
+ * This command is used to enable IPv4 on a given interface.
+ *
+ * @cliexpar
+ * Example of how enable IPv4 on a given interface:
+ * @cliexcmd{enable ip4 interface GigabitEthernet2/0/0}
+?*/
+VLIB_CLI_COMMAND (enable_ip4_interface_command, static) = {
+  .path = "enable ip4 interface",
+  .function = enable_ip4_interface_cmd,
+  .short_help = "enable ip4 interface <interface>",
+};
 
 /* Dummy init function to get us linked in. */
 static clib_error_t *
@@ -310,11 +307,3 @@ ip4_cli_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (ip4_cli_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

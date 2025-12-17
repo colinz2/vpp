@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * ip_api.c - vnet ip api
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * ip_api.c - vnet ip api
  */
 
 #include <stddef.h>
@@ -234,12 +223,10 @@ vl_api_ip_neighbor_add_del_t_handler (vl_api_ip_neighbor_add_del_t * mp,
 
   BAD_SW_IF_INDEX_LABEL;
 
-  /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_IP_NEIGHBOR_ADD_DEL_REPLY,
   ({
     rmp->stats_index = htonl (stats_index);
   }));
-  /* *INDENT-ON* */
 }
 
 static void
@@ -314,6 +301,32 @@ vl_api_ip_neighbor_config_t_handler (vl_api_ip_neighbor_config_t * mp)
 }
 
 static void
+vl_api_ip_neighbor_config_get_t_handler (vl_api_ip_neighbor_config_get_t *mp)
+{
+  vl_api_ip_neighbor_config_get_reply_t *rmp;
+  int rv;
+  ip_address_family_t af = AF_IP4;
+  u32 max_number = ~0;
+  u32 max_age = ~0;
+  bool recycle = false;
+
+  rv = ip_address_family_decode (mp->af, &af);
+
+  if (!rv)
+    rv = ip_neighbor_get_config (af, &max_number, &max_age, &recycle);
+
+  // clang-format off
+  REPLY_MACRO2 (VL_API_IP_NEIGHBOR_CONFIG_GET_REPLY,
+  ({
+    rmp->af = ip_address_family_encode (af);
+    rmp->max_number = htonl (max_number);
+    rmp->max_age = htonl (max_age);
+    rmp->recycle = recycle;
+  }));
+  // clang-format on
+}
+
+static void
 vl_api_ip_neighbor_replace_begin_t_handler (vl_api_ip_neighbor_replace_begin_t
 					    * mp)
 {
@@ -374,11 +387,3 @@ ip_neighbor_api_init (vlib_main_t * vm)
 }
 
 VLIB_API_INIT_FUNCTION (ip_neighbor_api_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

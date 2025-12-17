@@ -1,19 +1,8 @@
-/*
- * lcp_enthernet_node.c : linux control plane ethernet node
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2021 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* lcp_enthernet_node.c : linux control plane ethernet node */
 
 #include <sys/socket.h>
 #include <linux/if.h>
@@ -31,6 +20,7 @@
 #include <vnet/ip/ip4.h>
 #include <vnet/ip/ip6.h>
 #include <vnet/l2/l2_input.h>
+#include <vnet/mpls/mpls.h>
 
 #define foreach_lip_punt                                                      \
   _ (IO, "punt to host")                                                      \
@@ -38,40 +28,51 @@
 
 typedef enum
 {
-#define _(sym, str) LIP_PUNT_NEXT_##sym,
+#define _(sym, str) LIP_PUNT_XC_NEXT_##sym,
   foreach_lip_punt
 #undef _
-    LIP_PUNT_N_NEXT,
-} lip_punt_next_t;
+    LIP_PUNT_XC_N_NEXT,
+} lip_punt_xc_next_t;
 
-typedef struct lip_punt_trace_t_
+typedef struct lip_punt_xc_trace_t_
 {
+  bool is_xc;
   u32 phy_sw_if_index;
   u32 host_sw_if_index;
-} lip_punt_trace_t;
+} lip_punt_xc_trace_t;
 
 /* packet trace format function */
 static u8 *
-format_lip_punt_trace (u8 *s, va_list *args)
+format_lip_punt_xc_trace (u8 *s, va_list *args)
 {
   CLIB_UNUSED (vlib_main_t * vm) = va_arg (*args, vlib_main_t *);
   CLIB_UNUSED (vlib_node_t * node) = va_arg (*args, vlib_node_t *);
-  lip_punt_trace_t *t = va_arg (*args, lip_punt_trace_t *);
+  lip_punt_xc_trace_t *t = va_arg (*args, lip_punt_xc_trace_t *);
 
-  s =
-    format (s, "lip-punt: %u -> %u", t->phy_sw_if_index, t->host_sw_if_index);
+  if (t->is_xc)
+    {
+      s = format (s, "lip-xc: %u -> %u", t->host_sw_if_index,
+		  t->phy_sw_if_index);
+    }
+  else
+    {
+      s = format (s, "lip-punt: %u -> %u", t->phy_sw_if_index,
+		  t->host_sw_if_index);
+    }
 
   return s;
 }
 
 /**
  * Pass punted packets from the PHY to the HOST.
+ * Conditionally x-connect packets from the HOST to the PHY.
  */
-VLIB_NODE_FN (lip_punt_node)
-(vlib_main_t *vm, vlib_node_runtime_t *node, vlib_frame_t *frame)
+static_always_inline u32
+lip_punt_xc_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
+		    vlib_frame_t *frame, bool check_xc)
 {
   u32 n_left_from, *from, *to_next, n_left_to_next;
-  lip_punt_next_t next_index;
+  lip_punt_xc_next_t next_index;
 
   next_index = node->cached_next_index;
   n_left_from = frame->n_vectors;
@@ -88,6 +89,7 @@ VLIB_NODE_FN (lip_punt_node)
 	  u32 next0 = ~0;
 	  u32 bi0, lipi0;
 	  u32 sw_if_index0;
+	  bool is_xc0 = 0;
 	  u8 len0;
 
 	  bi0 = to_next[0] = from[0];
@@ -96,18 +98,33 @@ VLIB_NODE_FN (lip_punt_node)
 	  to_next += 1;
 	  n_left_from -= 1;
 	  n_left_to_next -= 1;
-	  next0 = LIP_PUNT_NEXT_DROP;
+	  next0 = LIP_PUNT_XC_NEXT_DROP;
 
 	  b0 = vlib_get_buffer (vm, bi0);
 
 	  sw_if_index0 = vnet_buffer (b0)->sw_if_index[VLIB_RX];
 	  lipi0 = lcp_itf_pair_find_by_phy (sw_if_index0);
-	  if (PREDICT_FALSE (lipi0 == INDEX_INVALID))
-	    goto trace0;
+
+	  /*
+	   * lip_punt_node: expect sw_if_index0 is phy in an itf pair
+	   * lip_punt_xc_node: if sw_if_index0 is not phy, expect it is host
+	   */
+	  if (!check_xc && (PREDICT_FALSE (lipi0 == INDEX_INVALID)))
+	    {
+	      goto trace0;
+	    }
+	  else if (check_xc && (lipi0 == INDEX_INVALID))
+	    {
+	      is_xc0 = 1;
+	      lipi0 = lcp_itf_pair_find_by_host (sw_if_index0);
+	      if (PREDICT_FALSE (lipi0 == INDEX_INVALID))
+		goto trace0;
+	    }
 
 	  lip0 = lcp_itf_pair_get (lipi0);
-	  next0 = LIP_PUNT_NEXT_IO;
-	  vnet_buffer (b0)->sw_if_index[VLIB_TX] = lip0->lip_host_sw_if_index;
+	  next0 = LIP_PUNT_XC_NEXT_IO;
+	  vnet_buffer (b0)->sw_if_index[VLIB_TX] =
+	    is_xc0 ? lip0->lip_phy_sw_if_index : lip0->lip_host_sw_if_index;
 
 	  if (PREDICT_TRUE (lip0->lip_host_type == LCP_ITF_HOST_TAP))
 	    {
@@ -128,10 +145,22 @@ VLIB_NODE_FN (lip_punt_node)
 	trace0:
 	  if (PREDICT_FALSE ((b0->flags & VLIB_BUFFER_IS_TRACED)))
 	    {
-	      lip_punt_trace_t *t = vlib_add_trace (vm, node, b0, sizeof (*t));
-	      t->phy_sw_if_index = sw_if_index0;
-	      t->host_sw_if_index =
-		(lipi0 == INDEX_INVALID) ? ~0 : lip0->lip_host_sw_if_index;
+	      lip_punt_xc_trace_t *t =
+		vlib_add_trace (vm, node, b0, sizeof (*t));
+
+	      t->is_xc = is_xc0;
+	      if (is_xc0)
+		{
+		  t->phy_sw_if_index =
+		    (lipi0 == INDEX_INVALID) ? ~0 : lip0->lip_phy_sw_if_index;
+		  t->host_sw_if_index = sw_if_index0;
+		}
+	      else
+		{
+		  t->phy_sw_if_index = sw_if_index0;
+		  t->host_sw_if_index =
+		    (lipi0 == INDEX_INVALID) ? ~0 : lip0->lip_host_sw_if_index;
+		}
 	    }
 
 	  vlib_validate_buffer_enqueue_x1 (vm, node, next_index, to_next,
@@ -144,16 +173,41 @@ VLIB_NODE_FN (lip_punt_node)
   return frame->n_vectors;
 }
 
+VLIB_NODE_FN (lip_punt_node)
+(vlib_main_t *vm, vlib_node_runtime_t *node, vlib_frame_t *frame)
+{
+  return (lip_punt_xc_inline (vm, node, frame, false /* xc */));
+}
+
+VLIB_NODE_FN (lip_punt_xc_node)
+(vlib_main_t *vm, vlib_node_runtime_t *node, vlib_frame_t *frame)
+{
+  return (lip_punt_xc_inline (vm, node, frame, true /* xc */));
+}
+
 VLIB_REGISTER_NODE (lip_punt_node) = {
   .name = "linux-cp-punt",
   .vector_size = sizeof (u32),
-  .format_trace = format_lip_punt_trace,
+  .format_trace = format_lip_punt_xc_trace,
   .type = VLIB_NODE_TYPE_INTERNAL,
 
-  .n_next_nodes = LIP_PUNT_N_NEXT,
+  .n_next_nodes = LIP_PUNT_XC_N_NEXT,
   .next_nodes = {
-    [LIP_PUNT_NEXT_DROP] = "error-drop",
-    [LIP_PUNT_NEXT_IO] = "interface-output",
+    [LIP_PUNT_XC_NEXT_DROP] = "error-drop",
+    [LIP_PUNT_XC_NEXT_IO] = "interface-output",
+  },
+};
+
+VLIB_REGISTER_NODE (lip_punt_xc_node) = {
+  .name = "linux-cp-punt-xc",
+  .vector_size = sizeof (u32),
+  .format_trace = format_lip_punt_xc_trace,
+  .type = VLIB_NODE_TYPE_INTERNAL,
+
+  .n_next_nodes = LIP_PUNT_XC_N_NEXT,
+  .next_nodes = {
+    [LIP_PUNT_XC_NEXT_DROP] = "error-drop",
+    [LIP_PUNT_XC_NEXT_IO] = "interface-output",
   },
 };
 
@@ -189,7 +243,7 @@ VLIB_NODE_FN (lcp_punt_l3_node)
 (vlib_main_t *vm, vlib_node_runtime_t *node, vlib_frame_t *frame)
 {
   u32 n_left_from, *from, *to_next, n_left_to_next;
-  lip_punt_next_t next_index;
+  lip_punt_xc_next_t next_index;
 
   next_index = node->cached_next_index;
   n_left_from = frame->n_vectors;
@@ -438,6 +492,103 @@ VNET_FEATURE_INIT (lcp_xc_ip6_mcast_node, static) = {
 
 typedef enum
 {
+  LCP_XC_MPLS_NEXT_DROP,
+  LCP_XC_MPLS_NEXT_IO,
+  LCP_XC_MPLS_N_NEXT,
+} lcp_xc_mpls_next_t;
+
+static_always_inline uword
+lcp_xc_mpls_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
+		    vlib_frame_t *frame)
+{
+  u32 n_left_from, *from, *to_next, n_left_to_next;
+  lcp_xc_next_t next_index;
+
+  next_index = 0;
+  n_left_from = frame->n_vectors;
+  from = vlib_frame_vector_args (frame);
+
+  while (n_left_from > 0)
+    {
+      vlib_get_next_frame (vm, node, next_index, to_next, n_left_to_next);
+
+      while (n_left_from > 0 && n_left_to_next > 0)
+	{
+	  const ethernet_header_t *eth;
+	  const lcp_itf_pair_t *lip;
+	  u32 next0, bi0, lipi, ai;
+	  vlib_buffer_t *b0;
+	  // const ip_adjacency_t *adj;
+
+	  bi0 = to_next[0] = from[0];
+
+	  from += 1;
+	  to_next += 1;
+	  n_left_from -= 1;
+	  n_left_to_next -= 1;
+
+	  b0 = vlib_get_buffer (vm, bi0);
+
+	  lipi =
+	    lcp_itf_pair_find_by_host (vnet_buffer (b0)->sw_if_index[VLIB_RX]);
+	  lip = lcp_itf_pair_get (lipi);
+
+	  vnet_buffer (b0)->sw_if_index[VLIB_TX] = lip->lip_phy_sw_if_index;
+	  vlib_buffer_advance (b0, -lip->lip_rewrite_len);
+	  eth = vlib_buffer_get_current (b0);
+
+	  ai = ADJ_INDEX_INVALID;
+	  next0 = LCP_XC_MPLS_NEXT_DROP;
+	  if (!ethernet_address_cast (eth->dst_address))
+	    ai = lcp_adj_lkup ((u8 *) eth, lip->lip_rewrite_len,
+			       vnet_buffer (b0)->sw_if_index[VLIB_TX]);
+	  if (ai != ADJ_INDEX_INVALID)
+	    {
+	      vnet_buffer (b0)->ip.adj_index[VLIB_TX] = ai;
+	      next0 = LCP_XC_MPLS_NEXT_IO;
+	    }
+
+	  if (PREDICT_FALSE ((b0->flags & VLIB_BUFFER_IS_TRACED)))
+	    {
+	      lcp_xc_trace_t *t = vlib_add_trace (vm, node, b0, sizeof (*t));
+	      t->phy_sw_if_index = lip->lip_phy_sw_if_index;
+	      t->adj_index = vnet_buffer (b0)->ip.adj_index[VLIB_TX];
+	    }
+
+	  vlib_validate_buffer_enqueue_x1 (vm, node, next_index, to_next,
+					   n_left_to_next, bi0, next0);
+	}
+
+      vlib_put_next_frame (vm, node, next_index, n_left_to_next);
+    }
+
+  return frame->n_vectors;
+}
+
+VLIB_NODE_FN (lcp_xc_mpls)
+(vlib_main_t *vm, vlib_node_runtime_t *node, vlib_frame_t *frame)
+{
+  return (lcp_xc_mpls_inline (vm, node, frame));
+}
+
+VLIB_REGISTER_NODE (
+  lcp_xc_mpls) = { .name = "linux-cp-xc-mpls",
+		   .vector_size = sizeof (u32),
+		   .format_trace = format_lcp_xc_trace,
+		   .type = VLIB_NODE_TYPE_INTERNAL,
+		   .n_next_nodes = LCP_XC_MPLS_N_NEXT,
+		   .next_nodes = {
+		     [LCP_XC_MPLS_NEXT_DROP] = "error-drop",
+		     [LCP_XC_MPLS_NEXT_IO] = "interface-output",
+		   } };
+
+VNET_FEATURE_INIT (lcp_xc_mpls_node, static) = {
+  .arc_name = "mpls-input",
+  .node_name = "linux-cp-xc-mpls",
+};
+
+typedef enum
+{
   LCP_XC_L3_NEXT_XC,
   LCP_XC_L3_NEXT_LOOKUP,
   LCP_XC_L3_N_NEXT,
@@ -446,7 +597,7 @@ typedef enum
 /**
  * X-connect all packets from the HOST to the PHY on L3 interfaces
  *
- * There's only one adjacency that can be used on thises links.
+ * There's only one adjacency that can be used on these links.
  */
 static_always_inline u32
 lcp_xc_l3_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
@@ -934,11 +1085,3 @@ VNET_FEATURE_INIT (lcp_arp_host_arp_feat, static) = {
   .node_name = "linux-cp-arp-host",
   .runs_before = VNET_FEATURES ("arp-reply"),
 };
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

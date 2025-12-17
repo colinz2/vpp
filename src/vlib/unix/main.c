@@ -1,44 +1,16 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * main.c: Unix main routine
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* main.c: Unix main routine */
+
 #include <vlib/vlib.h>
 #include <vlib/unix/unix.h>
 #include <vlib/unix/plugin.h>
+#include <vppinfra/unix.h>
+#include <vppinfra/stack.h>
+#include <vppinfra/format_ansi.h>
 
 #include <limits.h>
 #include <signal.h>
@@ -51,6 +23,10 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
+#ifdef HAVE_LIBIBERTY
+#include <libiberty/demangle.h>
+#endif
+
 /** Default CLI pager limit is not configured in startup.conf */
 #define UNIX_CLI_DEFAULT_PAGER_LIMIT 100000
 
@@ -61,7 +37,6 @@ char *vlib_default_runtime_dir __attribute__ ((weak));
 char *vlib_default_runtime_dir = "vlib";
 
 unix_main_t unix_main;
-clib_file_main_t file_main;
 
 static clib_error_t *
 unix_main_init (vlib_main_t * vm)
@@ -71,12 +46,7 @@ unix_main_init (vlib_main_t * vm)
   return 0;
 }
 
-/* *INDENT-OFF* */
-VLIB_INIT_FUNCTION (unix_main_init) =
-{
-  .runs_before = VLIB_INITS ("unix_input_init"),
-};
-/* *INDENT-ON* */
+VLIB_INIT_FUNCTION (unix_main_init);
 
 static int
 unsetup_signal_handlers (int sig)
@@ -98,19 +68,41 @@ int vlib_last_signum = 0;
 uword vlib_last_faulting_address = 0;
 
 static void
+log_one_line ()
+{
+  vec_terminate_c_string (syslog_msg);
+  if (unix_main.flags & (UNIX_FLAG_INTERACTIVE | UNIX_FLAG_NOSYSLOG))
+    fprintf (stderr, "%s\n", syslog_msg);
+  else
+    syslog (LOG_ERR | LOG_DAEMON, "%s", syslog_msg);
+  vec_reset_length (syslog_msg);
+}
+
+static void
 unix_signal_handler (int signum, siginfo_t * si, ucontext_t * uc)
 {
   uword fatal = 0;
+  int color =
+    (unix_main.flags & (UNIX_FLAG_INTERACTIVE | UNIX_FLAG_NOSYSLOG)) &&
+    (unix_main.flags & UNIX_FLAG_NOCOLOR) == 0;
 
   /* These come in handy when looking at core files from optimized images */
   vlib_last_signum = signum;
   vlib_last_faulting_address = (uword) si->si_addr;
 
+  if (color)
+    syslog_msg = format (syslog_msg, ANSI_FG_BR_RED);
+
   syslog_msg = format (syslog_msg, "received signal %U, PC %U",
 		       format_signal, signum, format_ucontext_pc, uc);
 
-  if (signum == SIGSEGV)
+  if (signum == SIGSEGV || signum == SIGBUS)
     syslog_msg = format (syslog_msg, ", faulting address %p", si->si_addr);
+
+  if (color)
+    syslog_msg = format (syslog_msg, ANSI_FG_DEFAULT);
+
+  log_one_line ();
 
   switch (signum)
     {
@@ -121,11 +113,17 @@ unix_signal_handler (int signum, siginfo_t * si, ucontext_t * uc)
        */
       if (unix_main.vlib_main && unix_main.vlib_main->main_loop_exit_set)
 	{
-	  syslog (LOG_ERR | LOG_DAEMON, "received SIGTERM, exiting...");
+	  syslog_msg = format (
+	    syslog_msg, "received SIGTERM from PID %d UID %d, exiting...",
+	    si->si_pid, si->si_uid);
+	  log_one_line ();
 	  unix_main.vlib_main->main_loop_exit_now = 1;
 	}
       else
-	syslog (LOG_ERR | LOG_DAEMON, "IGNORE early SIGTERM...");
+	{
+	  syslog_msg = format (syslog_msg, "IGNORE early SIGTERM...");
+	  log_one_line ();
+	}
       break;
       /* fall through */
     case SIGQUIT:
@@ -145,37 +143,87 @@ unix_signal_handler (int signum, siginfo_t * si, ucontext_t * uc)
       break;
     }
 
-#ifdef CLIB_GCOV
-  /*
-   * Test framework sends SIGTERM, so we need to flush the
-   * code coverage stats here.
-   */
-  {
-    void __gcov_flush (void);
-    __gcov_flush ();
-  }
-#endif
-
-  /* Null terminate. */
-  vec_add1 (syslog_msg, 0);
 
   if (fatal)
     {
-      syslog (LOG_ERR | LOG_DAEMON, "%s", syslog_msg);
+      int skip = 1, index = 0;
 
-      /* Address of callers: outer first, inner last. */
-      uword callers[15];
-      uword n_callers = clib_backtrace (callers, ARRAY_LEN (callers), 0);
-      int i;
-      for (i = 0; i < n_callers; i++)
+      foreach_clib_stack_frame (sf)
 	{
-	  vec_reset_length (syslog_msg);
+	  if (sf->is_signal_frame)
+	    {
+	      int pipefd[2];
+	      const int n_bytes = 20;
+	      u8 *ip = (void *) sf->ip;
 
-	  syslog_msg =
-	    format (syslog_msg, "#%-2d 0x%016lx %U%c", i, callers[i],
-		    format_clib_elf_symbol_with_address, callers[i], 0);
+	      if (pipe (pipefd) == 0)
+		{
+		  /* check PC points to valid memory */
+		  if (write (pipefd[1], ip, n_bytes) == n_bytes)
+		    {
+		      syslog_msg = format (syslog_msg, "Code: ");
+		      if (color)
+			syslog_msg = format (syslog_msg, ANSI_FG_CYAN);
+		      for (int i = 0; i < n_bytes; i++)
+			syslog_msg = format (syslog_msg, " %02x", ip[i]);
+		      if (color)
+			syslog_msg = format (syslog_msg, ANSI_FG_DEFAULT);
+		    }
+		  else
+		    {
+		      syslog_msg = format (
+			syslog_msg, "PC contains invalid memory address");
+		    }
+		  log_one_line ();
+		  foreach_int (i, 0, 1)
+		    close (pipefd[i]);
+		}
+	      skip = 0;
+	    }
 
-	  syslog (LOG_ERR | LOG_DAEMON, "%s", syslog_msg);
+	  if (skip)
+	    continue;
+
+	  syslog_msg = format (syslog_msg, "#%-2d ", index++);
+	  if (color)
+	    syslog_msg = format (syslog_msg, ANSI_FG_BLUE);
+	  syslog_msg = format (syslog_msg, "0x%016lx", sf->ip);
+	  if (color)
+	    syslog_msg = format (syslog_msg, ANSI_FG_DEFAULT);
+
+	  if (sf->name[0])
+	    {
+	      if (color)
+		syslog_msg = format (syslog_msg, ANSI_FG_YELLOW);
+#if HAVE_LIBIBERTY
+	      if (strncmp (sf->name, "_Z", 2) == 0)
+		{
+		  char *demangled = cplus_demangle (sf->name, DMGL_AUTO);
+		  syslog_msg = format (syslog_msg, " %s",
+				       demangled ? demangled : sf->name);
+		  if (demangled)
+		    free (demangled);
+		}
+	      else
+#endif
+		syslog_msg = format (syslog_msg, " %s", sf->name);
+
+	      syslog_msg = format (syslog_msg, " + 0x%x", sf->offset);
+	      if (color)
+		syslog_msg = format (syslog_msg, ANSI_FG_DEFAULT);
+	    }
+
+	  log_one_line ();
+
+	  if (sf->file_name)
+	    {
+	      if (color)
+		syslog_msg = format (syslog_msg, ANSI_FG_GREEN);
+	      syslog_msg = format (syslog_msg, "     from %s", sf->file_name);
+	      if (color)
+		syslog_msg = format (syslog_msg, ANSI_FG_DEFAULT);
+	      log_one_line ();
+	    }
 	}
 
       /* have to remove SIGABRT to avoid recursive - os_exit calling abort() */
@@ -187,9 +235,6 @@ unix_signal_handler (int signum, siginfo_t * si, ucontext_t * uc)
       else
 	os_exit (1);
     }
-  else
-    clib_warning ("%s", syslog_msg);
-
 }
 
 static clib_error_t *
@@ -295,14 +340,12 @@ startup_config_process (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (startup_config_node,static) = {
     .function = startup_config_process,
     .type = VLIB_NODE_TYPE_PROCESS,
     .name = "startup-config-process",
     .process_log2_n_stack_bytes = 18,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 unix_config (vlib_main_t * vm, unformat_input_t * input)
@@ -312,6 +355,7 @@ unix_config (vlib_main_t * vm, unformat_input_t * input)
   clib_error_t *error = 0;
   gid_t gid;
   int pidfd = -1;
+  int use_current_dir = 0;
 
   /* Defaults */
   um->cli_pager_buffer_limit = UNIX_CLI_DEFAULT_PAGER_LIMIT;
@@ -335,6 +379,8 @@ unix_config (vlib_main_t * vm, unformat_input_t * input)
       else
 	if (unformat (input, "cli-listen %s", &um->cli_listen_socket.config))
 	;
+      else if (unformat (input, "use-current-dir"))
+	use_current_dir = 1;
       else if (unformat (input, "runtime-dir %s", &um->runtime_dir))
 	;
       else if (unformat (input, "cli-line-mode"))
@@ -422,6 +468,13 @@ unix_config (vlib_main_t * vm, unformat_input_t * input)
       else
 	return clib_error_return (0, "unknown input `%U'",
 				  format_unformat_error, input);
+    }
+
+  if (use_current_dir)
+    {
+      char cwd[PATH_MAX];
+      if (getcwd (cwd, PATH_MAX))
+	um->runtime_dir = format (um->runtime_dir, "%s%c", cwd, 0);
     }
 
   if (um->runtime_dir == 0)
@@ -593,7 +646,7 @@ thread0 (uword arg)
 
   vlib_process_finish_switch_stack (vm);
 
-  unformat_init_command_line (&input, (char **) vgm->argv);
+  unformat_init_vector (&input, vec_dup (vgm->startup_config));
   i = vlib_main (vm, &input);
   unformat_free (&input);
 
@@ -621,42 +674,46 @@ vlib_thread_stack_init (uword thread_index)
 #endif
 
 int
-vlib_unix_main (int argc, char *argv[])
+vlib_unix_main (int argc, char *argv[], u8 *startup_config)
 {
   vlib_global_main_t *vgm = vlib_get_global_main ();
   vlib_main_t *vm = vlib_get_first_main (); /* one and only time for this! */
   unformat_input_t input;
   clib_error_t *e;
-  char buffer[PATH_MAX];
   int i;
 
   vec_validate_aligned (vgm->vlib_mains, 0, CLIB_CACHE_LINE_BYTES);
 
-  if ((i = readlink ("/proc/self/exe", buffer, sizeof (buffer) - 1)) > 0)
+  vgm->exec_path = (char *) os_get_exec_path ();
+
+  if (vgm->exec_path)
     {
-      int j;
-      buffer[i] = 0;
-      vgm->exec_path = vec_new (char, i + 1);
-      clib_memcpy_fast (vgm->exec_path, buffer, i + 1);
-      for (j = i - 1; j > 0; j--)
-	if (buffer[j - 1] == '/')
+      for (i = vec_len (vgm->exec_path) - 1; i > 0; i--)
+	if (vgm->exec_path[i - 1] == '/')
 	  break;
-      vgm->name = vec_new (char, i - j + 1);
-      clib_memcpy_fast (vgm->name, buffer + j, i - j + 1);
+
+      vgm->name = 0;
+
+      vec_add (vgm->name, vgm->exec_path + i, vec_len (vgm->exec_path) - i);
+      vec_add1 (vgm->exec_path, 0);
+      vec_add1 (vgm->name, 0);
     }
   else
     vgm->exec_path = vgm->name = argv[0];
 
   vgm->argv = (u8 **) argv;
+  vgm->startup_config = startup_config;
 
   clib_time_init (&vm->clib_time);
 
   /* Turn on the event logger at the first possible moment */
   vgm->configured_elog_ring_size = 128 << 10;
-  elog_init (vlib_get_elog_main (), vgm->configured_elog_ring_size);
-  elog_enable_disable (vlib_get_elog_main (), 1);
+  vgm->elog_main =
+    clib_mem_alloc_aligned (sizeof (elog_main_t), CLIB_CACHE_LINE_BYTES);
+  elog_init (vgm->elog_main, vgm->configured_elog_ring_size);
+  elog_enable_disable (vgm->elog_main, 1);
 
-  unformat_init_command_line (&input, (char **) vgm->argv);
+  unformat_init_vector (&input, vec_dup (startup_config));
   if ((e = vlib_plugin_config (vm, &input)))
     {
       clib_error_report (e);
@@ -668,7 +725,7 @@ vlib_unix_main (int argc, char *argv[])
   if (i)
     return i;
 
-  unformat_init_command_line (&input, (char **) vgm->argv);
+  unformat_init_vector (&input, vec_dup (startup_config));
   if (vgm->init_functions_called == 0)
     vgm->init_functions_called = hash_create (0, /* value bytes */ 0);
   e = vlib_call_all_config_functions (vm, &input, 1 /* early */ );
@@ -694,11 +751,3 @@ vlib_unix_main (int argc, char *argv[])
 			      VLIB_THREAD_STACK_SIZE));
   return i;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

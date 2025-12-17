@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <stdbool.h>
@@ -29,11 +19,9 @@ vlib_log_main_t log_main = {
   .default_rate_limit = 50,
 };
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_LOG_CLASS (log_log, static) = {
   .class_name = "log",
 };
-/* *INDENT-ON* */
 
 static const int colors[] = {
   [VLIB_LOG_LEVEL_EMERG] = 1,	/* red */
@@ -70,27 +58,12 @@ last_log_entry ()
     i += lm->size;
   return i;
 }
-
-static vlib_log_class_data_t *
-get_class_data (vlib_log_class_t ci)
-{
-  vlib_log_main_t *lm = &log_main;
-  return vec_elt_at_index (lm->classes, (ci >> 16));
-}
-
-static vlib_log_subclass_data_t *
-get_subclass_data (vlib_log_class_t ci)
-{
-  vlib_log_class_data_t *c = get_class_data (ci);
-  return vec_elt_at_index (c->subclasses, (ci & 0xffff));
-}
-
 u8 *
 format_vlib_log_class (u8 * s, va_list * args)
 {
   vlib_log_class_t ci = va_arg (*args, vlib_log_class_t);
-  vlib_log_class_data_t *c = get_class_data (ci);
-  vlib_log_subclass_data_t *sc = get_subclass_data (ci);
+  vlib_log_class_data_t *c = vlib_log_get_class_data (ci);
+  vlib_log_subclass_data_t *sc = vlib_log_get_subclass_data (ci);
 
   if (sc->name)
     return format (s, "%v/%v", c->name, sc->name);
@@ -105,7 +78,6 @@ format_indent (u8 * s, va_list * args)
   u32 indent = va_arg (*args, u32);
   u8 *c;
 
-  /* *INDENT-OFF* */
   vec_foreach (c, v)
     {
       vec_add (s, c, 1);
@@ -113,7 +85,6 @@ format_indent (u8 * s, va_list * args)
 	for (u32 i = 0; i < indent; i++)
 	  vec_add1 (s, (u8) ' ');
     }
-  /* *INDENT-ON* */
   return s;
 }
 
@@ -127,28 +98,35 @@ log_level_is_enabled (vlib_log_level_t level, vlib_log_level_t configured)
   return 1;
 }
 
+static void
+log_size_validate (vlib_log_main_t *lm)
+{
+  if (vec_len (lm->entries) < lm->size)
+    {
+      CLIB_SPINLOCK_LOCK (lm->lock);
+      vec_validate (lm->entries, lm->size);
+      CLIB_SPINLOCK_UNLOCK (lm->lock);
+    }
+}
+
 void
-vlib_log (vlib_log_level_t level, vlib_log_class_t class, char *fmt, ...)
+vlib_log_va (vlib_log_level_t level, vlib_log_class_t class, char *fmt,
+	     va_list *va)
 {
   vlib_main_t *vm = vlib_get_main ();
   vlib_log_main_t *lm = &log_main;
   vlib_log_entry_t *e;
-  vlib_log_subclass_data_t *sc = get_subclass_data (class);
-  va_list va;
+  vlib_log_subclass_data_t *sc = vlib_log_get_subclass_data (class);
   f64 t = vlib_time_now (vm);
   f64 delta = t - sc->last_event_timestamp;
   int log_enabled = log_level_is_enabled (level, sc->level);
   int syslog_enabled = log_level_is_enabled (level, sc->syslog_level);
   u8 *s = 0;
 
-  /* make sure we are running on the main thread to avoid use in dataplane
-     code, for dataplane logging consider use of event-logger */
-  ASSERT (vlib_get_thread_index () == 0);
-
   if ((log_enabled || syslog_enabled) == 0)
     return;
 
-  vec_validate (lm->entries, lm->size);
+  log_size_validate (lm);
 
   if ((delta > lm->unthrottle_time) ||
       (sc->is_throttling == 0 && (delta > 1)))
@@ -172,9 +150,7 @@ vlib_log (vlib_log_level_t level, vlib_log_class_t class, char *fmt, ...)
 
   if (s == 0)
     {
-      va_start (va, fmt);
-      s = va_format (s, fmt, &va);
-      va_end (va);
+      s = va_format (s, fmt, va);
     }
 
   if (syslog_enabled)
@@ -216,13 +192,19 @@ vlib_log (vlib_log_level_t level, vlib_log_class_t class, char *fmt, ...)
 
   if (log_enabled)
     {
+      CLIB_SPINLOCK_LOCK (lm->lock);
       e = vec_elt_at_index (lm->entries, lm->next);
-      vec_free (e->string);
+      lm->next = (lm->next + 1) % lm->size;
+      if (lm->size > lm->count)
+	lm->count++;
       e->level = level;
       e->class = class;
-      e->string = s;
       e->timestamp = t;
-      s = 0;
+      e->thread_index = vm->thread_index;
+      CLIB_SWAP (e->string, s);
+      CLIB_SPINLOCK_UNLOCK (lm->lock);
+
+      vec_free (s);
 
       if (lm->add_to_elog)
 	{
@@ -249,18 +231,23 @@ vlib_log (vlib_log_level_t level, vlib_log_class_t class, char *fmt, ...)
 	    u32 log_level;
 	    u32 string_index;
 	  } * ed;
-	  ed = ELOG_DATA (&vlib_global_main.elog_main, ee);
+	  ed = ELOG_DATA (vlib_get_elog_main (), ee);
 	  ed->log_level = level;
 	  ed->string_index =
-	    elog_string (&vlib_global_main.elog_main, "%v%c", e->string, 0);
+	    elog_string (vlib_get_elog_main (), "%v%c", e->string, 0);
 	}
-
-      lm->next = (lm->next + 1) % lm->size;
-      if (lm->size > lm->count)
-	lm->count++;
     }
 
   vec_free (s);
+}
+
+void
+vlib_log (vlib_log_level_t level, vlib_log_class_t class, char *fmt, ...)
+{
+  va_list va;
+  va_start (va, fmt);
+  vlib_log_va (level, class, fmt, &va);
+  va_end (va);
 }
 
 static vlib_log_class_t
@@ -375,15 +362,16 @@ vlib_log_init (vlib_main_t *vm)
   gettimeofday (&lm->time_zero_timeval, 0);
   lm->time_zero = vlib_time_now (vm);
 
-  vec_validate (lm->entries, lm->size);
+  log_size_validate (lm);
 
   while (r)
     {
       r->class = vlib_log_register_class (r->class_name, r->subclass_name);
       if (r->default_level)
-	get_subclass_data (r->class)->level = r->default_level;
+	vlib_log_get_subclass_data (r->class)->level = r->default_level;
       if (r->default_syslog_level)
-	get_subclass_data (r->class)->syslog_level = r->default_syslog_level;
+	vlib_log_get_subclass_data (r->class)->syslog_level =
+	  r->default_syslog_level;
       r = r->next;
     }
 
@@ -402,33 +390,38 @@ show_log (vlib_main_t * vm,
 {
   clib_error_t *error = 0;
   vlib_log_main_t *lm = &log_main;
-  vlib_log_entry_t *e;
+  vlib_log_entry_t *e, *entries;
   int i = last_log_entry ();
-  int count = lm->count;
+  int count;
   f64 time_offset;
 
   time_offset = (f64) lm->time_zero_timeval.tv_sec
     + (((f64) lm->time_zero_timeval.tv_usec) * 1e-6) - lm->time_zero;
 
+  CLIB_SPINLOCK_LOCK (lm->lock);
+  count = lm->count;
+  entries = vec_dup (lm->entries);
+  CLIB_SPINLOCK_UNLOCK (lm->lock);
+
   while (count--)
     {
-      e = vec_elt_at_index (lm->entries, i);
+      e = vec_elt_at_index (entries, i);
       vlib_cli_output (vm, "%U %-10U %-14U %v", format_time_float, NULL,
 		       e->timestamp + time_offset, format_vlib_log_level,
 		       e->level, format_vlib_log_class, e->class, e->string);
       i = (i + 1) % lm->size;
     }
 
+  vec_free (entries);
+
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (cli_show_log, static) = {
   .path = "show logging",
   .short_help = "show logging",
   .function = show_log,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 show_log_config (vlib_main_t * vm,
@@ -470,13 +463,11 @@ show_log_config (vlib_main_t * vm,
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (cli_show_log_config, static) = {
   .path = "show logging configuration",
   .short_help = "show logging configuration",
   .function = show_log_config,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 clear_log (vlib_main_t * vm,
@@ -486,8 +477,10 @@ clear_log (vlib_main_t * vm,
   vlib_log_main_t *lm = &log_main;
   vlib_log_entry_t *e;
   int i = last_log_entry ();
-  int count = lm->count;
+  int count;
 
+  CLIB_SPINLOCK_LOCK (lm->lock);
+  count = lm->count;
   while (count--)
     {
       e = vec_elt_at_index (lm->entries, i);
@@ -497,17 +490,17 @@ clear_log (vlib_main_t * vm,
 
   lm->count = 0;
   lm->next = 0;
+  CLIB_SPINLOCK_UNLOCK (lm->lock);
+
   vlib_log_info (log_log.class, "log cleared");
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (cli_clear_log, static) = {
   .path = "clear logging",
   .short_help = "clear logging",
   .function = clear_log,
 };
-/* *INDENT-ON* */
 
 static uword
 unformat_vlib_log_level (unformat_input_t * input, va_list * args)
@@ -635,14 +628,12 @@ set_log_class (vlib_main_t * vm,
   return rv;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (cli_set_log, static) = {
   .path = "set logging class",
   .short_help = "set logging class <class> [rate-limit <int>] "
     "[level <level>] [syslog-level <level>]",
   .function = set_log_class,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 set_log_unth_time (vlib_main_t * vm,
@@ -669,13 +660,11 @@ set_log_unth_time (vlib_main_t * vm,
   return rv;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (cli_set_log_params, static) = {
   .path = "set logging unthrottle-time",
   .short_help = "set logging unthrottle-time <int>",
   .function = set_log_unth_time,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 set_log_size (vlib_main_t * vm,
@@ -695,7 +684,7 @@ set_log_size (vlib_main_t * vm,
       if (unformat (line_input, "%d", &size))
 	{
 	  lm->size = size;
-	  vec_validate (lm->entries, lm->size);
+	  log_size_validate (lm);
 	}
       else
 	return clib_error_return (0, "unknown input `%U'",
@@ -705,13 +694,11 @@ set_log_size (vlib_main_t * vm,
   return rv;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (cli_set_log_size, static) = {
   .path = "set logging size",
   .short_help = "set logging size <int>",
   .function = set_log_size,
 };
-/* *INDENT-ON* */
 
 static uword
 unformat_vlib_log_subclass (unformat_input_t * input, va_list * args)
@@ -784,13 +771,11 @@ test_log_class_subclass (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (cli_test_log, static) = {
   .path = "test log",
   .short_help = "test log <level> <class> <subclass> <message>",
   .function = test_log_class_subclass,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 log_config_class (vlib_main_t * vm, char *name, unformat_input_t * input)
@@ -841,7 +826,7 @@ log_config (vlib_main_t * vm, unformat_input_t * input)
   while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
     {
       if (unformat (input, "size %d", &lm->size))
-	vec_validate (lm->entries, lm->size);
+	log_size_validate (lm);
       else if (unformat (input, "unthrottle-time %d", &lm->unthrottle_time))
 	;
       else if (unformat (input, "default-log-level %U",
@@ -873,11 +858,3 @@ log_config (vlib_main_t * vm, unformat_input_t * input)
 }
 
 VLIB_EARLY_CONFIG_FUNCTION (log_config, "logging");
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

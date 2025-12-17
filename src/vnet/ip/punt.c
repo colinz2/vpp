@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 /**
@@ -27,13 +17,12 @@
 #include <vnet/udp/udp.h>
 #include <vnet/tcp/tcp.h>
 #include <vnet/ip/punt.h>
-#include <vlib/unix/unix.h>
+#include <vlib/file.h>
 
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
-#include <stdlib.h>
 
 punt_main_t punt_main;
 
@@ -148,14 +137,31 @@ punt_socket_register_l4 (vlib_main_t * vm,
   punt_main_t *pm = &punt_main;
   punt_client_t *c;
 
-  /* For now we only support UDP punt */
-  if (protocol != IP_PROTOCOL_UDP)
-    return clib_error_return (0,
-			      "only UDP protocol (%d) is supported, got %d",
-			      IP_PROTOCOL_UDP, protocol);
-
   if (port == (u16) ~ 0)
-    return clib_error_return (0, "UDP port number required");
+    return clib_error_return (0, "Port number required");
+
+  u32 node_index;
+  switch (protocol)
+    {
+    case IP_PROTOCOL_UDP:
+      node_index = (af == AF_IP4 ? udp4_punt_socket_node.index :
+					 udp6_punt_socket_node.index);
+      udp_register_dst_port (vm, port, node_index, af == AF_IP4);
+      break;
+    case IP_PROTOCOL_ICMP6:
+      if (af != AF_IP6)
+	return clib_error_return (
+	  0, "only UDP or ICMP6 protocol (%d, %d) is supported, got %d",
+	  IP_PROTOCOL_UDP, IP_PROTOCOL_ICMP6, protocol);
+
+      node_index = icmp6_punt_socket_node.index;
+      icmp6_register_type (vm, port, node_index);
+      break;
+    default:
+      return clib_error_return (
+	0, "only UDP or ICMP6 protocol (%d) is supported, got %d",
+	IP_PROTOCOL_UDP, protocol);
+    }
 
   c = punt_client_l4_get (af, port);
 
@@ -172,12 +178,6 @@ punt_socket_register_l4 (vlib_main_t * vm,
   c->reg.punt.l4.port = port;
   c->reg.punt.l4.protocol = protocol;
   c->reg.punt.l4.af = af;
-
-  u32 node_index = (af == AF_IP4 ?
-		    udp4_punt_socket_node.index :
-		    udp6_punt_socket_node.index);
-
-  udp_register_dst_port (vm, port, node_index, af == AF_IP4);
 
   return (NULL);
 }
@@ -463,7 +463,6 @@ punt_cli (vlib_main_t * vm,
   unformat_input_t line_input, *input = &line_input;
   clib_error_t *error = NULL;
   bool is_add = true;
-  /* *INDENT-OFF* */
   punt_reg_t pr = {
     .punt = {
       .l4 = {
@@ -475,7 +474,6 @@ punt_cli (vlib_main_t * vm,
     .type = PUNT_TYPE_L4,
   };
   u32 port;
-  /* *INDENT-ON* */
 
   if (!unformat_user (input__, unformat_line_input, input))
     return 0;
@@ -541,13 +539,11 @@ done:
  * @cliexcmd{set punt udp del all}
  * @endparblock
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (punt_command, static) = {
   .path = "set punt",
   .short_help = "set punt [IPV4|ip6|ipv6] [UDP|tcp] [del] [ALL|<port-num>]",
   .function = punt_cli,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 punt_socket_register_cmd (vlib_main_t * vm,
@@ -557,7 +553,6 @@ punt_socket_register_cmd (vlib_main_t * vm,
   unformat_input_t line_input, *input = &line_input;
   u8 *socket_name = 0;
   clib_error_t *error = NULL;
-  /* *INDENT-OFF* */
   punt_reg_t pr = {
     .punt = {
       .l4 = {
@@ -568,7 +563,6 @@ punt_socket_register_cmd (vlib_main_t * vm,
     },
     .type = PUNT_TYPE_L4,
   };
-  /* *INDENT-ON* */
 
   if (!unformat_user (input__, unformat_line_input, input))
     return 0;
@@ -616,7 +610,6 @@ done:
  * @cliexcmd{punt socket register socket punt_l4_foo.sock}
 
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (punt_socket_register_command, static) =
 {
   .path = "punt socket register",
@@ -624,7 +617,6 @@ VLIB_CLI_COMMAND (punt_socket_register_command, static) =
   .short_help = "punt socket register [IPV4|ipv6] [UDP|tcp] [ALL|<port-num>] socket <socket>",
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 punt_socket_deregister_cmd (vlib_main_t * vm,
@@ -633,7 +625,6 @@ punt_socket_deregister_cmd (vlib_main_t * vm,
 {
   unformat_input_t line_input, *input = &line_input;
   clib_error_t *error = NULL;
-  /* *INDENT-OFF* */
   punt_reg_t pr = {
     .punt = {
       .l4 = {
@@ -644,7 +635,6 @@ punt_socket_deregister_cmd (vlib_main_t * vm,
     },
     .type = PUNT_TYPE_L4,
   };
-  /* *INDENT-ON* */
 
   if (!unformat_user (input__, unformat_line_input, input))
     return 0;
@@ -685,7 +675,6 @@ done:
  * @cliexpar
  * @cliexcmd{punt socket register}
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (punt_socket_deregister_command, static) =
 {
   .path = "punt socket deregister",
@@ -693,7 +682,6 @@ VLIB_CLI_COMMAND (punt_socket_deregister_command, static) =
   .short_help = "punt socket deregister [IPV4|ipv6] [UDP|tcp] [ALL|<port-num>]",
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
 
 void
 punt_client_walk (punt_type_t pt, punt_client_walk_cb_t cb, void *ctx)
@@ -706,24 +694,20 @@ punt_client_walk (punt_type_t pt, punt_client_walk_cb_t cb, void *ctx)
       {
 	u32 pci, key;
 
-        /* *INDENT-OFF* */
         hash_foreach(key, pci, pm->db.clients_by_l4_port,
         ({
           cb (pool_elt_at_index(pm->punt_client_pool, pci), ctx);
         }));
-        /* *INDENT-ON* */
 	break;
       }
     case PUNT_TYPE_IP_PROTO:
       {
 	u32 pci, key;
 
-        /* *INDENT-OFF* */
         hash_foreach(key, pci, pm->db.clients_by_ip_proto,
         ({
           cb (pool_elt_at_index(pm->punt_client_pool, pci), ctx);
         }));
-        /* *INDENT-ON* */
 	break;
       }
     case PUNT_TYPE_EXCEPTION:
@@ -821,7 +805,6 @@ done:
  * @cliexpar
  * @cliexcmd{show punt socket ipv4}
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_punt_socket_registration_command, static) =
 {
   .path = "show punt socket registrations",
@@ -829,7 +812,6 @@ VLIB_CLI_COMMAND (show_punt_socket_registration_command, static) =
   .short_help = "show punt socket registrations [l4|exception]",
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
 
 clib_error_t *
 ip_punt_init (vlib_main_t * vm)
@@ -935,11 +917,3 @@ punt_config (vlib_main_t * vm, unformat_input_t * input)
 }
 
 VLIB_CONFIG_FUNCTION (punt_config, "punt");
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

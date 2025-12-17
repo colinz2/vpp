@@ -2,22 +2,18 @@
 
 import unittest
 import socket
-import struct
-import six
 
-from framework import VppTestCase, VppTestRunner
-from framework import tag_run_solo
+from framework import VppTestCase
+from asfframework import VppTestRunner, tag_run_solo
 from vpp_neighbor import VppNeighbor
 from vpp_ip_route import find_route, VppIpTable
 from util import mk_ll_addr
 import scapy.compat
-from scapy.layers.l2 import Ether, getmacbyip, ARP, Dot1Q
-from scapy.layers.inet import IP, UDP, ICMP
+from scapy.layers.l2 import Ether, ARP, Dot1Q
+from scapy.layers.inet import IP, UDP
 from scapy.layers.inet6 import IPv6, in6_getnsmac
-from scapy.utils6 import in6_mactoifaceid
 from scapy.layers.dhcp import DHCP, BOOTP, DHCPTypes
 from scapy.layers.dhcp6 import (
-    DHCP6,
     DHCP6_Solicit,
     DHCP6_RelayForward,
     DHCP6_RelayReply,
@@ -29,12 +25,13 @@ from scapy.layers.dhcp6 import (
     DHCP6OptClientLinkLayerAddr,
     DHCP6_Request,
 )
-from socket import AF_INET, AF_INET6, inet_pton, inet_ntop
+from socket import AF_INET, AF_INET6, inet_pton
 from scapy.utils6 import in6_ptop
 from vpp_papi import mac_pton, VppEnum
 from vpp_sub_interface import VppDot1QSubint
 from vpp_qos import VppQosEgressMap, VppQosMark
 from vpp_dhcp import VppDHCPClient, VppDHCPProxy
+from config import config
 
 
 DHCP4_CLIENT_PORT = 68
@@ -44,6 +41,7 @@ DHCP6_SERVER_PORT = 546
 
 
 @tag_run_solo
+@unittest.skipIf("dhcp" in config.excluded_plugins, "Exclude DHCP plugin tests")
 class TestDHCP(VppTestCase):
     """DHCP Test Case"""
 
@@ -122,7 +120,7 @@ class TestDHCP(VppTestCase):
 
         for i in dhcp.options:
             if isinstance(i, tuple):
-                if i[0] == "relay_agent_Information":
+                if i[0] == "relay_agent_information":
                     #
                     # There are two sb-options present - each of length 6.
                     #
@@ -141,12 +139,12 @@ class TestDHCP(VppTestCase):
                     # The ID space is VPP internal - so no matching value
                     # scapy
                     #
-                    self.assertEqual(six.byte2int(data[0:1]), 1)
-                    self.assertEqual(six.byte2int(data[1:2]), 4)
-                    self.assertEqual(six.byte2int(data[2:3]), 0)
-                    self.assertEqual(six.byte2int(data[3:4]), 0)
-                    self.assertEqual(six.byte2int(data[4:5]), 0)
-                    self.assertEqual(six.byte2int(data[5:6]), intf._sw_if_index)
+                    self.assertEqual(data[0], 1)
+                    self.assertEqual(data[1], 4)
+                    self.assertEqual(data[2], 0)
+                    self.assertEqual(data[3], 0)
+                    self.assertEqual(data[4], 0)
+                    self.assertEqual(data[5], intf._sw_if_index)
 
                     #
                     # next sub-option is the IP address of the client side
@@ -155,8 +153,8 @@ class TestDHCP(VppTestCase):
                     #
                     claddr = socket.inet_pton(AF_INET, ip_addr)
 
-                    self.assertEqual(six.byte2int(data[6:7]), 5)
-                    self.assertEqual(six.byte2int(data[7:8]), 4)
+                    self.assertEqual(data[6], 5)
+                    self.assertEqual(data[7], 4)
                     self.assertEqual(data[8], claddr[0])
                     self.assertEqual(data[9], claddr[1])
                     self.assertEqual(data[10], claddr[2])
@@ -166,37 +164,33 @@ class TestDHCP(VppTestCase):
                         # sub-option 151 encodes vss_type 1,
                         # the 3 byte oui and the 4 byte fib_id
                         self.assertEqual(id_len, 0)
-                        self.assertEqual(six.byte2int(data[12:13]), 151)
-                        self.assertEqual(six.byte2int(data[13:14]), 8)
-                        self.assertEqual(six.byte2int(data[14:15]), 1)
-                        self.assertEqual(six.byte2int(data[15:16]), 0)
-                        self.assertEqual(six.byte2int(data[16:17]), 0)
-                        self.assertEqual(six.byte2int(data[17:18]), oui)
-                        self.assertEqual(six.byte2int(data[18:19]), 0)
-                        self.assertEqual(six.byte2int(data[19:20]), 0)
-                        self.assertEqual(six.byte2int(data[20:21]), 0)
-                        self.assertEqual(six.byte2int(data[21:22]), fib_id)
+                        self.assertEqual(data[12], 151)
+                        self.assertEqual(data[13], 8)
+                        self.assertEqual(data[14], 1)
+                        self.assertEqual(data[15], 0)
+                        self.assertEqual(data[16], 0)
+                        self.assertEqual(data[17], oui)
+                        self.assertEqual(data[18], 0)
+                        self.assertEqual(data[19], 0)
+                        self.assertEqual(data[20], 0)
+                        self.assertEqual(data[21], fib_id)
 
                         # VSS control sub-option
-                        self.assertEqual(six.byte2int(data[22:23]), 152)
-                        self.assertEqual(six.byte2int(data[23:24]), 0)
+                        self.assertEqual(data[22], 152)
+                        self.assertEqual(data[23], 0)
 
                     if id_len > 0:
                         # sub-option 151 encode vss_type of 0
                         # followerd by vpn_id in ascii
                         self.assertEqual(oui, 0)
-                        self.assertEqual(six.byte2int(data[12:13]), 151)
-                        self.assertEqual(six.byte2int(data[13:14]), id_len + 1)
-                        self.assertEqual(six.byte2int(data[14:15]), 0)
+                        self.assertEqual(data[12], 151)
+                        self.assertEqual(data[13], id_len + 1)
+                        self.assertEqual(data[14], 0)
                         self.assertEqual(data[15 : 15 + id_len].decode("ascii"), vpn_id)
 
                         # VSS control sub-option
-                        self.assertEqual(
-                            six.byte2int(data[15 + len(vpn_id) : 16 + len(vpn_id)]), 152
-                        )
-                        self.assertEqual(
-                            six.byte2int(data[16 + len(vpn_id) : 17 + len(vpn_id)]), 0
-                        )
+                        self.assertEqual(data[15 + len(vpn_id)], 152)
+                        self.assertEqual(data[16 + len(vpn_id)], 0)
 
                     found = 1
         self.assertTrue(found)
@@ -328,6 +322,9 @@ class TestDHCP(VppTestCase):
                     is_discover = True
         self.assertTrue(is_discover)
 
+        # The last option must always be the 'end' option
+        self.assertEqual(dhcp.options[-1], "end")
+
         data = self.validate_relay_options(
             pkt, src_intf, src_intf.local_ip4, vpn_id, fib_id, oui
         )
@@ -379,13 +376,13 @@ class TestDHCP(VppTestCase):
             self.assertEqual(vss.type, 1)
             # the OUI and FIB-id are really 3 and 4 bytes resp.
             # but the tested range is small
-            self.assertEqual(six.byte2int(vss.data[0:1]), 0)
-            self.assertEqual(six.byte2int(vss.data[1:2]), 0)
-            self.assertEqual(six.byte2int(vss.data[2:3]), oui)
-            self.assertEqual(six.byte2int(vss.data[3:4]), 0)
-            self.assertEqual(six.byte2int(vss.data[4:5]), 0)
-            self.assertEqual(six.byte2int(vss.data[5:6]), 0)
-            self.assertEqual(six.byte2int(vss.data[6:7]), fib_id)
+            self.assertEqual(vss.data[0], 0)
+            self.assertEqual(vss.data[1], 0)
+            self.assertEqual(vss.data[2], oui)
+            self.assertEqual(vss.data[3], 0)
+            self.assertEqual(vss.data[4], 0)
+            self.assertEqual(vss.data[5], 0)
+            self.assertEqual(vss.data[6], fib_id)
 
         if id_len > 0:
             self.assertEqual(oui, 0)
@@ -533,7 +530,7 @@ class TestDHCP(VppTestCase):
             / DHCP(
                 options=[
                     ("message-type", "offer"),
-                    ("relay_agent_Information", option_82),
+                    ("relay_agent_information", option_82),
                     ("end"),
                 ]
             )
@@ -544,7 +541,7 @@ class TestDHCP(VppTestCase):
         self.pg_enable_capture(self.pg_interfaces)
         self.pg_start()
 
-        rx = self.pg3.get_capture(1)
+        rx = self.pg3.get_capture(1, timeout=5)
         rx = rx[0]
 
         self.verify_dhcp_offer(rx, self.pg3)
@@ -564,7 +561,7 @@ class TestDHCP(VppTestCase):
             / DHCP(
                 options=[
                     ("message-type", "offer"),
-                    ("relay_agent_Information", bad_ip),
+                    ("relay_agent_information", bad_ip),
                     ("end"),
                 ]
             )
@@ -585,7 +582,7 @@ class TestDHCP(VppTestCase):
             / DHCP(
                 options=[
                     ("message-type", "offer"),
-                    ("relay_agent_Information", bad_if_index),
+                    ("relay_agent_information", bad_if_index),
                     ("end"),
                 ]
             )
@@ -749,7 +746,7 @@ class TestDHCP(VppTestCase):
             / DHCP(
                 options=[
                     ("message-type", "offer"),
-                    ("relay_agent_Information", option_82),
+                    ("relay_agent_information", option_82),
                     ("end"),
                 ]
             )
@@ -762,7 +759,7 @@ class TestDHCP(VppTestCase):
             / DHCP(
                 options=[
                     ("message-type", "offer"),
-                    ("relay_agent_Information", option_82),
+                    ("relay_agent_information", option_82),
                     ("end"),
                 ]
             )
@@ -789,7 +786,7 @@ class TestDHCP(VppTestCase):
             / DHCP(
                 options=[
                     ("message-type", "offer"),
-                    ("relay_agent_Information", option_82),
+                    ("relay_agent_information", option_82),
                     ("end"),
                 ]
             )

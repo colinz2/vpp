@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * interface.c: VNET interfaces/sub-interfaces
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* interface.c: VNET interfaces/sub-interfaces */
 
 #include <vnet/vnet.h>
 #include <vnet/plugin/plugin.h>
@@ -45,11 +13,9 @@
 #include <vnet/interface/rx_queue_funcs.h>
 #include <vnet/interface/tx_queue_funcs.h>
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_LOG_CLASS (if_default_log, static) = {
   .class_name = "interface",
 };
-/* *INDENT-ON* */
 
 #define log_debug(fmt,...) vlib_log_debug(if_default_log.class, fmt, __VA_ARGS__)
 #define log_err(fmt,...) vlib_log_err(if_default_log.class, fmt, __VA_ARGS__)
@@ -141,15 +107,12 @@ serialize_vnet_interface_state (serialize_main_t * m, va_list * va)
 
   /* Serialize hardware interface classes since they may have changed.
      Must do this before sending up/down flags. */
-  /* *INDENT-OFF* */
   pool_foreach (hif, im->hw_interfaces)  {
     vnet_hw_interface_class_t * hw_class = vnet_get_hw_interface_class (vnm, hif->hw_class_index);
     serialize_cstring (m, hw_class->name);
   }
-  /* *INDENT-ON* */
 
   /* Send sw/hw interface state when non-zero. */
-  /* *INDENT-OFF* */
   pool_foreach (sif, im->sw_interfaces)  {
     if (sif->flags != 0)
       {
@@ -158,14 +121,12 @@ serialize_vnet_interface_state (serialize_main_t * m, va_list * va)
 	st->flags = sif->flags;
       }
   }
-  /* *INDENT-ON* */
 
   vec_serialize (m, sts, serialize_vec_vnet_sw_hw_interface_state);
 
   if (sts)
     vec_set_len (sts, 0);
 
-  /* *INDENT-OFF* */
   pool_foreach (hif, im->hw_interfaces)  {
     if (hif->flags != 0)
       {
@@ -174,7 +135,6 @@ serialize_vnet_interface_state (serialize_main_t * m, va_list * va)
 	st->flags = vnet_hw_interface_flags_to_sw(hif->flags);
       }
   }
-  /* *INDENT-ON* */
 
   vec_serialize (m, sts, serialize_vec_vnet_sw_hw_interface_state);
 
@@ -206,7 +166,6 @@ unserialize_vnet_interface_state (serialize_main_t * m, va_list * va)
     uword *p;
     clib_error_t *error;
 
-    /* *INDENT-OFF* */
     pool_foreach (hif, im->hw_interfaces)  {
       unserialize_cstring (m, &class_name);
       p = hash_get_mem (im->hw_interface_class_by_name, class_name);
@@ -222,7 +181,6 @@ unserialize_vnet_interface_state (serialize_main_t * m, va_list * va)
 	clib_error_report (error);
       vec_free (class_name);
     }
-    /* *INDENT-ON* */
   }
 
   vec_unserialize (m, &sts, unserialize_vec_vnet_sw_hw_interface_state);
@@ -777,8 +735,7 @@ vnet_hw_interface_set_max_frame_size (vnet_main_t *vnm, u32 hw_if_index,
   vnet_hw_interface_class_t *hw_if_class =
     vnet_get_hw_interface_class (vnm, hi->hw_class_index);
   clib_error_t *err = 0;
-
-  log_debug ("set_max_frame_size: interface %s, max_frame_size %u -> %u",
+  log_debug ("set_max_frame_size: interface %v, max_frame_size %u -> %u",
 	     hi->name, hi->max_frame_size, fs);
 
   if (hw_if_class->set_max_frame_size == 0)
@@ -1117,7 +1074,6 @@ vnet_delete_hw_interface (vnet_main_t * vnm, u32 hw_if_index)
   /* Delete any sub-interfaces. */
   {
     u32 id, sw_if_index;
-    /* *INDENT-OFF* */
     hash_foreach (id, sw_if_index, hw->sub_interface_sw_if_index_by_id,
     ({
       vnet_sw_interface_t *si = vnet_get_sw_interface (vnm, sw_if_index);
@@ -1127,7 +1083,6 @@ vnet_delete_hw_interface (vnet_main_t * vnm, u32 hw_if_index)
       vnet_delete_sw_interface (vnm, sw_if_index);
     }));
     hash_free (hw->sub_interface_sw_if_index_by_id);
-    /* *INDENT-ON* */
   }
 
   /* Delete software interface corresponding to hardware interface. */
@@ -1178,14 +1133,12 @@ vnet_hw_interface_walk_sw (vnet_main_t * vnm,
   if (WALK_STOP == fn (vnm, hi->sw_if_index, ctx))
     return;
 
-  /* *INDENT-OFF* */
   hash_foreach (id, sw_if_index,
                 hi->sub_interface_sw_if_index_by_id,
   ({
     if (WALK_STOP == fn (vnm, sw_if_index, ctx))
       break;
   }));
-  /* *INDENT-ON* */
 }
 
 void
@@ -1197,13 +1150,11 @@ vnet_hw_interface_walk (vnet_main_t * vnm,
 
   im = &vnm->interface_main;
 
-  /* *INDENT-OFF* */
   pool_foreach (hi, im->hw_interfaces)
    {
     if (WALK_STOP == fn(vnm, hi->hw_if_index, ctx))
       break;
   }
-  /* *INDENT-ON* */
 }
 
 void
@@ -1215,13 +1166,11 @@ vnet_sw_interface_walk (vnet_main_t * vnm,
 
   im = &vnm->interface_main;
 
-  /* *INDENT-OFF* */
   pool_foreach (si, im->sw_interfaces)
   {
     if (WALK_STOP == fn (vnm, si, ctx))
       break;
   }
-  /* *INDENT-ON* */
 }
 
 void
@@ -1359,7 +1308,10 @@ vnet_hw_interface_compare (vnet_main_t * vnm,
 int
 vnet_sw_interface_is_p2p (vnet_main_t * vnm, u32 sw_if_index)
 {
-  vnet_sw_interface_t *si = vnet_get_sw_interface (vnm, sw_if_index);
+  vnet_sw_interface_t *si = vnet_get_sw_interface_or_null (vnm, sw_if_index);
+  if (si == NULL)
+    return -1;
+
   if ((si->type == VNET_SW_INTERFACE_TYPE_P2P) ||
       (si->type == VNET_SW_INTERFACE_TYPE_PIPE))
     return 1;
@@ -1402,6 +1354,26 @@ vnet_sw_interface_supports_addressing (vnet_main_t *vnm, u32 sw_if_index)
 	}
     }
   return NULL;
+}
+
+u32
+vnet_register_device_class (vlib_main_t *vm, vnet_device_class_t *c)
+{
+  vnet_main_t *vnm = vnet_get_main ();
+  vnet_interface_main_t *im = &vnm->interface_main;
+  c->index = vec_len (im->device_classes);
+  hash_set_mem (im->device_class_by_name, c->name, c->index);
+
+  /* to avoid confusion, please remove ".tx_function" statement
+    from VNET_DEVICE_CLASS() if using function candidates */
+  ASSERT (c->tx_fn_registrations == 0 || c->tx_function == 0);
+
+  if (c->tx_fn_registrations)
+    c->tx_function =
+      vlib_node_get_preferred_node_fn_variant (vm, c->tx_fn_registrations);
+
+  vec_add1 (im->device_classes, c[0]);
+  return c->index;
 }
 
 clib_error_t *
@@ -1450,28 +1422,10 @@ vnet_interface_init (vlib_main_t * vm)
 
   im->device_class_by_name = hash_create_string ( /* size */ 0,
 						 sizeof (uword));
-  {
-    vnet_device_class_t *c;
 
-    c = vnm->device_class_registrations;
-
-    while (c)
-      {
-	c->index = vec_len (im->device_classes);
-	hash_set_mem (im->device_class_by_name, c->name, c->index);
-
-	/* to avoid confusion, please remove ".tx_function" statement
-	  from VNET_DEVICE_CLASS() if using function candidates */
-	ASSERT (c->tx_fn_registrations == 0 || c->tx_function == 0);
-
-	if (c->tx_fn_registrations)
-	  c->tx_function = vlib_node_get_preferred_node_fn_variant (
-	    vm, c->tx_fn_registrations);
-
-	vec_add1 (im->device_classes, c[0]);
-	c = c->next_class_registration;
-      }
-  }
+  for (vnet_device_class_t *c = vnm->device_class_registrations; c;
+       c = c->next_class_registration)
+    vnet_register_device_class (vm, c);
 
   im->hw_interface_class_by_name = hash_create_string ( /* size */ 0,
 						       sizeof (uword));
@@ -1808,6 +1762,24 @@ default_build_rewrite (vnet_main_t * vnm,
   return (NULL);
 }
 
+u8 *
+format_vnet_interface_eeprom_type (u8 *s, va_list *args)
+{
+  u32 eeprom_type = va_arg (*args, u32);
+  char *t = 0;
+  switch (eeprom_type)
+    {
+#define _(n, v, str)                                                          \
+  case v:                                                                     \
+    t = str;                                                                  \
+    break;
+      foreach_vnet_interface_eeprom_type
+#undef _
+	default : return format (s, "unknown 0x%x", eeprom_type);
+    }
+  return format (s, "%s", t);
+}
+
 void
 default_update_adjacency (vnet_main_t * vnm, u32 sw_if_index, u32 ai)
 {
@@ -1941,18 +1913,8 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (collect_detailed_interface_stats_command, static) = {
   .path = "interface collect detailed-stats",
   .short_help = "interface collect detailed-stats <enable|disable>",
   .function = collect_detailed_interface_stats_cli,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

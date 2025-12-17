@@ -98,6 +98,11 @@ I:	policer
 M:	Neale Ranns <neale@graphiant.com>
 F:	src/vnet/policer/
 
+VNET New Device Drivers Infra
+I:	dev
+M:	Damjan Marion <damarion@cisco.com>
+F:	src/vnet/dev/
+
 VNET Device Drivers
 I:	devices
 Y:	src/vnet/devices/pipe/FEATURE.yaml
@@ -112,11 +117,11 @@ F:	src/plugins/af_packet
 
 VNET TAP Drivers
 I:	tap
-Y:	src/vnet/devices/tap/FEATURE.yaml
+Y:	src/plugins/tap/FEATURE.yaml
 M:	Damjan Marion <damarion@cisco.com>
 M:	Steven Luong <sluong@cisco.com>
 M:	Mohsin Kazmi <mohsin.kazmi14@gmail.com>
-F:	src/vnet/devices/tap/
+F:	src/plugins/tap/
 
 VNET Vhost User Driver
 I:	vhost
@@ -187,14 +192,13 @@ I:	sr
 M:	Pablo Camarillo <pcamaril@cisco.com>
 M:	Ahmed Abdelsalam <ahabdels@cisco.com>
 F:	src/vnet/srv6/
-F:	src/vnet/srmpls/
+F:	src/plugin/srmpls/
 F:	src/examples/srv6-sample-localsid/
 
 VNET IPSec
 I:	ipsec
 M:	Neale Ranns <neale@graphiant.com>
-M:	Radu Nicolau <radu.nicolau@intel.com>
-M:	Fan Zhang <roy.fan.zhang@intel.com>
+M:	Fan Zhang <fanzhang.oss@gmail.com>
 F:	src/vnet/ipsec/
 
 VNET Crypto Infra
@@ -213,6 +217,17 @@ I:	span
 M:	N/A
 F:	src/vnet/span
 
+VNET StateFul Data Plane
+I:      sfdp
+M:      Mohammed Hawari <mohammed@hawari.fr>
+M:      Ole Troan <otroan@employees.org>
+F:      src/vnet/sfdp/
+
+Plugin StateFul Data Plane Services
+I:      sfdp_services
+M:      Mohammed Hawari <mohammed@hawari.fr>
+F:      src/plugins/sfdp_services
+
 Plugin - Crypto - native
 I:	crypto-native
 M:	Damjan Marion <damarion@cisco.com>
@@ -226,12 +241,12 @@ F:	src/plugins/crypto_openssl/
 Plugin - Crypto - ipsecmb
 I:	crypto-ipsecmb
 M:	Neale Ranns <neale@graphiant.com>
-M:      Fan Zhang <roy.fan.zhang@intel.com>
+M:	Fan Zhang <fanzhang.oss@gmail.com>
 F:	src/plugins/crypto_ipsecmb/
 
 Plugin - Crypto - sw_scheduler
 I:	crypto-sw-scheduler
-M:	Fan Zhang <roy.fan.zhang@intel.com>
+M:	Fan Zhang <fanzhang.oss@gmail.com>
 F:	src/plugs/crypto_sw_scheduler/
 
 VNET L2
@@ -391,8 +406,8 @@ F:	src/plugins/acl/
 Plugin - NAT
 I:	nat
 M:	Ole Troan <ot@cisco.com>
-M:  Filip Varga <fivarga@cisco.com>
-M:  Klement Sekera <klement.sekera@gmail.com>
+M:	Filip Varga <fivarga@cisco.com>
+M:	Klement Sekera <klement.sekera@gmail.com>
 F:	src/plugins/nat/
 
 Plugin - PNAT Static match and rewrite engine
@@ -404,6 +419,27 @@ Plugin - AVF Device driver
 I:	avf
 M:	Damjan Marion <damarion@cisco.com>
 F:	src/plugins/avf/
+
+Plugin - IAVF Device driver
+I:	iavf
+M:	Damjan Marion <damarion@cisco.com>
+F:	src/plugins/dev_iavf/
+
+Plugin - IGE Device driver
+I:	ige
+M:	Damjan Marion <damarion@cisco.com>
+F:	src/plugins/dev_ige/
+
+Plugin - Amazon Elastic Network Adapter (ENA) device driver
+I:	ena
+M:	Damjan Marion <damarion@cisco.com>
+F:	src/plugins/dev_ena/
+
+Plugin - Marvell Octeon device driver
+I:	octeon
+M:	Monendra Singh Kushwaha <kmonendra@marvell.com>
+M:	Damjan Marion <damarion@cisco.com>
+F:	src/plugins/dev_octeon/
 
 Plugin - Dispatch Trace PCAP
 I:	dispatch-trace
@@ -418,9 +454,8 @@ F:	src/plugins/dpdk/
 
 Plugin - DPDK Crypto
 I:	dpdk-cryptodev
-M:	Sergio Gonzalez Monroy <sergio.gonzalez.monroy@outlook.com>
-M:	Radu Nicolau <radu.nicolau@intel.com>
-M:	Fan Zhang <roy.fan.zhang@intel.com>
+M:	Kai Ji <kai.ji@intel.com>
+M:	Fan Zhang <fanzhang.oss@gmail.com>
 F:	src/plugins/dpdk/cryptodev/
 
 Plugin - flowprobe
@@ -429,16 +464,16 @@ Y:	src/plugins/flowprobe/FEATURE.yaml
 M:	Ole Troan <otroan@employees.org>
 F:	src/plugins/flowprobe/
 
+Plugin - fateshare
+I:	fateshare
+M:	Andrew Yourtchenko <ayourtch@gmail.com>
+F:	src/plugins/fateshare/
+
 Plugin - http_static
 I:	http_static
 M:	Dave Barach <vpp@barachs.net>
 M:	Florin Coras <fcoras@cisco.com>
 F:	src/plugins/http_static/
-
-Plugin - builtinurl
-I:	builtinurl
-M:	Dave Barach <vpp@barachs.net>
-F:	src/plugins/builtinurl/
 
 Plugin - GTPU
 I:	gtpu
@@ -480,10 +515,10 @@ I:	memif
 M:	Damjan Marion <damarion@cisco.com>
 F:	src/plugins/memif/
 
-Plugin - Marvell MUSDK device driver
-I:	marvell
+Plugin - Marvell Armada device driver
+I:	armada
 M:	Damjan Marion <damarion@cisco.com>
-F:	src/plugins/marvell/
+F:	src/plugins/dev_armada/
 
 Plugin - performance counter
 I:	perfmon
@@ -553,7 +588,7 @@ Plugin - Time-based MAC filter
 I:	mactime
 Y:	src/plugins/mactime/FEATURE.yaml
 M:	Dave Barach <vpp@barachs.net>
-F:      src/plugins/mactime/
+F:	src/plugins/mactime/
 
 Plugin - Network Delay Simulator
 I:	nsim
@@ -572,10 +607,15 @@ M:	Dave Barach <vpp@barachs.net>
 M:	Florin Coras <fcoras@cisco.com>
 F:	src/plugins/unittest/
 
+Plugin - IDPF Device driver
+I:	idpf
+M:	Jeff Shaw <jeffrey.b.shaw@intel.com>
+F:	src/plugins/idpf/
+
 Plugin - Intel DMA engines
-I:      dma_intel
-M:      Marvin Liu <yong.liu@intel.com>
-F:      src/plugins/dma_intel
+I:	dma_intel
+M:	Jeff Shaw <jeffrey.b.shaw@intel.com>
+F:	src/plugins/dma_intel/
 
 Test Infrastructure
 I:	tests
@@ -622,7 +662,7 @@ Binary API Compiler for Python
 I:	vppapigen
 M:	Ole Troan <otroan@employees.org>
 F:	src/tools/vppapigen/
-F:  extras/scripts/crcchecker.py
+F:	extras/scripts/crcchecker.py
 
 API trace tool
 I:	vppapitrace
@@ -648,6 +688,7 @@ M:	Dave Wallace <dwallacelf@gmail.com>
 M:	Florin Coras <fcoras@cisco.com>
 Y:	src/plugins/quic/FEATURE.yaml
 F:	src/plugins/quic/
+F:	src/plugins/quic_quicly/
 
 Plugin - snort plugin
 I:	snort
@@ -656,7 +697,7 @@ F:	src/plugins/snort/
 
 libmemif
 I:	libmemif
-M:	Damjan Marion <damarion@cisco.com>
+M:	Mohsin Kazmi <sykazmi@cisco.com>
 F:	extras/libmemif
 
 gomemif
@@ -693,7 +734,7 @@ F:	src/vpp-api/python
 Plugin - Cisco Discovery Protocol
 I:	cdp
 M:	vpp-dev Mailing List <vpp-dev@fd.io>
-C:  Unmaintained
+C:	Unmaintained
 F:	src/plugins/cdp/
 
 Plugin - Source VRF Select
@@ -709,13 +750,13 @@ F:	src/plugins/ct6
 Plugin - Steal The NIC
 I:	stn
 M:	vpp-dev Mailing List <vpp-dev@fd.io>
-C:  Unmaintained
+C:	Unmaintained
 F:	src/plugins/stn
 
 Plugin - IOAM
 I:	ioam
 M:	vpp-dev Mailing List <vpp-dev@fd.io>
-C:  Unmaintained
+C:	Unmaintained
 F:	src/plugins/ioam
 
 Plugin - Awkward chained buffer geometry tool
@@ -739,10 +780,17 @@ M:	Nathan Skrzypczak <nathan.skrzypczak@gmail.com>
 M:	Neale Ranns <neale@graphiant.com>
 F:	src/plugins/cnat
 
+Plugin - NPol
+I:	npol
+M:	Aloys Augustin <aloaugus@cisco.com>
+M:	Nathan Skrzypczak <nathan.skrzypczak@gmail.com>
+M:	Hedi Bouattour <hedibouattour2010@gmail.com>
+F:	src/plugins/npol/
+
 Plugin - Wireguard
 I:	wireguard
 M:	Artem Glazychev <artem.glazychev@xored.com>
-M:	Fan Zhang <roy.fan.zhang@intel.com>
+M:	Fan Zhang <fanzhang.oss@gmail.com>
 F:	src/plugins/wireguard
 
 Packetforge
@@ -807,10 +855,36 @@ I:	prom
 M:	Florin Coras <fcoras@cisco.com>
 F:	src/plugins/prom
 
+Plugin - BPF Trace Filter
+I:	bpf_trace_filter
+M:	Mohammed Hawari <mohammed@hawari.fr>
+F:	src/plugins/bpf_trace_filter
+
+Plugin - NPTv6
+I:	npt66
+M:	Ole Troan <otroan@employees.org>
+F:	src/plugins/npt66
+
+Plugin - Trace node
+I:	tracenode
+M:	Maxime Peim <mpeim@cisco.com>
+F:	src/plugins/tracenode
+
+Plugin - Packet Vector Tunnel Interface
+I:	pvti
+M:	Andrew Yourtchenko <ayourtch@gmail.com>
+F:	src/plugins/pvti
+
 cJSON
 I:	cjson
 M:	Ole Troan <ot@cisco.com>
 F:	src/vppinfra/cJSON.[ch]
+
+Auto SDL
+I:	auto_sdl
+Y:	src/plugins/auto_sdl/FEATURE.yaml
+M:	Steven Luong <sluong@cisco.com>
+F:	src/plugins/auto_sdl
 
 VAT2
 I:	vat2
@@ -830,16 +904,54 @@ F:	src/extras/rpm/opensuse
 
 VPP StrongSwan Daemon
 I:	vpp-swan
-M:	Fan Zhang <roy.fan.zhang@intel.com>
+M:	Fan Zhang <fanzhang.oss@gmail.com>
 M:	Gabriel Oginski <gabrielx.oginski@intel.com>
 F:	extras/strongswan/vpp_sswan
 
 Host stack test framework
 I:	hs-test
 M:	Florin Coras <fcoras@cisco.com>
-M:	Filip Tehlar <ftehlar@cisco.com>
-M:	Maros Ondrejicka <maros.ondrejicka@pantheon.tech>
-F:	extras/hs-test
+M:	Matus Fabian <matfabia@cisco.com>
+M:	Adrian Villin <avillin@cisco.com>
+F:	test/hs-test
+
+Kube test framework
+I:	kube-test
+M:	Florin Coras <fcoras@cisco.com>
+M:	Adrian Villin <avillin@cisco.com>
+F:	extras/kube-test
+
+Netmap
+I:	netmap
+M:	Tom Jones <thj@freebsd.org>
+F:	src/plugins/netmap/
+
+sFlow
+I:	sflow
+M:	Pim van Pelt <pim@ipng.nl>
+M:	Neil McKee <neil.mckee@inmon.com>
+F:	src/plugins/sflow/
+
+Plugin - Shared Elog
+I:	selog
+M:	Mohammed Hawari <mohammed@hawari.fr>
+F:	src/plugins/selog
+
+Plugin - Soft RSS
+I:	soft-rss
+M:	Damjan Marion <damarion@cisco.com>
+F:	src/plugins/soft-rss/
+
+SASC
+I:	sasc
+M:	Ole Troan <otroan@employees.org>
+M:	Mohammed Hawari <mohammed@hawari.fr>
+F:	src/plugins/sasc/
+
+GitHub Actions
+I: gha
+M: Dave Wallace <dwallacelf@gmail.com>
+F: .github/
 
 THE REST
 I:	misc

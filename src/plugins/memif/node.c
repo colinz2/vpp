@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #define _GNU_SOURCE
@@ -504,7 +491,7 @@ memif_device_input_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
   u32 n_left_to_next;
   u32 next_index = VNET_DEVICE_INPUT_NEXT_ETHERNET_INPUT;
   vlib_buffer_t *buffer_ptrs[MEMIF_RX_VECTOR_SZ];
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   memif_per_thread_data_t *ptd =
     vec_elt_at_index (mm->per_thread_data, thread_index);
   u16 cur_slot, ring_size, n_slots, mask;
@@ -640,8 +627,8 @@ memif_device_input_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
       if (mif->per_interface_next_index != ~0)
 	next_index = mif->per_interface_next_index;
       else
-	vnet_feature_start_device_input_x1 (mif->sw_if_index, &next_index,
-					    &ptd->buffer_template);
+	vnet_feature_start_device_input (mif->sw_if_index, &next_index,
+					 &ptd->buffer_template);
 
       vlib_get_new_next_frame (vm, node, next_index, to_next_bufs,
 			       n_left_to_next);
@@ -721,6 +708,7 @@ memif_device_input_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
   vlib_increment_combined_counter (
     vnm->interface_main.combined_sw_if_counters + VNET_INTERFACE_COUNTER_RX,
     thread_index, mif->sw_if_index, ptd->n_packets, ptd->n_rx_bytes);
+  mq->n_packets += ptd->n_packets;
 
   /* refill ring with empty buffers */
 refill:
@@ -762,7 +750,7 @@ memif_device_input_zc_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
   u16 slot, s0;
   memif_desc_t *d0;
   vlib_buffer_t *b0, *b1, *b2, *b3;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   memif_per_thread_data_t *ptd = vec_elt_at_index (mm->per_thread_data,
 						   thread_index);
   u16 cur_slot, last_slot, ring_size, n_slots, mask, head;
@@ -903,14 +891,14 @@ memif_device_input_zc_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
 		{
 		  next0 = next1 = next2 = next3 = next_index;
 		  /* redirect if feature path enabled */
-		  vnet_feature_start_device_input_x1 (mif->sw_if_index,
-						      &next0, b0);
-		  vnet_feature_start_device_input_x1 (mif->sw_if_index,
-						      &next1, b1);
-		  vnet_feature_start_device_input_x1 (mif->sw_if_index,
-						      &next2, b2);
-		  vnet_feature_start_device_input_x1 (mif->sw_if_index,
-						      &next3, b3);
+		  vnet_feature_start_device_input (mif->sw_if_index, &next0,
+						   b0);
+		  vnet_feature_start_device_input (mif->sw_if_index, &next1,
+						   b1);
+		  vnet_feature_start_device_input (mif->sw_if_index, &next2,
+						   b2);
+		  vnet_feature_start_device_input (mif->sw_if_index, &next3,
+						   b3);
 		}
 	    }
 
@@ -958,8 +946,8 @@ memif_device_input_zc_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
 		{
 		  next0 = next_index;
 		  /* redirect if feature path enabled */
-		  vnet_feature_start_device_input_x1 (mif->sw_if_index,
-						      &next0, b0);
+		  vnet_feature_start_device_input (mif->sw_if_index, &next0,
+						   b0);
 		}
 	    }
 
@@ -981,6 +969,7 @@ memif_device_input_zc_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
 				   + VNET_INTERFACE_COUNTER_RX, thread_index,
 				   mif->sw_if_index, n_rx_packets,
 				   n_rx_bytes);
+  mq->n_packets += n_rx_packets;
 
   /* refill ring with empty buffers */
 refill:
@@ -1059,7 +1048,7 @@ CLIB_MARCH_FN (memif_dma_completion_cb, void, vlib_main_t *vm,
 {
   memif_main_t *mm = &memif_main;
   memif_if_t *mif = vec_elt_at_index (mm->interfaces, b->cookie >> 16);
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   u32 n_left_to_next = 0;
   u16 nexts[MEMIF_RX_VECTOR_SZ], *next;
   u32 _to_next_bufs[MEMIF_RX_VECTOR_SZ], *to_next_bufs = _to_next_bufs, *bi;
@@ -1091,8 +1080,8 @@ CLIB_MARCH_FN (memif_dma_completion_cb, void, vlib_main_t *vm,
       if (mif->per_interface_next_index != ~0)
 	next_index = mif->per_interface_next_index;
       else
-	vnet_feature_start_device_input_x1 (mif->sw_if_index, &next_index,
-					    &ptd->buffer_template);
+	vnet_feature_start_device_input (mif->sw_if_index, &next_index,
+					 &ptd->buffer_template);
 
       vlib_get_new_next_frame (vm, dma_info->node, next_index, to_next_bufs,
 			       n_left_to_next);
@@ -1166,6 +1155,7 @@ CLIB_MARCH_FN (memif_dma_completion_cb, void, vlib_main_t *vm,
   vlib_increment_combined_counter (
     vnm->interface_main.combined_sw_if_counters + VNET_INTERFACE_COUNTER_RX,
     thread_index, mif->sw_if_index, ptd->n_packets, ptd->n_rx_bytes);
+  mq->n_packets += ptd->n_packets;
 
   mq->dma_info_head++;
   if (mq->dma_info_head == mq->dma_info_size)
@@ -1359,7 +1349,6 @@ VLIB_NODE_FN (memif_input_node) (vlib_main_t * vm,
   return n_rx;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (memif_input_node) = {
   .name = "memif-input",
   .flags = VLIB_NODE_FLAG_TRACE_SUPPORTED,
@@ -1370,14 +1359,3 @@ VLIB_REGISTER_NODE (memif_input_node) = {
   .n_errors = MEMIF_INPUT_N_ERROR,
   .error_counters = memif_input_error_counters,
 };
-
-/* *INDENT-ON* */
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

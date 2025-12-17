@@ -1,16 +1,5 @@
- /*
+ /* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/mfib/mfib_types.h>
@@ -253,7 +242,6 @@ mfib_show_route_flags (vlib_main_t * vm,
 /*?
  * This command displays the set of supported flags applicable to an MFIB route
  */
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (mfib_route_flags_command, static) =
 {
   .path = "show mfib route flags",
@@ -261,7 +249,6 @@ VLIB_CLI_COMMAND (mfib_route_flags_command, static) =
   .function = mfib_show_route_flags,
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
 
 clib_error_t *
 mfib_show_itf_flags (vlib_main_t * vm,
@@ -282,7 +269,6 @@ mfib_show_itf_flags (vlib_main_t * vm,
 /*?
  * This command displays the set of supported flags applicable to an MFIB interface
  */
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (mfib_itf_flags_command, static) =
 {
   .path = "show mfib itf flags",
@@ -290,4 +276,3 @@ VLIB_CLI_COMMAND (mfib_itf_flags_command, static) =
   .function = mfib_show_itf_flags,
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */

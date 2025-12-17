@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /**
  * @file
  * @brief NAT44 CLI
@@ -1058,6 +1049,7 @@ add_lb_static_mapping_command_fn (vlib_main_t * vm,
 	{
 	  clib_memset (&local, 0, sizeof (local));
 	  local.addr = l_addr;
+	  l_port = clib_host_to_net_u16 (l_port);
 	  local.port = (u16) l_port;
 	  local.probability = (u8) probability;
 	  vec_add1 (locals, local);
@@ -1068,6 +1060,7 @@ add_lb_static_mapping_command_fn (vlib_main_t * vm,
 	{
 	  clib_memset (&local, 0, sizeof (local));
 	  local.addr = l_addr;
+	  l_port = clib_host_to_net_u16 (l_port);
 	  local.port = (u16) l_port;
 	  local.probability = (u8) probability;
 	  local.vrf_id = vrf_id;
@@ -1075,7 +1068,9 @@ add_lb_static_mapping_command_fn (vlib_main_t * vm,
 	}
       else if (unformat (line_input, "external %U:%u", unformat_ip4_address,
 			 &e_addr, &e_port))
-	;
+	{
+	  e_port = clib_host_to_net_u16 (e_port);
+	}
       else if (unformat (line_input, "protocol %U", unformat_ip_protocol,
 			 &proto))
 	{
@@ -1838,6 +1833,28 @@ done:
   return error;
 }
 
+static clib_error_t *
+nat44_ed_clear_sessions_command_fn (vlib_main_t *vm, unformat_input_t *input,
+				    vlib_cli_command_t *cmd)
+{
+  clib_error_t *error = 0;
+  nat44_ed_sessions_clear ();
+  return error;
+}
+
+/*?
+ * @cliexpar
+ * @cliexstart{clear nat44 ed sessions}
+ * To clear all NAT44 sessions
+ *  vpp# clear nat44 ed sessions
+ * @cliexend
+?*/
+VLIB_CLI_COMMAND (nat44_ed_clear_sessions_command, static) = {
+  .path = "clear nat44 ed sessions",
+  .short_help = "clear nat44 ed sessions",
+  .function = nat44_ed_clear_sessions_command_fn,
+};
+
 /*?
  * @cliexpar
  * @cliexstart{nat44}
@@ -2331,11 +2348,3 @@ VLIB_CLI_COMMAND (snat_forwarding_set_command, static) = {
   .short_help = "nat44 forwarding enable|disable",
   .function = snat_forwarding_set_command_fn,
 };
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

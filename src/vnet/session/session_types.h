@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef SRC_VNET_SESSION_SESSION_TYPES_H_
@@ -25,6 +15,19 @@
 #define SESSION_CTRL_MSG_TX_MAX_SIZE 160
 #define SESSION_NODE_FRAME_SIZE 128
 
+typedef u8 session_type_t;
+typedef u64 session_handle_t;
+
+typedef union session_handle_tu_
+{
+  session_handle_t handle;
+  struct
+  {
+    u32 session_index;
+    u32 thread_index;
+  };
+} __attribute__ ((__transparent_union__)) session_handle_tu_t;
+
 #define foreach_session_endpoint_fields				\
   foreach_transport_endpoint_cfg_fields				\
   _(u8, transport_proto)					\
@@ -36,7 +39,9 @@ typedef struct _session_endpoint
 #undef _
 } session_endpoint_t;
 
-#define foreach_session_endpoint_cfg_flags _ (PROXY_LISTEN, "proxy listener")
+#define foreach_session_endpoint_cfg_flags                                    \
+  _ (PROXY_LISTEN, "proxy listener")                                          \
+  _ (SECURE, "secure")
 
 typedef enum session_endpoint_cfg_flags_bits_
 {
@@ -64,7 +69,7 @@ typedef struct _session_endpoint_cfg
   u8 original_tp;
   u64 parent_handle;
   session_endpoint_cfg_flags_t flags;
-  transport_endpt_ext_cfg_t *ext_cfg;
+  transport_endpt_ext_cfgs_t ext_cfgs;
 } session_endpoint_cfg_t;
 
 #define SESSION_IP46_ZERO			\
@@ -99,7 +104,8 @@ typedef struct _session_endpoint_cfg
     .peer = TRANSPORT_ENDPOINT_NULL, .transport_proto = 0,                    \
     .app_wrk_index = ENDPOINT_INVALID_INDEX,                                  \
     .opaque = ENDPOINT_INVALID_INDEX,                                         \
-    .parent_handle = SESSION_INVALID_HANDLE, .ext_cfg = 0,                    \
+    .parent_handle = SESSION_INVALID_HANDLE,                                  \
+    .ext_cfgs = TRANSPORT_ENDPT_EXT_CFGS_NULL,                                \
   }
 
 #define session_endpoint_to_transport(_sep) ((transport_endpoint_t *)_sep)
@@ -125,9 +131,6 @@ session_endpoint_is_zero (session_endpoint_t * sep)
   return ip_is_zero (&sep->ip, sep->is_ip4);
 }
 
-typedef u8 session_type_t;
-typedef u64 session_handle_t;
-
 typedef enum
 {
   SESSION_CLEANUP_TRANSPORT,
@@ -144,19 +147,19 @@ typedef enum session_ft_action_
 /*
  * Session states
  */
-#define foreach_session_state				\
-  _(CREATED, "created")					\
-  _(LISTENING, "listening")				\
-  _(CONNECTING, "connecting")				\
-  _(ACCEPTING, "accepting")				\
-  _(READY, "ready")					\
-  _(OPENED, "opened")					\
-  _(TRANSPORT_CLOSING, "transport-closing")		\
-  _(CLOSING, "closing")					\
-  _(APP_CLOSED, "app-closed")				\
-  _(TRANSPORT_CLOSED, "transport-closed")		\
-  _(CLOSED, "closed")					\
-  _(TRANSPORT_DELETED, "transport-deleted")		\
+#define foreach_session_state                                                 \
+  _ (CREATED, "created")                                                      \
+  _ (LISTENING, "listening")                                                  \
+  _ (CONNECTING, "connecting")                                                \
+  _ (ACCEPTING, "accepting")                                                  \
+  _ (READY, "ready")                                                          \
+  _ (OPENED, "opened")                                                        \
+  _ (TRANSPORT_CLOSING, "transport-closing")                                  \
+  _ (CLOSING, "closing")                                                      \
+  _ (APP_CLOSED, "app-closed")                                                \
+  _ (TRANSPORT_CLOSED, "transport-closed")                                    \
+  _ (CLOSED, "closed")                                                        \
+  _ (TRANSPORT_DELETED, "transport-deleted")
 
 typedef enum
 {
@@ -164,7 +167,7 @@ typedef enum
   foreach_session_state
 #undef _
     SESSION_N_STATES,
-} session_state_t;
+} __clib_packed session_state_t;
 
 #define foreach_session_flag                                                  \
   _ (RX_EVT, "rx-event")                                                      \
@@ -174,7 +177,11 @@ typedef enum
   _ (UNIDIRECTIONAL, "unidirectional")                                        \
   _ (CUSTOM_FIFO_TUNING, "custom-fifo-tuning")                                \
   _ (HALF_OPEN, "half-open")                                                  \
-  _ (APP_CLOSED, "app-closed")
+  _ (APP_CLOSED, "app-closed")                                                \
+  _ (IS_CLESS, "connectionless")                                              \
+  _ (RX_READY, "rx-ready")                                                    \
+  _ (TPT_INIT_CLOSE, "transport-init-close")                                  \
+  _ (STREAM, "stream")
 
 typedef enum session_flags_bits_
 {
@@ -197,37 +204,41 @@ typedef struct session_
   svm_fifo_t *rx_fifo;
   svm_fifo_t *tx_fifo;
 
+  union
+  {
+    session_handle_t handle;
+    struct
+    {
+      /** Index in thread pool where session was allocated */
+      u32 session_index;
+
+      /** Index of the thread that allocated the session */
+      clib_thread_index_t thread_index;
+    };
+  };
+
   /** Type built from transport and network protocol types */
   session_type_t session_type;
 
   /** State in session layer state machine. See @ref session_state_t */
-  volatile u8 session_state;
-
-  /** Index in thread pool where session was allocated */
-  u32 session_index;
+  volatile session_state_t session_state;
 
   /** Index of the app worker that owns the session */
   u32 app_wrk_index;
 
-  /** Index of the thread that allocated the session */
-  u8 thread_index;
-
   /** Session flags. See @ref session_flags_t */
-  u32 flags;
+  session_flags_t flags;
 
   /** Index of the transport connection associated to the session */
   u32 connection_index;
 
-  /** Index of application that owns the listener. Set only if a listener */
-  u32 app_index;
+  /** App listener index in app's listener pool if a listener */
+  u32 al_index;
 
   union
   {
     /** Parent listener session index if the result of an accept */
     session_handle_t listener_handle;
-
-    /** App listener index in app's listener pool if a listener */
-    u32 al_index;
 
     /** Index in app worker's half-open table if a half-open */
     u32 ho_index;
@@ -273,7 +284,7 @@ session_get_fib_proto (session_t * s)
 always_inline u8
 session_has_transport (session_t * s)
 {
-  return (session_get_transport_proto (s) != TRANSPORT_PROTO_NONE);
+  return (session_get_transport_proto (s) != TRANSPORT_PROTO_CT);
 }
 
 static inline transport_service_type_t
@@ -301,45 +312,35 @@ session_tx_is_dgram (session_t * s)
 always_inline session_handle_t
 session_handle (session_t * s)
 {
-  return ((u64) s->thread_index << 32) | (u64) s->session_index;
+  return s->handle;
 }
 
 always_inline u32
-session_index_from_handle (session_handle_t handle)
+session_index_from_handle (session_handle_tu_t handle)
 {
-  return handle & 0xFFFFFFFF;
+  return handle.session_index;
 }
 
 always_inline u32
-session_thread_from_handle (session_handle_t handle)
+session_thread_from_handle (session_handle_tu_t handle)
 {
-  return handle >> 32;
+  return handle.thread_index;
 }
 
 always_inline void
-session_parse_handle (session_handle_t handle, u32 * index,
-		      u32 * thread_index)
+session_parse_handle (session_handle_tu_t handle, u32 *index,
+		      u32 *thread_index)
 {
-  *index = session_index_from_handle (handle);
-  *thread_index = session_thread_from_handle (handle);
+  *index = handle.session_index;
+  *thread_index = handle.thread_index;
 }
 
 static inline session_handle_t
 session_make_handle (u32 session_index, u32 data)
 {
-  return (((u64) data << 32) | (u64) session_index);
-}
-
-always_inline u32
-session_handle_index (session_handle_t ho_handle)
-{
-  return (ho_handle & 0xffffffff);
-}
-
-always_inline u32
-session_handle_data (session_handle_t ho_handle)
-{
-  return (ho_handle >> 32);
+  return ((session_handle_tu_t){ .session_index = session_index,
+				 .thread_index = data })
+    .handle;
 }
 
 typedef enum
@@ -379,6 +380,9 @@ typedef enum
   SESSION_CTRL_EVT_APP_WRK_RPC,
   SESSION_CTRL_EVT_TRANSPORT_ATTR,
   SESSION_CTRL_EVT_TRANSPORT_ATTR_REPLY,
+  SESSION_CTRL_EVT_TRANSPORT_CLOSED,
+  SESSION_CTRL_EVT_HALF_CLEANUP,
+  SESSION_CTRL_EVT_CONNECT_STREAM,
 } session_evt_type_t;
 
 #define foreach_session_ctrl_evt                                              \
@@ -408,6 +412,7 @@ typedef enum
   _ (APP_WRK_RPC, app_wrk_rpc)                                                \
   _ (TRANSPORT_ATTR, transport_attr)                                          \
   _ (TRANSPORT_ATTR_REPLY, transport_attr_reply)                              \
+  _ (CONNECT_STREAM, connect)                                                 \
 /* Deprecated and will be removed. Use types above */
 #define FIFO_EVENT_APP_RX SESSION_IO_EVT_RX
 #define FIFO_EVENT_APP_TX SESSION_IO_EVT_TX
@@ -437,6 +442,7 @@ typedef struct
     session_handle_t session_handle;
     session_rpc_args_t rpc_args;
     u32 ctrl_data_index;
+    u64 as_u64[2];
     struct
     {
       u8 data[0];
@@ -484,9 +490,11 @@ STATIC_ASSERT (sizeof (session_dgram_hdr_t) == (SESSION_CONN_ID_LEN + 10),
   _ (NOLISTEN, "not listening")                                               \
   _ (NOSESSION, "session does not exist")                                     \
   _ (NOAPP, "app not attached")                                               \
+  _ (APP_ATTACHED, "app already attached")                                    \
   _ (PORTINUSE, "lcl port in use")                                            \
   _ (IPINUSE, "ip in use")                                                    \
   _ (ALREADY_LISTENING, "ip port pair already listened on")                   \
+  _ (ADDR_NOT_IN_USE, "address not in use")                                   \
   _ (INVALID, "invalid value")                                                \
   _ (INVALID_RMT_IP, "invalid remote ip")                                     \
   _ (INVALID_APPWRK, "invalid app worker")                                    \
@@ -506,7 +514,10 @@ STATIC_ASSERT (sizeof (session_dgram_hdr_t) == (SESSION_CONN_ID_LEN + 10),
   _ (NOCRYPTOENG, "no crypto engine")                                         \
   _ (NOCRYPTOCKP, "cert key pair not found ")                                 \
   _ (LOCAL_CONNECT, "could not connect with local scope")                     \
-  _ (TRANSPORT_NO_REG, "transport was not registered")
+  _ (WRONG_NS_SECRET, "wrong ns secret")                                      \
+  _ (SYSCALL, "system call error")                                            \
+  _ (TRANSPORT_NO_REG, "transport was not registered")                        \
+  _ (MAX_STREAMS_HIT, "max streams hit")
 
 typedef enum session_error_p_
 {
@@ -532,11 +543,3 @@ typedef enum session_error_
 #define SESSION_ERROR_NEW_SEG_NO_SPACE SESSION_E_SEG_NO_SPACE2
 
 #endif /* SRC_VNET_SESSION_SESSION_TYPES_H_ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

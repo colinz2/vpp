@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef _vnet_tcp_h_
@@ -25,6 +15,7 @@
 #include <vnet/tcp/tcp_sack.h>
 #include <vnet/tcp/tcp_bt.h>
 #include <vnet/tcp/tcp_cc.h>
+#include <vnet/tcp/tcp_sdl.h>
 
 typedef void (timer_expiration_handler) (tcp_connection_t * tc);
 
@@ -45,19 +36,21 @@ typedef struct _tcp_lookup_dispatch
   u8 next, error;
 } tcp_lookup_dispatch_t;
 
-#define foreach_tcp_wrk_stat					\
-  _(timer_expirations, u64, "timer expirations")		\
-  _(rxt_segs, u64, "segments retransmitted")			\
-  _(tr_events, u32, "timer retransmit events")			\
-  _(to_closewait, u32, "timeout close-wait")			\
-  _(to_closewait2, u32, "timeout close-wait w/data")		\
-  _(to_finwait1, u32, "timeout fin-wait-1")			\
-  _(to_finwait2, u32, "timeout fin-wait-2")			\
-  _(to_lastack, u32, "timeout last-ack")			\
-  _(to_closing, u32, "timeout closing")				\
-  _(tr_abort, u32, "timer retransmit abort")			\
-  _(rst_unread, u32, "reset on close due to unread data")	\
-  _(no_buffer, u32, "out of buffers")				\
+#define foreach_tcp_wrk_stat                                                  \
+  _ (timer_expirations, u64, "timer expirations")                             \
+  _ (rxt_segs, u64, "segments retransmitted")                                 \
+  _ (tr_events, u32, "timer retransmit events")                               \
+  _ (to_establish, u32, "timeout establish")                                  \
+  _ (to_persist, u32, "timeout persist")                                      \
+  _ (to_closewait, u32, "timeout close-wait")                                 \
+  _ (to_closewait2, u32, "timeout close-wait w/data")                         \
+  _ (to_finwait1, u32, "timeout fin-wait-1")                                  \
+  _ (to_finwait2, u32, "timeout fin-wait-2")                                  \
+  _ (to_lastack, u32, "timeout last-ack")                                     \
+  _ (to_closing, u32, "timeout closing")                                      \
+  _ (tr_abort, u32, "timer retransmit abort")                                 \
+  _ (rst_unread, u32, "reset on close due to unread data")                    \
+  _ (no_buffer, u32, "out of buffers")
 
 typedef struct tcp_wrk_stats_
 {
@@ -65,6 +58,13 @@ typedef struct tcp_wrk_stats_
   foreach_tcp_wrk_stat
 #undef _
 } tcp_wrk_stats_t;
+
+typedef enum
+{
+#define _(name, type, str) TCP_STAT_##name,
+  foreach_tcp_wrk_stat
+#undef _
+} tcp_wrk_stats_e;
 
 typedef struct tcp_free_req_
 {
@@ -190,6 +190,9 @@ typedef struct tcp_configuration_
   /** Time to wait (sec) before cleaning up the connection */
   f32 cleanup_time;
 
+  /** Time to wait (tcp ticks) for syn-rcvd connection to establish */
+  u32 syn_rcvd_time;
+
   /** Number of preallocated connections */
   u32 preallocated_connections;
 
@@ -207,7 +210,7 @@ typedef struct tcp_configuration_
 typedef struct _tcp_main
 {
   /** per-worker context */
-  tcp_worker_ctx_t *wrk_ctx;
+  tcp_worker_ctx_t *wrk;
 
   /* Pool of listeners. */
   tcp_connection_t *listener_pool;
@@ -233,6 +236,9 @@ typedef struct _tcp_main
   /** Flag that indicates if stack is on or off */
   u8 is_enabled;
 
+  /** Set if counters on stats segment initialized */
+  u8 counters_init;
+
   /** Flag that indicates if v4 punting is enabled */
   u8 punt_unknown4;
 
@@ -250,6 +256,8 @@ typedef struct _tcp_main
 
   /** message ID base for API */
   u16 msg_id_base;
+
+  tcp_sdl_cb_fn_t sdl_cb;
 } tcp_main_t;
 
 extern tcp_main_t tcp_main;
@@ -267,6 +275,8 @@ extern vlib_node_registration_t tcp4_listen_node;
 extern vlib_node_registration_t tcp6_listen_node;
 extern vlib_node_registration_t tcp4_input_nolookup_node;
 extern vlib_node_registration_t tcp6_input_nolookup_node;
+extern vlib_node_registration_t tcp4_drop_node;
+extern vlib_node_registration_t tcp6_drop_node;
 
 #define tcp_cfg tcp_main.cfg
 #define tcp_node_index(node_id, is_ip4) 				\
@@ -279,10 +289,10 @@ vnet_get_tcp_main ()
 }
 
 always_inline tcp_worker_ctx_t *
-tcp_get_worker (u32 thread_index)
+tcp_get_worker (clib_thread_index_t thread_index)
 {
-  ASSERT (thread_index < vec_len (tcp_main.wrk_ctx));
-  return &tcp_main.wrk_ctx[thread_index];
+  ASSERT (thread_index < vec_len (tcp_main.wrk));
+  return &tcp_main.wrk[thread_index];
 }
 
 tcp_connection_t *tcp_connection_alloc (u8 thread_index);
@@ -291,11 +301,11 @@ tcp_connection_t *tcp_connection_alloc_w_base (u8 thread_index,
 void tcp_connection_free (tcp_connection_t * tc);
 void tcp_connection_close (tcp_connection_t * tc);
 void tcp_connection_cleanup (tcp_connection_t * tc);
-void tcp_connection_del (tcp_connection_t * tc);
+void tcp_connection_cleanup_and_notify (tcp_connection_t *tc);
 int tcp_half_open_connection_cleanup (tcp_connection_t * tc);
 
-void tcp_send_reset_w_pkt (tcp_connection_t * tc, vlib_buffer_t * pkt,
-			   u32 thread_index, u8 is_ip4);
+void tcp_send_reset_w_pkt (tcp_connection_t *tc, vlib_buffer_t *pkt,
+			   clib_thread_index_t thread_index, u8 is_ip4);
 void tcp_send_reset (tcp_connection_t * tc);
 void tcp_send_syn (tcp_connection_t * tc);
 void tcp_send_synack (tcp_connection_t * tc);
@@ -342,6 +352,7 @@ format_function_t format_tcp_flags;
 format_function_t format_tcp_sacks;
 format_function_t format_tcp_rcv_sacks;
 format_function_t format_tcp_connection;
+format_function_t format_tcp_listener_connection;
 format_function_t format_tcp_connection_id;
 
 #define tcp_validate_txf_size(_tc, _a) 					\
@@ -349,11 +360,3 @@ format_function_t format_tcp_connection_id;
 	 || transport_max_tx_dequeue (&_tc->connection) >= _a)
 
 #endif /* _vnet_tcp_h_ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

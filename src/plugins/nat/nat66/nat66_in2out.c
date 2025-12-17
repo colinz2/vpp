@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /**
  * @file
  * @brief NAT66 inside to outside network translation
@@ -94,14 +85,12 @@ nat66_not_translate (u32 rx_fib_index, ip6_address_t ip6_addr)
       sw_if_index = fib_entry_get_resolving_interface (fei);
     }
 
-  /* *INDENT-OFF* */
   pool_foreach (i, nm->interfaces)
    {
     /* NAT packet aimed at outside interface */
     if (nat66_interface_is_outside (i) && sw_if_index == i->sw_if_index)
       return 0;
   }
-  /* *INDENT-ON* */
 
   return 1;
 }
@@ -235,7 +224,6 @@ VLIB_NODE_FN (nat66_in2out_node) (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (nat66_in2out_node) = {
   .name = "nat66-in2out",
   .vector_size = sizeof (u32),
@@ -250,12 +238,3 @@ VLIB_REGISTER_NODE (nat66_in2out_node) = {
     [NAT66_IN2OUT_NEXT_IP6_LOOKUP] = "ip6-lookup",
   },
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

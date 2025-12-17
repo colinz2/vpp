@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #define _GNU_SOURCE
@@ -112,7 +102,6 @@ lacp_node_fn (vlib_main_t * vm,
 /*
  * lacp input graph node declaration
  */
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (lacp_input_node, static) = {
   .function = lacp_node_fn,
   .name = "lacp-input",
@@ -129,25 +118,22 @@ VLIB_REGISTER_NODE (lacp_input_node, static) = {
     [LACP_INPUT_NEXT_NORMAL] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 static void
 lacp_elog_start_event (void)
 {
   lacp_main_t *lm = &lacp_main;
-  /* *INDENT-OFF* */
   ELOG_TYPE_DECLARE (e) =
     {
       .format = "Starting LACP process, interface count = %d",
       .format_args = "i4",
     };
-  /* *INDENT-ON* */
   struct
   {
     u32 count;
   } *ed;
 
-  ed = ELOG_DATA (&vlib_global_main.elog_main, e);
+  ed = ELOG_DATA (vlib_get_elog_main (), e);
   ed->count = lm->lacp_int;
 }
 
@@ -155,19 +141,17 @@ static void
 lacp_elog_stop_event (void)
 {
   lacp_main_t *lm = &lacp_main;
-  /* *INDENT-OFF* */
   ELOG_TYPE_DECLARE (e) =
     {
       .format = "Stopping LACP process, interface count = %d",
       .format_args = "i4",
     };
-  /* *INDENT-ON* */
   struct
   {
     u32 count;
   } *ed;
 
-  ed = ELOG_DATA (&vlib_global_main.elog_main, e);
+  ed = ELOG_DATA (vlib_get_elog_main (), e);
   ed->count = lm->lacp_int;
 }
 
@@ -239,11 +223,3 @@ lacp_create_periodic_process (void)
     vlib_process_create (lm->vlib_main, "lacp-process", lacp_process,
 			 16 /* log2_n_stack_bytes */ );
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

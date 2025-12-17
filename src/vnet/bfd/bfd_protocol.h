@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2011-2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef __included_bfd_protocol_h__
 #define __included_bfd_protocol_h__
 /**
@@ -46,14 +37,11 @@ typedef enum
 u32 bfd_max_key_len_for_auth_type (bfd_auth_type_e auth_type);
 const char *bfd_auth_type_str (bfd_auth_type_e auth_type);
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   u8 type;
   u8 len;
 }) bfd_auth_common_t;
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   /*
    * 4.4.  Keyed SHA1 and Meticulous Keyed SHA1 Authentication Section Format
@@ -88,9 +76,7 @@ typedef CLIB_PACKED (struct {
    */
   u8 hash[20];
 }) bfd_auth_sha1_t;
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   /*
    *  The Mandatory Section of a BFD Control packet has the following
@@ -125,21 +111,16 @@ typedef CLIB_PACKED (struct {
   u32 req_min_rx;
   u32 req_min_echo_rx;
 }) bfd_pkt_t;
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   bfd_pkt_t pkt;
   bfd_auth_common_t common_auth;
 }) bfd_pkt_with_common_auth_t;
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   bfd_pkt_t pkt;
   bfd_auth_sha1_t sha1_auth;
 }) bfd_pkt_with_sha1_auth_t;
-/* *INDENT-ON* */
 
 u8 bfd_pkt_get_version (const bfd_pkt_t * pkt);
 void bfd_pkt_set_version (bfd_pkt_t * pkt, int version);
@@ -202,11 +183,3 @@ typedef enum
 const char *bfd_state_string (bfd_state_e state);
 
 #endif /* __included_bfd_protocol_h__ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

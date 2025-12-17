@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <unistd.h>
@@ -135,7 +125,7 @@ dpdk_buffer_pool_init (vlib_main_t * vm, vlib_buffer_pool_t * bp)
     {
       vlib_buffer_t *b;
       b = vlib_buffer_ptr_from_index (buffer_mem_start, bp->buffers[i], 0);
-      vlib_buffer_copy_template (b, &bp->buffer_template);
+      b->template = bp->buffer_template;
     }
 
   /* map DMA pages if at least one physical device exists */
@@ -197,7 +187,7 @@ dpdk_ops_vpp_free (struct rte_mempool *mp)
 #endif
 
 static_always_inline void
-dpdk_ops_vpp_enqueue_one (vlib_buffer_t * bt, void *obj)
+dpdk_ops_vpp_enqueue_one (vlib_buffer_template_t *bt, void *obj)
 {
   /* Only non-replicated packets (b->ref_count == 1) expected */
 
@@ -205,7 +195,7 @@ dpdk_ops_vpp_enqueue_one (vlib_buffer_t * bt, void *obj)
   vlib_buffer_t *b = vlib_buffer_from_rte_mbuf (mb);
   ASSERT (b->ref_count == 1);
   ASSERT (b->buffer_pool_index == bt->buffer_pool_index);
-  vlib_buffer_copy_template (b, bt);
+  b->template = *bt;
 }
 
 int
@@ -214,14 +204,14 @@ CLIB_MULTIARCH_FN (dpdk_ops_vpp_enqueue) (struct rte_mempool * mp,
 {
   const int batch_size = 32;
   vlib_main_t *vm = vlib_get_main ();
-  vlib_buffer_t bt;
+  vlib_buffer_template_t bt;
   u8 buffer_pool_index = mp->pool_id;
   vlib_buffer_pool_t *bp = vlib_get_buffer_pool (vm, buffer_pool_index);
   u32 bufs[batch_size];
   u32 n_left = n;
   void *const *obj = obj_table;
 
-  vlib_buffer_copy_template (&bt, &bp->buffer_template);
+  bt = bp->buffer_template;
 
   while (n_left >= 4)
     {
@@ -263,9 +253,9 @@ CLIB_MULTIARCH_FN (dpdk_ops_vpp_enqueue) (struct rte_mempool * mp,
 CLIB_MARCH_FN_REGISTRATION (dpdk_ops_vpp_enqueue);
 
 static_always_inline void
-dpdk_ops_vpp_enqueue_no_cache_one (vlib_main_t * vm, struct rte_mempool *old,
+dpdk_ops_vpp_enqueue_no_cache_one (vlib_main_t *vm, struct rte_mempool *old,
 				   struct rte_mempool *new, void *obj,
-				   vlib_buffer_t * bt)
+				   vlib_buffer_template_t *bt)
 {
   struct rte_mbuf *mb = obj;
   vlib_buffer_t *b = vlib_buffer_from_rte_mbuf (mb);
@@ -273,7 +263,7 @@ dpdk_ops_vpp_enqueue_no_cache_one (vlib_main_t * vm, struct rte_mempool *old,
   if (clib_atomic_sub_fetch (&b->ref_count, 1) == 0)
     {
       u32 bi = vlib_get_buffer_index (vm, b);
-      vlib_buffer_copy_template (b, bt);
+      b->template = *bt;
       vlib_buffer_pool_put (vm, bt->buffer_pool_index, &bi, 1);
       return;
     }
@@ -285,12 +275,12 @@ CLIB_MULTIARCH_FN (dpdk_ops_vpp_enqueue_no_cache) (struct rte_mempool * cmp,
 						   unsigned n)
 {
   vlib_main_t *vm = vlib_get_main ();
-  vlib_buffer_t bt;
+  vlib_buffer_template_t bt;
   struct rte_mempool *mp;
   mp = dpdk_mempool_by_buffer_pool_index[cmp->pool_id];
   u8 buffer_pool_index = cmp->pool_id;
   vlib_buffer_pool_t *bp = vlib_get_buffer_pool (vm, buffer_pool_index);
-  vlib_buffer_copy_template (&bt, &bp->buffer_template);
+  bt = bp->buffer_template;
 
   while (n >= 4)
     {
@@ -460,11 +450,9 @@ dpdk_buffer_pools_create (vlib_main_t * vm)
   ops.dequeue = dpdk_ops_vpp_dequeue_no_cache;
   rte_mempool_register_ops (&ops);
 
-  /* *INDENT-OFF* */
   vec_foreach (bp, vm->buffer_main->buffer_pools)
     if (bp->start && (err = dpdk_buffer_pool_init (vm, bp)))
       return err;
-  /* *INDENT-ON* */
   return 0;
 }
 
@@ -474,10 +462,3 @@ VLIB_BUFFER_SET_EXT_HDR_SIZE (sizeof (struct rte_mempool_objhdr) +
 #endif
 
 /** @endcond */
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

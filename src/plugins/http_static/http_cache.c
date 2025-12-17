@@ -1,22 +1,14 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2022 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <http_static/http_cache.h>
 #include <vppinfra/bihash_template.c>
 #include <vppinfra/unix.h>
 #include <vlib/vlib.h>
+#include <sys/stat.h>
+#include <vppinfra/time_range.h>
 
 static void
 hss_cache_lock (hss_cache_t *hc)
@@ -153,7 +145,7 @@ lru_update (hss_cache_t *hc, hss_cache_entry_t *ep, f64 now)
 
 static void
 hss_cache_attach_entry (hss_cache_t *hc, u32 ce_index, u8 **data,
-			u64 *data_len)
+			u64 *data_len, u8 **last_modified)
 {
   hss_cache_entry_t *ce;
 
@@ -162,6 +154,7 @@ hss_cache_attach_entry (hss_cache_t *hc, u32 ce_index, u8 **data,
   ce->inuse++;
   *data = ce->data;
   *data_len = vec_len (ce->data);
+  *last_modified = ce->last_modified;
 
   /* Update the cache entry, mark it in-use */
   lru_update (hc, ce, vlib_time_now (vlib_get_main ()));
@@ -209,16 +202,15 @@ hss_cache_lookup (hss_cache_t *hc, u8 *path)
 
 u32
 hss_cache_lookup_and_attach (hss_cache_t *hc, u8 *path, u8 **data,
-			     u64 *data_len)
+			     u64 *data_len, u8 **last_modified)
 {
   u32 ce_index;
-
   /* Make sure nobody removes the entry while we look it up */
   hss_cache_lock (hc);
 
   ce_index = hss_cache_lookup (hc, path);
   if (ce_index != ~0)
-    hss_cache_attach_entry (hc, ce_index, data, data_len);
+    hss_cache_attach_entry (hc, ce_index, data, data_len, last_modified);
 
   hss_cache_unlock (hc);
 
@@ -260,6 +252,7 @@ hss_cache_do_evictions (hss_cache_t *hc)
       hc->cache_evictions++;
       vec_free (ce->filename);
       vec_free (ce->data);
+      vec_free (ce->last_modified);
 
       if (hc->debug_level > 1)
 	clib_warning ("pool put index %d", ce - hc->cache_pool);
@@ -271,13 +264,15 @@ hss_cache_do_evictions (hss_cache_t *hc)
 }
 
 u32
-hss_cache_add_and_attach (hss_cache_t *hc, u8 *path, u8 **data, u64 *data_len)
+hss_cache_add_and_attach (hss_cache_t *hc, u8 *path, u8 **data, u64 *data_len,
+			  u8 **last_modified)
 {
   BVT (clib_bihash_kv) kv;
   hss_cache_entry_t *ce;
   clib_error_t *error;
   u8 *file_data;
   u32 ce_index;
+  struct stat dm;
 
   hss_cache_lock (hc);
 
@@ -298,11 +293,17 @@ hss_cache_add_and_attach (hss_cache_t *hc, u8 *path, u8 **data, u64 *data_len)
   pool_get_zero (hc->cache_pool, ce);
   ce->filename = vec_dup (path);
   ce->data = file_data;
+  if (stat ((char *) path, &dm) == 0)
+    {
+      ce->last_modified =
+	format (0, "%U GMT", format_clib_timebase_time, (f64) dm.st_mtime);
+    }
 
   /* Attach cache entry without additional lock */
   ce->inuse++;
   *data = file_data;
   *data_len = vec_len (file_data);
+  *last_modified = ce->last_modified;
   lru_add (hc, ce, vlib_time_now (vlib_get_main ()));
 
   hc->cache_size += vec_len (ce->data);
@@ -364,6 +365,7 @@ hss_cache_clear (hss_cache_t *hc)
       hc->cache_evictions++;
       vec_free (ce->filename);
       vec_free (ce->data);
+      vec_free (ce->last_modified);
       if (hc->debug_level > 1)
 	clib_warning ("pool put index %d", ce - hc->cache_pool);
       pool_put (hc->cache_pool, ce);
@@ -386,6 +388,14 @@ hss_cache_init (hss_cache_t *hc, uword cache_size, u8 debug_level)
   hc->cache_limit = cache_size;
   hc->debug_level = debug_level;
   hc->first_index = hc->last_index = ~0;
+}
+
+void
+hss_cache_free (hss_cache_t *hc)
+{
+  hss_cache_clear (hc);
+  BV (clib_bihash_free) (&hc->name_to_data);
+  clib_spinlock_free (&hc->cache_lock);
 }
 
 /** \brief format a file cache entry
@@ -421,30 +431,22 @@ format_hss_cache (u8 *s, va_list *args)
     {
       s = format (s, "cache size %lld bytes, limit %lld bytes, evictions %lld",
 		  hc->cache_size, hc->cache_limit, hc->cache_evictions);
-      return 0;
+      return s;
     }
 
   vm = vlib_get_main ();
   now = vlib_time_now (vm);
 
-  s = format (s, "%U", format_hss_cache_entry, 0 /* header */, now);
+  s = format (s, "%U\n", format_hss_cache_entry, 0 /* header */, now);
 
   for (index = hc->first_index; index != ~0;)
     {
       ce = pool_elt_at_index (hc->cache_pool, index);
       index = ce->next_index;
-      s = format (s, "%U", format_hss_cache_entry, ce, now);
+      s = format (s, "%U\n", format_hss_cache_entry, ce, now);
     }
 
   s = format (s, "%40s%12lld", "Total Size", hc->cache_size);
 
   return s;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

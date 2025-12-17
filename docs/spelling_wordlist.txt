@@ -26,6 +26,7 @@ alloc
 allocatable
 allocator
 allowlist
+alpn
 Altivec
 amine
 analyse
@@ -102,6 +103,7 @@ bms
 Bn
 boolean
 bootup
+bpf
 Brockners
 bsid
 bss
@@ -109,6 +111,7 @@ bufferindex
 bufmon
 Bufmon
 bugfixing
+buildinfo
 buildingrst
 builtin
 builtinurl
@@ -117,6 +120,7 @@ burstiness
 busybox
 BV
 bvi
+bytecode
 byteswap
 cacheline
 callees
@@ -189,6 +193,7 @@ CPPFLAGS
 cpu
 cPython
 crc
+crcchecker
 crcs
 crit
 criterias
@@ -245,6 +250,9 @@ Dest
 det
 dev
 devbind
+dev_iavf
+dev_ige
+dev_octeon
 df
 dhcp
 dhcp
@@ -278,6 +286,8 @@ dpdk
 dpkg
 dpo
 dport
+dropmon
+DROPMON
 dryrun
 DS
 dsa
@@ -310,6 +320,7 @@ elts
 emacs
 emerg
 emphasise
+ena
 enablement
 encap
 encap
@@ -345,6 +356,7 @@ extranet
 Extranets
 failover
 fallback
+fateshare
 favour
 favoured
 favours
@@ -394,10 +406,10 @@ geneve
 Geneve
 gerrit
 Gerrit
+getaffinity
 gethostbyname
 gettingsources
 gettingstarted
-ggcov
 gid
 Gigabit
 GigE
@@ -409,6 +421,7 @@ Golang
 Goncalves
 govpp
 gpe
+graphviz
 gre
 grep
 grepping
@@ -461,16 +474,20 @@ ia
 iacl
 iAcl
 iACL
+iavf
 iBGP
 ibverb
 IBverbs
 iccrg
 icmp
 icmpr
+idpf
+Idpf
 ietf
 iface
 ifndef
 igb
+ige
 igmp
 ikev
 Ikev
@@ -493,6 +510,7 @@ Init
 initiatehost
 inline
 inlines
+insmod
 instantiation
 Instantiation
 Integrations
@@ -519,6 +537,8 @@ ipN
 ipsec
 IPsec
 ipsecmb
+ipset
+ipsets
 iptables
 ipv
 iPv
@@ -547,6 +567,7 @@ kbps
 keepalives
 keychain
 kflows
+KinD
 KMG
 kni
 KOC
@@ -591,6 +612,7 @@ libmemifs
 libsrtp
 libvirt
 libvppapiclient
+lifecycle
 ligato
 LimitCORE
 linearization
@@ -679,6 +701,7 @@ mldv
 mmap
 modelled
 modernisation
+modprobe
 modularity
 Monroy
 mortem
@@ -746,6 +769,7 @@ netmap
 Netmap
 netplan
 Netplan
+newfile
 nexthop
 nginx
 NIC
@@ -757,6 +781,9 @@ nodaemon
 noevaluate
 nonaddress
 nosyslog
+npol
+npt
+npt66
 ns
 nsess
 nsh
@@ -774,10 +801,12 @@ O'Driscoll
 oacl
 oam
 OAM
+octeon
 oddbuf
 Oddbuf
 offline
 ofr
+oldfile
 online
 onlink
 ooo
@@ -790,6 +819,7 @@ operationalize
 Optimisations
 optimised
 os
+osi
 outacl
 packagecloud
 papi
@@ -800,6 +830,7 @@ params
 parsable
 passthrough
 passwordless
+patchset
 pathname
 pbb
 pcap
@@ -851,6 +882,7 @@ Pollable
 portranges
 poweroff
 ppc
+ppp
 pppoe
 pps
 pre
@@ -877,6 +909,8 @@ Promisc
 proto
 proxying
 ps
+psample
+PSAMPLE
 pseudocode
 Pseudocode
 psp
@@ -886,11 +920,15 @@ pthreads
 pton
 pushingapatch
 putatively
+pvti
+PVTI
+Pvti
 pwait
 py
 pypi
 qemu
 Qemu
+qdisc
 qos
 QoS
 qs
@@ -951,6 +989,7 @@ restack
 reStructured
 reStructuredText
 resync
+retransmit
 retransmits
 rfc
 rint
@@ -974,28 +1013,38 @@ rwlocks
 rx
 rxandtx
 sa
+sasc
+SASC
 sbin
 scalable
 scanf
 scapy
 Scapy
 SCHED_RR
+sched
 sclass
 scooby
 screenshot
 scrollbar
 scrollbars
 sctp
+sdl
 sealert
 seatbelt
 seg
 segfault
 selinux
+selog
 semodule
+semver
 setjmp
 settingupenvironment
 setUp
 setUpClass
+sfdp
+SFDP
+sflow
+sFlow
 sfr
 sha
 Shamir
@@ -1019,6 +1068,7 @@ snat
 socketsvr
 socksvr
 sourceNATing
+sp
 spd
 Specialisations
 spinlock
@@ -1029,6 +1079,7 @@ srcIP
 srcPortDefinition
 srcUP
 srh
+srmpls
 Srmpls
 srtp
 SRTP
@@ -1039,6 +1090,7 @@ SRv6
 sshd
 ssl
 ssm
+ssvm
 stateful
 Stateful
 statfs
@@ -1056,6 +1108,7 @@ strongswan
 strongSwan
 Strongswan
 struct
+structs
 su
 subdirectories
 subdirectory
@@ -1097,6 +1150,7 @@ Tahr
 tapcli
 tcp
 tcpcontrolbits
+taskset
 te
 teardown
 tearDown
@@ -1138,6 +1192,8 @@ tpv
 TPv
 tracedump
 Tracedump
+tracenode
+Tracenode
 TRex
 Tsou
 ttl
@@ -1147,6 +1203,8 @@ tuntap
 tw
 twovppinstances
 tx
+txq
+TXQ
 txt
 typedef
 ubuntu
@@ -1178,6 +1236,7 @@ unmounting
 Unmounting
 unmounts
 unreachables
+unregister
 unrouteable
 unserialization
 unserialize
@@ -1204,6 +1263,7 @@ usergroup
 Usergroup
 Usermode
 username
+USERSOCK
 userspace
 Userspace
 usr
@@ -1336,6 +1396,7 @@ XXhash
 xxx
 XXX
 xyz
+xz
 yaml
 Yaml
 YYMM

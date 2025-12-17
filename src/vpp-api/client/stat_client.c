@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * stat_client.c - Library for access to VPP statistics segment
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * stat_client.c - Library for access to VPP statistics segment
  */
 
 #include <stdio.h>
@@ -241,6 +230,7 @@ copy_data (vlib_stats_entry_t *ep, u32 index2, char *name,
   switch (ep->type)
     {
     case STAT_DIR_TYPE_SCALAR_INDEX:
+    case STAT_DIR_TYPE_GAUGE:
       result.scalar_value = ep->value;
       break;
 
@@ -294,6 +284,19 @@ copy_data (vlib_stats_entry_t *ep, u32 index2, char *name,
       }
 
     case STAT_DIR_TYPE_EMPTY:
+    case STAT_DIR_TYPE_RING_BUFFER:
+      break;
+
+    case STAT_DIR_TYPE_HISTOGRAM_LOG2:
+      {
+	uint64_t **bins = stat_segment_adjust (sm, ep->data);
+	result.log2_histogram_bins = stat_vec_dup (sm, bins);
+	for (i = 0; i < vec_len (bins); i++)
+	  {
+	    uint64_t *thread_bins = stat_segment_adjust (sm, bins[i]);
+	    result.log2_histogram_bins[i] = stat_vec_dup (sm, thread_bins);
+	  }
+      }
       break;
 
     default:
@@ -326,7 +329,14 @@ stat_segment_data_free (stat_segment_data_t * res)
 	  vec_free (res[i].name_vector);
 	  break;
 	case STAT_DIR_TYPE_SCALAR_INDEX:
+	case STAT_DIR_TYPE_GAUGE:
 	case STAT_DIR_TYPE_EMPTY:
+	case STAT_DIR_TYPE_RING_BUFFER:
+	  break;
+	case STAT_DIR_TYPE_HISTOGRAM_LOG2:
+	  for (j = 0; j < vec_len (res[i].log2_histogram_bins); j++)
+	    vec_free (res[i].log2_histogram_bins[j]);
+	  vec_free (res[i].log2_histogram_bins);
 	  break;
 	default:
 	  assert (0);
@@ -433,6 +443,8 @@ stat_segment_dump_r (uint32_t * stats, stat_client_main_t * sm)
 
   fprintf (stderr, "Epoch changed while reading, invalid results\n");
   // TODO increase counter
+  if (res)
+    stat_segment_data_free (res);
   return 0;
 }
 
@@ -542,11 +554,3 @@ stat_segment_version (void)
   stat_client_main_t *sm = &stat_client_main;
   return stat_segment_version_r (sm);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

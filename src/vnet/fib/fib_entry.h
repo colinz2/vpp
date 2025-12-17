@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef __FIB_ENTRY_H__
@@ -154,9 +144,13 @@ typedef enum fib_entry_src_attribute_t_ {
      */
     FIB_ENTRY_SRC_ATTRIBUTE_INHERITED,
     /**
+     * the source is currently used as glean src address
+     */
+    FIB_ENTRY_SRC_ATTRIBUTE_PROVIDES_GLEAN,
+    /**
      * Marker. add new entries before this one.
      */
-    FIB_ENTRY_SRC_ATTRIBUTE_LAST = FIB_ENTRY_SRC_ATTRIBUTE_INHERITED,
+    FIB_ENTRY_SRC_ATTRIBUTE_LAST = FIB_ENTRY_SRC_ATTRIBUTE_PROVIDES_GLEAN,
 } fib_entry_src_attribute_t;
 
 
@@ -166,6 +160,7 @@ typedef enum fib_entry_src_attribute_t_ {
     [FIB_ENTRY_SRC_ATTRIBUTE_ACTIVE] = "active", \
     [FIB_ENTRY_SRC_ATTRIBUTE_STALE] = "stale",      \
     [FIB_ENTRY_SRC_ATTRIBUTE_INHERITED] = "inherited", \
+    [FIB_ENTRY_SRC_ATTRIBUTE_PROVIDES_GLEAN] = "provides-glean", \
 }
 
 #define FOR_EACH_FIB_SRC_ATTRIBUTE(_item)      		\
@@ -180,6 +175,7 @@ typedef enum fib_entry_src_flag_t_ {
     FIB_ENTRY_SRC_FLAG_ACTIVE = (1 << FIB_ENTRY_SRC_ATTRIBUTE_ACTIVE),
     FIB_ENTRY_SRC_FLAG_STALE = (1 << FIB_ENTRY_SRC_ATTRIBUTE_STALE),
     FIB_ENTRY_SRC_FLAG_INHERITED = (1 << FIB_ENTRY_SRC_ATTRIBUTE_INHERITED),
+    FIB_ENTRY_SRC_FLAG_PROVIDES_GLEAN = (1 << FIB_ENTRY_SRC_ATTRIBUTE_PROVIDES_GLEAN),
 } __attribute__ ((packed)) fib_entry_src_flag_t;
 
 extern u8 * format_fib_entry_src_flags(u8 *s, va_list *args);
@@ -474,6 +470,7 @@ extern void fib_entry_set_flow_hash_config(fib_node_index_t fib_entry_index,
                                            flow_hash_config_t hash_config);
 
 extern void fib_entry_module_init(void);
+extern void fib_entry_pool_alloc(uword size);
 
 extern u32 fib_entry_get_stats_index(fib_node_index_t fib_entry_index);
 

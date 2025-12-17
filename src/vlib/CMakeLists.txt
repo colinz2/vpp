@@ -22,6 +22,12 @@ else()
   set(BUFFER_ALLOC_FAULT_INJECTOR 0 CACHE STRING "fault injector off")
 endif()
 
+if(VPP_PLATFORM_BUFFER_ALIGN)
+  set(VLIB_BUFFER_ALIGN ${VPP_PLATFORM_BUFFER_ALIGN})
+else()
+  set(VLIB_BUFFER_ALIGN ${VPP_CACHE_LINE_SIZE})
+endif()
+
 set(PRE_DATA_SIZE 128 CACHE STRING "Buffer headroom size.")
 
 if (CMAKE_BUILD_TYPE_UC STREQUAL "DEBUG")
@@ -46,24 +52,38 @@ install(
 )
 
 ##############################################################################
-# Find lib and include files
-##############################################################################
-message(STATUS "Looking for libuuid")
-vpp_find_path(UUID_INCLUDE_DIR NAMES uuid/uuid.h)
-vpp_find_library(UUID_LIB NAMES uuid)
-
-if(UUID_INCLUDE_DIR AND UUID_LIB)
-  include_directories(${UUID_INCLUDE_DIR})
-  set(VMBUS_SOURCE linux/vmbus.c)
-  set(VMBUS_LIBS uuid)
-  message(STATUS "Found uuid in ${UUID_INCLUDE_DIR}")
-else()
-  message(WARNING "-- libuuid not found - vmbus support disabled")
-endif()
-
-##############################################################################
 # vlib shared library
 ##############################################################################
+
+if("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
+set(PLATFORM_SOURCES
+  linux/pci.c
+  linux/vfio.c
+  linux/vmbus.c
+)
+
+set(PLATFORM_HEADERS
+  linux/vfio.h
+)
+elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "FreeBSD")
+set(PLATFORM_SOURCES
+  freebsd/pci.c
+)
+endif()
+
+set(VLIB_LIBS vppinfra svm ${CMAKE_DL_LIBS} ${EPOLL_LIB})
+
+vpp_find_path(LIBIBERTY_INCLUDE_DIR libiberty/demangle.h)
+vpp_find_library(LIBIBERTY_LIB NAMES iberty libiberty)
+
+if (LIBIBERTY_INCLUDE_DIR AND LIBUNWIND_LIB)
+  message(STATUS "libiberty found at ${LIBIBERTY_LIB}")
+  list(APPEND VLIB_LIBS ${LIBIBERTY_LIB})
+  add_definitions(-DHAVE_LIBIBERTY)
+else()
+  message(WARNING "libiberty not found - stack trace demangle disabled")
+endif()
+
 add_vpp_library(vlib
   SOURCES
   buffer.c
@@ -72,11 +92,10 @@ add_vpp_library(vlib
   counter.c
   drop.c
   error.c
+  file.c
   format.c
   handoff_trace.c
   init.c
-  linux/pci.c
-  linux/vfio.c
   log.c
   main.c
   node.c
@@ -99,14 +118,14 @@ add_vpp_library(vlib
   time.c
   trace.c
   unix/cli.c
-  unix/input.c
+  unix/fuse.c
   unix/main.c
   unix/plugin.c
   unix/util.c
   vmbus/vmbus.c
-  ${VMBUS_SOURCE}
   dma/dma.c
   dma/cli.c
+  ${PLATFORM_SOURCES}
 
   MULTIARCH_SOURCES
   buffer_funcs.c
@@ -125,10 +144,10 @@ add_vpp_library(vlib
   dma/dma.h
   error_funcs.h
   error.h
+  file.h
   format_funcs.h
   global_funcs.h
   init.h
-  linux/vfio.h
   log.h
   main.h
   node_funcs.h
@@ -145,16 +164,19 @@ add_vpp_library(vlib
   time.h
   trace_funcs.h
   trace.h
+  tw_funcs.h
   unix/mc_socket.h
+  unix/fuse.h
   unix/plugin.h
   unix/unix.h
   vlib.h
   vmbus/vmbus.h
+  ${PLATFORM_HEADERS}
 
   API_FILES
   pci/pci_types.api
 
-  LINK_LIBRARIES vppinfra svm ${VMBUS_LIBS} ${CMAKE_DL_LIBS}
+  LINK_LIBRARIES ${VLIB_LIBS}
 
   DEPENDS api_headers
 )

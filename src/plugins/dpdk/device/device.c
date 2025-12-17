@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vnet/vnet.h>
 #include <vppinfra/vec.h>
 #include <vppinfra/format.h>
@@ -22,7 +13,7 @@
 #include <dpdk/device/dpdk.h>
 #include <dpdk/device/dpdk_priv.h>
 #include <vppinfra/error.h>
-#include <vlib/unix/unix.h>
+#include <vlib/file.h>
 
 #define foreach_dpdk_tx_func_error			\
   _(PKT_DROP, "Tx packet drops (dpdk tx failure)")
@@ -159,7 +150,7 @@ tx_burst_vector_internal (vlib_main_t *vm, dpdk_device_t *xd,
 {
   dpdk_tx_queue_t *txq;
   u32 n_retry;
-  int n_sent = 0;
+  u32 n_sent = 0;
 
   n_retry = 16;
   txq = vec_elt_at_index (xd->tx_queues, queue_id);
@@ -199,7 +190,7 @@ dpdk_buffer_tx_offload (dpdk_device_t * xd, vlib_buffer_t * b,
   int is_ip4 = b->flags & VNET_BUFFER_F_IS_IP4;
   u32 tso = b->flags & VNET_BUFFER_F_GSO, max_pkt_len;
   u32 ip_cksum, tcp_cksum, udp_cksum, outer_hdr_len = 0;
-  u32 outer_ip_cksum, vxlan_tunnel;
+  u32 outer_ip_cksum, vxlan_tunnel, ipip_tunnel;
   u64 ol_flags;
   vnet_buffer_oflags_t oflags = 0;
 
@@ -213,6 +204,7 @@ dpdk_buffer_tx_offload (dpdk_device_t * xd, vlib_buffer_t * b,
   udp_cksum = oflags & VNET_BUFFER_OFFLOAD_F_UDP_CKSUM;
   outer_ip_cksum = oflags & VNET_BUFFER_OFFLOAD_F_OUTER_IP_CKSUM;
   vxlan_tunnel = oflags & VNET_BUFFER_OFFLOAD_F_TNL_VXLAN;
+  ipip_tunnel = oflags & VNET_BUFFER_OFFLOAD_F_TNL_IPIP;
 
   ol_flags = is_ip4 ? RTE_MBUF_F_TX_IPV4 : RTE_MBUF_F_TX_IPV6;
   ol_flags |= ip_cksum ? RTE_MBUF_F_TX_IP_CKSUM : 0;
@@ -233,6 +225,21 @@ dpdk_buffer_tx_offload (dpdk_device_t * xd, vlib_buffer_t * b,
 	vnet_buffer2 (b)->outer_l3_hdr_offset - b->current_data;
       mb->outer_l3_len = vnet_buffer2 (b)->outer_l4_hdr_offset -
 			 vnet_buffer2 (b)->outer_l3_hdr_offset;
+      outer_hdr_len = mb->outer_l2_len + mb->outer_l3_len;
+    }
+  else if (ipip_tunnel)
+    {
+      ol_flags |= outer_ip_cksum ?
+		    RTE_MBUF_F_TX_OUTER_IPV4 | RTE_MBUF_F_TX_OUTER_IP_CKSUM :
+		    RTE_MBUF_F_TX_OUTER_IPV6;
+      ol_flags |= RTE_MBUF_F_TX_TUNNEL_IPIP;
+      mb->l2_len = 0;
+      mb->l3_len =
+	vnet_buffer (b)->l4_hdr_offset - vnet_buffer (b)->l3_hdr_offset;
+      mb->outer_l2_len =
+	vnet_buffer2 (b)->outer_l3_hdr_offset - b->current_data;
+      mb->outer_l3_len =
+	vnet_buffer (b)->l3_hdr_offset - vnet_buffer2 (b)->outer_l3_hdr_offset;
       outer_hdr_len = mb->outer_l2_len + mb->outer_l3_len;
     }
   else
@@ -279,9 +286,11 @@ VNET_DEVICE_CLASS_TX_FN (dpdk_device_class) (vlib_main_t * vm,
   vnet_hw_if_tx_frame_t *tf = vlib_frame_scalar_args (f);
   u32 n_packets = f->n_vectors;
   u32 n_left;
-  u32 thread_index = vm->thread_index;
+  u32 n_prep;
+  clib_thread_index_t thread_index = vm->thread_index;
   int queue_id = tf->queue_id;
   u8 is_shared = tf->shared_queue;
+  u8 offload_enabled = 0;
   u32 tx_pkts = 0;
   dpdk_per_thread_data_t *ptd = vec_elt_at_index (dm->per_thread_data,
 						  thread_index);
@@ -333,6 +342,7 @@ VNET_DEVICE_CLASS_TX_FN (dpdk_device_class) (vlib_main_t * vm,
       if (PREDICT_FALSE ((xd->flags & DPDK_DEVICE_FLAG_TX_OFFLOAD) &&
 			 (or_flags & VNET_BUFFER_F_OFFLOAD)))
 	{
+	  offload_enabled = 1;
 	  dpdk_buffer_tx_offload (xd, b[0], mb[0]);
 	  dpdk_buffer_tx_offload (xd, b[1], mb[1]);
 	  dpdk_buffer_tx_offload (xd, b[2], mb[2]);
@@ -386,6 +396,7 @@ VNET_DEVICE_CLASS_TX_FN (dpdk_device_class) (vlib_main_t * vm,
       if (PREDICT_FALSE ((xd->flags & DPDK_DEVICE_FLAG_TX_OFFLOAD) &&
 			 (or_flags & VNET_BUFFER_F_OFFLOAD)))
 	{
+	  offload_enabled = 1;
 	  dpdk_buffer_tx_offload (xd, b[0], mb[0]);
 	  dpdk_buffer_tx_offload (xd, b[1], mb[1]);
 	}
@@ -408,7 +419,13 @@ VNET_DEVICE_CLASS_TX_FN (dpdk_device_class) (vlib_main_t * vm,
       b[0] = vlib_buffer_from_rte_mbuf (mb[0]);
 
       dpdk_validate_rte_mbuf (vm, b[0], 1);
-      dpdk_buffer_tx_offload (xd, b[0], mb[0]);
+
+      if (PREDICT_FALSE ((xd->flags & DPDK_DEVICE_FLAG_TX_OFFLOAD) &&
+			 (b[0]->flags & VNET_BUFFER_F_OFFLOAD)))
+	{
+	  offload_enabled = 1;
+	  dpdk_buffer_tx_offload (xd, b[0], mb[0]);
+	}
 
       if (PREDICT_FALSE (node->flags & VLIB_NODE_FLAG_TRACE))
 	if (b[0]->flags & VLIB_BUFFER_IS_TRACED)
@@ -418,32 +435,44 @@ VNET_DEVICE_CLASS_TX_FN (dpdk_device_class) (vlib_main_t * vm,
       n_left--;
     }
 
-  /* transmit as many packets as possible */
+  /* prepare and transmit as many packets as possible */
   tx_pkts = n_packets = mb - ptd->mbufs;
-  n_left = tx_burst_vector_internal (vm, xd, ptd->mbufs, n_packets, queue_id,
-				     is_shared);
+  n_prep = n_packets;
 
-  {
-    /* If there is no callback then drop any non-transmitted packets */
-    if (PREDICT_FALSE (n_left))
-      {
-	tx_pkts -= n_left;
-	vlib_simple_counter_main_t *cm;
-	vnet_main_t *vnm = vnet_get_main ();
+  if (PREDICT_FALSE (offload_enabled &&
+		     (xd->flags & DPDK_DEVICE_FLAG_TX_PREPARE)))
+    {
+      n_prep =
+	rte_eth_tx_prepare (xd->port_id, queue_id, ptd->mbufs, n_packets);
 
-	cm = vec_elt_at_index (vnm->interface_main.sw_if_counters,
-			       VNET_INTERFACE_COUNTER_TX_ERROR);
+      /* If mbufs are malformed then drop any non-prepared packets */
+      if (PREDICT_FALSE (n_prep != n_packets))
+	{
+	  n_left = n_packets - n_prep;
+	}
+    }
 
-	vlib_increment_simple_counter (cm, thread_index, xd->sw_if_index,
-				       n_left);
+  n_left +=
+    tx_burst_vector_internal (vm, xd, ptd->mbufs, n_prep, queue_id, is_shared);
 
-	vlib_error_count (vm, node->node_index, DPDK_TX_FUNC_ERROR_PKT_DROP,
-			  n_left);
+  /* If there is no callback then drop any non-transmitted packets */
+  if (PREDICT_FALSE (n_left))
+    {
+      tx_pkts -= n_left;
+      vlib_simple_counter_main_t *cm;
+      vnet_main_t *vnm = vnet_get_main ();
 
-	while (n_left--)
-	  rte_pktmbuf_free (ptd->mbufs[n_packets - n_left - 1]);
-      }
-  }
+      cm = vec_elt_at_index (vnm->interface_main.sw_if_counters,
+			     VNET_INTERFACE_COUNTER_TX_ERROR);
+
+      vlib_increment_simple_counter (cm, thread_index, xd->sw_if_index,
+				     n_left);
+
+      vlib_error_count (vm, node->node_index, DPDK_TX_FUNC_ERROR_PKT_DROP,
+			n_left);
+
+      rte_pktmbuf_free_bulk (&ptd->mbufs[tx_pkts], n_left);
+    }
 
   return tx_pkts;
 }
@@ -597,8 +626,10 @@ dpdk_interface_set_rss_queues (struct vnet_main_t *vnm,
   u16 valid_queue_count = 0;
   uint32_t i, j;
   uint32_t ret;
+  int __clib_unused rv;
 
-  rte_eth_dev_info_get (xd->port_id, &dev_info);
+  rv = rte_eth_dev_info_get (xd->port_id, &dev_info);
+  ASSERT (rv == 0);
 
   /* parameter check */
   if (clib_bitmap_count_set_bits (bitmap) == 0)
@@ -624,7 +655,6 @@ dpdk_interface_set_rss_queues (struct vnet_main_t *vnm,
   clib_memset (reta, 0, dev_info.reta_size * sizeof (*reta));
 
   valid_queue_count = 0;
-  /* *INDENT-OFF* */
   clib_bitmap_foreach (i, bitmap)  {
     if (i >= dev_info.nb_rx_queues)
       {
@@ -633,7 +663,6 @@ dpdk_interface_set_rss_queues (struct vnet_main_t *vnm,
       }
     reta[valid_queue_count++] = i;
   }
-  /* *INDENT-ON* */
 
   /* check valid_queue_count not zero, make coverity happy */
   if (valid_queue_count == 0)
@@ -707,7 +736,7 @@ dpdk_interface_rx_mode_change (vnet_main_t *vnm, u32 hw_if_index, u32 qid,
   else if (mode == VNET_HW_IF_RX_MODE_POLLING)
     {
       rxq = vec_elt_at_index (xd->rx_queues, qid);
-      f = pool_elt_at_index (fm->file_pool, rxq->clib_file_index);
+      f = clib_file_get (fm, rxq->clib_file_index);
       fm->file_update (f, UNIX_FILE_UPDATE_DELETE);
     }
   else if (!(xd->flags & DPDK_DEVICE_FLAG_INT_UNMASKABLE))
@@ -715,7 +744,7 @@ dpdk_interface_rx_mode_change (vnet_main_t *vnm, u32 hw_if_index, u32 qid,
   else
     {
       rxq = vec_elt_at_index (xd->rx_queues, qid);
-      f = pool_elt_at_index (fm->file_pool, rxq->clib_file_index);
+      f = clib_file_get (fm, rxq->clib_file_index);
       fm->file_update (f, UNIX_FILE_UPDATE_ADD);
     }
   if (rv)
@@ -723,7 +752,6 @@ dpdk_interface_rx_mode_change (vnet_main_t *vnm, u32 hw_if_index, u32 qid,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VNET_DEVICE_CLASS (dpdk_device_class) = {
   .name = "dpdk",
   .tx_function_n_errors = DPDK_TX_FUNC_N_ERROR,
@@ -741,8 +769,8 @@ VNET_DEVICE_CLASS (dpdk_device_class) = {
   .flow_ops_function = dpdk_flow_ops_fn,
   .set_rss_queues_function = dpdk_interface_set_rss_queues,
   .rx_mode_change_function = dpdk_interface_rx_mode_change,
+  .eeprom_read_function = dpdk_read_eeprom,
 };
-/* *INDENT-ON* */
 
 #define UP_DOWN_FLAG_EVENT 1
 
@@ -789,19 +817,9 @@ admin_up_down_process (vlib_main_t * vm,
   return 0;			/* or not */
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (admin_up_down_process_node) = {
-    .function = admin_up_down_process,
-    .type = VLIB_NODE_TYPE_PROCESS,
-    .name = "admin-up-down-process",
-    .process_log2_n_stack_bytes = 17,  // 256KB
+  .function = admin_up_down_process,
+  .type = VLIB_NODE_TYPE_PROCESS,
+  .name = "admin-up-down-process",
+  .process_log2_n_stack_bytes = 17, // 256KB
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

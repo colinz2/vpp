@@ -6,9 +6,9 @@
 #
 
 import os
+import socket
 import time
 import queue
-from six import moves, iteritems
 from config import config
 from vpp_papi import VPPApiClient
 from hook import Hook
@@ -236,11 +236,8 @@ class VppPapiProvider(object):
         self._expect_api_retval = self._zero
         self._expect_stack = []
 
-        # install_dir is a class attribute. We need to set it before
-        # calling the constructor.
-        VPPApiClient.apidir = config.extern_apidir + [config.vpp_install_dir]
-
         self.vpp = VPPApiClient(
+            apidir=config.extern_apidir + [config.vpp_install_dir],
             logger=test_class.logger,
             read_timeout=read_timeout,
             use_socket=True,
@@ -335,7 +332,7 @@ class VppPapiProvider(object):
 
             # Default override
             if name in defaultmapping:
-                for k, v in iteritems(defaultmapping[name]):
+                for k, v in defaultmapping[name].items():
                     if k in d:
                         continue
                     d[k] = v
@@ -391,7 +388,7 @@ class VppPapiProvider(object):
                         api_fn.__name__,
                         as_fn_signature(api_args),
                         reply.retval,
-                        moves.reprlib.repr(reply),
+                        reprlib.repr(reply),
                     )
                 )
                 self.test_class.logger.info(msg)

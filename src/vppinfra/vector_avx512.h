@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef included_vector_avx512_h
@@ -19,7 +9,6 @@
 #include <vppinfra/clib.h>
 #include <x86intrin.h>
 
-/* *INDENT-OFF* */
 #define foreach_avx512_vec512i \
   _(i,8,64,epi8) _(i,16,32,epi16) _(i,32,16,epi32)  _(i,64,8,epi64)
 #define foreach_avx512_vec512u \
@@ -91,7 +80,6 @@
 
 foreach_avx512_vec512i foreach_avx512_vec512u
 #undef _
-/* *INDENT-ON* */
 
 static_always_inline u32
 u16x32_msb_mask (u16x32 v)
@@ -326,6 +314,12 @@ u32x16_splat_u32x4 (u32x4 a)
   return (u32x16) _mm512_broadcast_i64x2 ((__m128i) a);
 }
 
+static_always_inline u64x8
+u64x8_splat_u64x2 (u64x2 a)
+{
+  return (u64x8) _mm512_broadcast_i64x2 ((__m128i) a);
+}
+
 static_always_inline u32x16
 u32x16_mask_blend (u32x16 a, u32x16 b, u16 mask)
 {
@@ -473,12 +467,10 @@ u32x16_transpose (u32x16 m[16])
 {
   __m512i r[16], a, b, c, d, x, y;
 
-  /* *INDENT-OFF* */
   __m512i pm1 = (__m512i) (u64x8) { 0, 1, 8, 9, 4, 5, 12, 13};
   __m512i pm2 = (__m512i) (u64x8) { 2, 3, 10, 11, 6, 7, 14, 15};
   __m512i pm3 = (__m512i) (u64x8) { 0, 1, 2, 3, 8, 9, 10, 11};
   __m512i pm4 = (__m512i) (u64x8) { 4, 5, 6, 7, 12, 13, 14, 15};
-  /* *INDENT-ON* */
 
   r[0] = _mm512_unpacklo_epi32 ((__m512i) m[0], (__m512i) m[1]);
   r[1] = _mm512_unpacklo_epi32 ((__m512i) m[2], (__m512i) m[3]);
@@ -558,12 +550,10 @@ u64x8_transpose (u64x8 m[8])
 {
   __m512i r[8], x, y;
 
-  /* *INDENT-OFF* */
   __m512i pm1 = (__m512i) (u64x8) { 0, 1, 8, 9, 4, 5, 12, 13};
   __m512i pm2 = (__m512i) (u64x8) { 2, 3, 10, 11, 6, 7, 14, 15};
   __m512i pm3 = (__m512i) (u64x8) { 0, 1, 2, 3, 8, 9, 10, 11};
   __m512i pm4 = (__m512i) (u64x8) { 4, 5, 6, 7, 12, 13, 14, 15};
-  /* *INDENT-ON* */
 
   r[0] = _mm512_unpacklo_epi64 ((__m512i) m[0], (__m512i) m[1]);
   r[1] = _mm512_unpacklo_epi64 ((__m512i) m[2], (__m512i) m[3]);
@@ -606,10 +596,3 @@ u8x64_store_partial (u8x64 r, u8 *data, uword n)
 }
 
 #endif /* included_vector_avx512_h */
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/udp/udp_encap.h>
@@ -518,13 +508,11 @@ udp_encap_walk (udp_encap_walk_cb_t cb, void *ctx)
 {
   index_t uei;
 
-  /* *INDENT-OFF* */
   pool_foreach_index (uei, udp_encap_pool)
    {
     if (WALK_STOP == cb(uei, ctx))
       break;
   }
-  /* *INDENT-ON* */
 }
 
 clib_error_t *
@@ -547,12 +535,10 @@ udp_encap_show (vlib_main_t * vm,
 
   if (INDEX_INVALID == uei)
     {
-      /* *INDENT-OFF* */
       pool_foreach_index (uei, udp_encap_pool)
        {
         vlib_cli_output(vm, "%U", format_udp_encap, uei, 0);
       }
-      /* *INDENT-ON* */
     }
   else
     {
@@ -562,7 +548,6 @@ udp_encap_show (vlib_main_t * vm,
   return NULL;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (udp_encap_add_command, static) = {
   .path = "udp encap",
   .short_help = "udp encap [add|del] <id ID> <src-ip> <dst-ip> [<src-port>] "
@@ -577,12 +562,3 @@ VLIB_CLI_COMMAND (udp_encap_show_command, static) = {
   .function = udp_encap_show,
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

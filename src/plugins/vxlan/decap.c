@@ -1,19 +1,8 @@
-/*
- * decap.c: vxlan tunnel decap packet processing
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2013 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* decap.c: vxlan tunnel decap packet processing */
 
 #include <vlib/vlib.h>
 #include <vxlan/vxlan.h>
@@ -193,7 +182,7 @@ vxlan_input (vlib_main_t * vm,
   last_tunnel_cache4 last4;
   last_tunnel_cache6 last6;
   u32 pkts_dropped = 0;
-  u32 thread_index = vlib_get_thread_index ();
+  clib_thread_index_t thread_index = vlib_get_thread_index ();
 
   if (is_ip4)
     clib_memset (&last4, 0xff, sizeof last4);
@@ -412,7 +401,6 @@ static char *vxlan_error_strings[] = {
 #undef vxlan_error
 };
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (vxlan4_input_node) =
 {
   .name = "vxlan4-input",
@@ -442,7 +430,6 @@ VLIB_REGISTER_NODE (vxlan6_input_node) =
   },
   .format_trace = format_vxlan_rx_trace,
 };
-/* *INDENT-ON* */
 
 typedef enum
 {
@@ -875,7 +862,6 @@ VLIB_NODE_FN (ip4_vxlan_bypass_node) (vlib_main_t * vm,
   return ip_vxlan_bypass_inline (vm, node, frame, /* is_ip4 */ 1);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip4_vxlan_bypass_node) =
 {
   .name = "ip4-vxlan-bypass",
@@ -889,7 +875,6 @@ VLIB_REGISTER_NODE (ip4_vxlan_bypass_node) =
   .format_trace = format_ip4_forward_next_trace,
 };
 
-/* *INDENT-ON* */
 
 /* Dummy init function to get us linked in. */
 static clib_error_t *
@@ -907,7 +892,6 @@ VLIB_NODE_FN (ip6_vxlan_bypass_node) (vlib_main_t * vm,
   return ip_vxlan_bypass_inline (vm, node, frame, /* is_ip4 */ 0);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_vxlan_bypass_node) =
 {
   .name = "ip6-vxlan-bypass",
@@ -921,7 +905,6 @@ VLIB_REGISTER_NODE (ip6_vxlan_bypass_node) =
   .format_trace = format_ip6_forward_next_trace,
 };
 
-/* *INDENT-ON* */
 
 /* Dummy init function to get us linked in. */
 static clib_error_t *
@@ -1045,7 +1028,7 @@ VLIB_NODE_FN (vxlan4_flow_input_node) (vlib_main_t * vm,
     [VXLAN_FLOW_NEXT_L2_INPUT] =
       im->combined_sw_if_counters + VNET_INTERFACE_COUNTER_RX,
   };
-  u32 thread_index = vlib_get_thread_index ();
+  clib_thread_index_t thread_index = vlib_get_thread_index ();
 
   u32 *from = vlib_frame_vector_args (f);
   u32 n_left_from = f->n_vectors;
@@ -1299,7 +1282,6 @@ VLIB_NODE_FN (vxlan4_flow_input_node) (vlib_main_t * vm,
   return f->n_vectors;
 }
 
-/* *INDENT-OFF* */
 #ifndef CLIB_MULTIARCH_VARIANT
 VLIB_REGISTER_NODE (vxlan4_flow_input_node) = {
   .name = "vxlan-flow-input",
@@ -1319,12 +1301,3 @@ VLIB_REGISTER_NODE (vxlan4_flow_input_node) = {
   },
 };
 #endif
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

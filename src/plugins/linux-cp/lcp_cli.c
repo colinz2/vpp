@@ -1,18 +1,5 @@
-/* Hey Emacs use -*- mode: C -*- */
-/*
- * Copyright 2020 Rubicon Communications, LLC.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+/* SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2020 Rubicon Communications, LLC.
  */
 
 #include <sys/socket.h>
@@ -337,6 +324,62 @@ VLIB_CLI_COMMAND (lcp_itf_pair_show_cmd_node, static) = {
   .is_mp_safe = 1,
 };
 
+static clib_error_t *
+lcp_ethertype_enable_cmd (vlib_main_t *vm, unformat_input_t *input,
+			  vlib_cli_command_t *cmd)
+{
+  ethernet_type_t ethertype;
+  int rv;
+
+  if (!unformat (input, "%U", unformat_ethernet_type_host_byte_order,
+		 &ethertype))
+    return clib_error_return (0, "Invalid ethertype");
+
+  rv = lcp_ethertype_enable (ethertype);
+  if (rv)
+    return clib_error_return (0, "Failed to enable ethertype (%d)", rv);
+
+  return 0;
+}
+
+VLIB_CLI_COMMAND (lcp_ethertype_enable_command, static) = {
+  .path = "lcp ethertype enable",
+  .short_help =
+    "lcp ethertype enable (<hex_ethertype_num>|<uc_ethertype_name>)",
+  .function = lcp_ethertype_enable_cmd,
+};
+
+static clib_error_t *
+lcp_ethertype_show_cmd (vlib_main_t *vm, unformat_input_t *input,
+			vlib_cli_command_t *cmd)
+{
+  ethernet_type_t *ethertypes = vec_new (ethernet_type_t, 0);
+  ethernet_type_t *etype;
+  int rv;
+
+  rv = lcp_ethertype_get_enabled (&ethertypes);
+  if (rv)
+    {
+      vec_free (ethertypes);
+      return clib_error_return (0, "Failed to get enabled ethertypes (%d)",
+				rv);
+    }
+
+  vec_foreach (etype, ethertypes)
+    {
+      vlib_cli_output (vm, "0x%04x", *etype);
+    }
+
+  vec_free (ethertypes);
+  return 0;
+}
+
+VLIB_CLI_COMMAND (lcp_ethertype_show_command, static) = {
+  .path = "show lcp ethertype",
+  .short_help = "show lcp ethertype",
+  .function = lcp_ethertype_show_cmd,
+};
+
 clib_error_t *
 lcp_cli_init (vlib_main_t *vm)
 {
@@ -344,11 +387,3 @@ lcp_cli_init (vlib_main_t *vm)
 }
 
 VLIB_INIT_FUNCTION (lcp_cli_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

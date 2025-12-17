@@ -17,7 +17,38 @@ project(memif)
 set(CMAKE_C_STANDARD 11)
 
 include(CheckCCompilerFlag)
-include(CheckFunctionExists)
+include(CheckSymbolExists)
+find_package(Git REQUIRED)
+
+include(ExternalProject)
+set(UNITY unity_project)
+
+ExternalProject_Add(
+    unity_project
+    GIT_REPOSITORY https://github.com/ThrowTheSwitch/Unity.git
+    # TODO: bump to the stable version as soon as it's available,
+    # current 2.6.0 couldn't be compiled with the modern compilers
+    GIT_TAG 73237c5d224169c7b4d2ec8321f9ac92e8071708
+    PREFIX ${PROJECT_BINARY_DIR}/external/${UNITY}
+    INSTALL_COMMAND cmake --install . --prefix ${PROJECT_BINARY_DIR}
+
+)
+set_source_files_properties(
+  ${PROJECT_BINARY_DIR}/external/${UNITY}/src/${UNITY}/src/unity.c
+  ${PROJECT_BINARY_DIR}/external/${UNITY}/src/${UNITY}/extras/fixture/src/unity_fixture.c
+  ${PROJECT_BINARY_DIR}/external/${UNITY}/src/${UNITY}/extras/memory/src/unity_memory.c
+  PROPERTIES GENERATED TRUE)
+add_library(unity STATIC
+  ${PROJECT_BINARY_DIR}/external/${UNITY}/src/${UNITY}/src/unity.c
+  ${PROJECT_BINARY_DIR}/external/${UNITY}/src/${UNITY}/extras/fixture/src/unity_fixture.c
+  ${PROJECT_BINARY_DIR}/external/${UNITY}/src/${UNITY}/extras/memory/src/unity_memory.c
+)
+target_include_directories(unity PUBLIC
+  ${PROJECT_BINARY_DIR}/external/${UNITY}/src/${UNITY}/src/
+  ${PROJECT_BINARY_DIR}/external/${UNITY}/src/${UNITY}/extras/fixture/src/
+  ${PROJECT_BINARY_DIR}/external/${UNITY}/src/${UNITY}/extras/memory/src/
+)
+add_dependencies(unity unity_project)
 
 if (NOT CMAKE_BUILD_TYPE)
   message(STATUS "No build type selected, default to Release")
@@ -32,9 +63,26 @@ set(CMAKE_INSTALL_MESSAGE NEVER)
 find_package(Threads REQUIRED)
 include_directories(${CMAKE_THREADS_INCLUDE_DIRS})
 
-check_function_exists(memfd_create HAVE_MEMFD_CREATE)
+if(DEFINED LIBMEMIF_CACHELINE_SIZE)
+  # Cache line size assigned via cmake args
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*)")
+  set(LIBMEMIF_CACHELINE_SIZE 128)
+else()
+  set(LIBMEMIF_CACHELINE_SIZE 64)
+endif()
+
+message(STATUS "System Architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+message(STATUS "Libmemif Cacheline Size: ${LIBMEMIF_CACHELINE_SIZE}")
+
+list(APPEND CMAKE_REQUIRED_DEFINITIONS "-D_GNU_SOURCE")
+check_symbol_exists(memfd_create "sys/mman.h" HAVE_MEMFD_CREATE)
 if(${HAVE_MEMFD_CREATE})
   add_definitions(-DHAVE_MEMFD_CREATE)
+endif()
+
+check_symbol_exists(strlcpy "string.h" HAVE_STRLCPY)
+if(${HAVE_STRLCPY})
+  add_definitions(-DHAVE_STRLCPY)
 endif()
 
 include_directories(src)
@@ -42,6 +90,9 @@ include_directories(src)
 add_subdirectory(src)
 add_subdirectory(examples)
 
+enable_testing()
+include(CTest)
+add_subdirectory(test)
 ##############################################################################
 # Packaging
 ##############################################################################

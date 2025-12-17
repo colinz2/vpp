@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/dpo/interface_rx_dpo.h>
@@ -160,11 +150,8 @@ format_interface_rx_dpo (u8* s, va_list *ap)
     vnet_main_t * vnm = vnet_get_main();
     interface_rx_dpo_t *ido = interface_rx_dpo_get(index);
 
-    return (format(s, "%U-rx-dpo: %U",
-                   format_vnet_sw_interface_name,
-                   vnm,
-                   vnet_get_sw_interface(vnm, ido->ido_sw_if_index),
-                   format_dpo_proto, ido->ido_proto));
+    return format (s, "%U-rx-dpo: %U", format_vnet_sw_if_index_name, vnm,
+		   ido->ido_sw_if_index, format_dpo_proto, ido->ido_proto);
 }
 
 static void
@@ -245,7 +232,7 @@ interface_rx_dpo_inline (vlib_main_t * vm,
 			 u8 is_l2)
 {
     u32 n_left_from, next_index, * from, * to_next;
-    u32 thread_index = vm->thread_index;
+    clib_thread_index_t thread_index = vm->thread_index;
     vnet_interface_main_t *im;
 
     im = &vnet_get_main ()->interface_main;

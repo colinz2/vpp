@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * ip/ip_lookup.c: ip4/6 adjacency and lookup table management
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* ip/ip_lookup.c: ip4/6 adjacency and lookup table management */
 
 #include <vnet/ip/ip.h>
 #include <vnet/adj/adj.h>
@@ -103,7 +71,6 @@ ip_lookup_init (ip_lookup_main_t * lm, u32 is_ip6)
 	lm->builtin_protocol_by_ip_protocol[i] = IP_BUILTIN_PROTOCOL_UNKNOWN;
       }
 
-    lm->local_next_by_ip_protocol[IP_PROTOCOL_UDP] = IP_LOCAL_NEXT_UDP_LOOKUP;
     lm->local_next_by_ip_protocol[is_ip6 ? IP_PROTOCOL_ICMP6 :
 				  IP_PROTOCOL_ICMP] = IP_LOCAL_NEXT_ICMP;
     lm->builtin_protocol_by_ip_protocol[IP_PROTOCOL_UDP] =
@@ -219,6 +186,27 @@ const ip46_address_t zero_addr = {
   .as_u64 = {
 	     0, 0},
 };
+
+bool
+fib_prefix_validate (const fib_prefix_t *prefix)
+{
+  if (FIB_PROTOCOL_IP4 == prefix->fp_proto)
+    {
+      if (prefix->fp_len > 32)
+	{
+	  return false;
+	}
+    }
+
+  if (FIB_PROTOCOL_IP6 == prefix->fp_proto)
+    {
+      if (prefix->fp_len > 128)
+	{
+	  return false;
+	}
+    }
+  return true;
+}
 
 static clib_error_t *
 vnet_ip_route_cmd (vlib_main_t * vm,
@@ -353,6 +341,12 @@ vnet_ip_route_cmd (vlib_main_t * vm,
 		.fp_addr = prefixs[i].fp_addr,
 	      };
 
+	      if (!fib_prefix_validate (&rpfx))
+		{
+		  vlib_cli_output (vm, "Invalid prefix len: %d", rpfx.fp_len);
+		  continue;
+		}
+
 	      if (is_del)
 		fib_table_entry_path_remove2 (fib_index,
 					      &rpfx, FIB_SOURCE_CLI, rpaths);
@@ -392,10 +386,12 @@ vnet_ip_table_cmd (vlib_main_t * vm,
   unformat_input_t _line_input, *line_input = &_line_input;
   clib_error_t *error = NULL;
   u32 table_id, is_add;
+  u8 create_mfib;
   u8 *name = NULL;
 
   is_add = 1;
   table_id = ~0;
+  create_mfib = 1;
 
   /* Get a line of input. */
   if (!unformat_user (main_input, unformat_line_input, line_input))
@@ -411,6 +407,8 @@ vnet_ip_table_cmd (vlib_main_t * vm,
 	is_add = 1;
       else if (unformat (line_input, "name %s", &name))
 	;
+      else if (unformat (line_input, "no-mfib"))
+	create_mfib = 0;
       else
 	{
 	  error = unformat_parse_error (line_input);
@@ -432,7 +430,8 @@ vnet_ip_table_cmd (vlib_main_t * vm,
 		  table_id = ip_table_get_unused_id (fproto);
 		  vlib_cli_output (vm, "%u\n", table_id);
 		}
-	      ip_table_create (fproto, table_id, 0, name);
+	      ip_table_create (fproto, table_id, 0 /* is_api */, create_mfib,
+			       name);
 	    }
 	  else
 	    {
@@ -530,33 +529,25 @@ vnet_show_ip6_table_cmd (vlib_main_t *vm, unformat_input_t *main_input,
   return (vnet_show_ip_table_cmd (vm, main_input, cmd, FIB_PROTOCOL_IP6));
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (vlib_cli_ip_command, static) = {
   .path = "ip",
   .short_help = "Internet protocol (IP) commands",
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (vlib_cli_ip6_command, static) = {
   .path = "ip6",
   .short_help = "Internet protocol version 6 (IPv6) commands",
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (vlib_cli_show_ip_command, static) = {
   .path = "show ip",
   .short_help = "Internet protocol (IP) show commands",
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (vlib_cli_show_ip6_command, static) = {
   .path = "show ip6",
   .short_help = "Internet protocol version 6 (IPv6) show commands",
 };
-/* *INDENT-ON* */
 
 /*?
  * This command is used to add or delete IPv4 or IPv6 routes. All
@@ -584,8 +575,9 @@ VLIB_CLI_COMMAND (vlib_cli_show_ip6_command, static) = {
  * @cliexcmd{ip route add 7.0.0.1/32 via 6.0.0.2 GigabitEthernet2/0/0 weight 3}
  * To add a route to a particular FIB table (VRF), use:
  * @cliexcmd{ip route add 172.16.24.0/24 table 7 via GigabitEthernet2/0/0}
+ * To add a route to drop the traffic:
+ * @cliexcmd{ip route add 172.16.24.0/24 table 100 via 127.0.0.1 drop}
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (ip_route_command, static) = {
   .path = "ip route",
   .short_help = "ip route [add|del] [count <n>] <dst-ip-addr>/<width> [table "
@@ -593,35 +585,30 @@ VLIB_CLI_COMMAND (ip_route_command, static) = {
 		"[next-hop-table <value>] [weight <value>] [preference "
 		"<value>] [udp-encap <value>] [ip4-lookup-in-table <value>] "
 		"[ip6-lookup-in-table <value>] [mpls-lookup-in-table <value>] "
-		"[resolve-via-host] [resolve-via-connected] [rx-ip4 "
-		"<interface>] [out-labels <value value value>]",
+		"[resolve-via-host] [resolve-via-connected] [rx-ip4|rx-ip6 "
+		"<interface>] [out-labels <value value value>] [drop]",
   .function = vnet_ip_route_cmd,
   .is_mp_safe = 1,
 };
 
-/* *INDENT-ON* */
 /*?
  * This command is used to add or delete IPv4  Tables. All
  * Tables must be explicitly added before that can be used. Creating a
  * table will add both unicast and multicast FIBs
  *
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (ip4_table_command, static) = {
   .path = "ip table",
   .short_help = "ip table [add|del] <table-id>",
   .function = vnet_ip4_table_cmd,
 };
-/* *INDENT-ON* */
 
-/* *INDENT-ON* */
 /*?
  * This command is used to add or delete IPv4  Tables. All
  * Tables must be explicitly added before that can be used. Creating a
  * table will add both unicast and multicast FIBs
  *
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (ip6_table_command, static) = {
   .path = "ip6 table",
   .short_help = "ip6 table [add|del] <table-id>",
@@ -726,14 +713,12 @@ ip6_table_bind_cmd (vlib_main_t * vm,
  * Example of how to add an interface to an IPv4 FIB table (where 2 is the table-id):
  * @cliexcmd{set interface ip table GigabitEthernet2/0/0 2}
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_interface_ip_table_command, static) =
 {
   .path = "set interface ip table",
   .function = ip4_table_bind_cmd,
   .short_help = "set interface ip table <interface> <table-id>",
 };
-/* *INDENT-ON* */
 
 /*?
  * Place the indicated interface into the supplied IPv6 FIB table (also known
@@ -754,14 +739,12 @@ VLIB_CLI_COMMAND (set_interface_ip_table_command, static) =
  * Example of how to add an interface to an IPv6 FIB table (where 2 is the table-id):
  * @cliexcmd{set interface ip6 table GigabitEthernet2/0/0 2}
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_interface_ip6_table_command, static) =
 {
   .path = "set interface ip6 table",
   .function = ip6_table_bind_cmd,
   .short_help = "set interface ip6 table <interface> <table-id>"
 };
-/* *INDENT-ON* */
 
 clib_error_t *
 vnet_ip_mroute_cmd (vlib_main_t * vm,
@@ -998,20 +981,10 @@ done:
  * @cliexcmd{ip mroute add 232.1.1.1 Signal}
 
  ?*/
-/* *INDENT-OFF* */
-VLIB_CLI_COMMAND (ip_mroute_command, static) =
-{
+VLIB_CLI_COMMAND (ip_mroute_command, static) = {
   .path = "ip mroute",
-  .short_help = "ip mroute [add|del] <dst-ip-addr>/<width> [table <table-id>] [rpf-id <ID>] [via <next-hop-ip-addr> [<interface>],",
+  .short_help = "ip mroute [add|del] <dst-ip-addr>/<width> [table <table-id>] "
+		"[rpf-id <ID>] [via <next-hop-ip-addr> [<interface>],",
   .function = vnet_ip_mroute_cmd,
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

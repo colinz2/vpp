@@ -1,22 +1,13 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2011-2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <cdp/cdp.h>
 #include <vppinfra/hash.h>
 #include <vppinfra/pcap.h>
 #include <vnet/srp/srp.h>
-#include <vnet/ppp/ppp.h>
+#include <plugins/ppp/ppp.h>
 #include <vnet/hdlc/hdlc.h>
 #include <vnet/srp/packet.h>
 
@@ -357,12 +348,10 @@ cdp_periodic (vlib_main_t * vm)
   int i;
   static cdp_neighbor_t **n_list = 0;
 
-  /* *INDENT-OFF* */
   pool_foreach (n, cm->neighbors)
    {
     vec_add1 (n_list, n);
   }
-  /* *INDENT-ON* */
 
   /* Across all cdp neighbors known to the system */
   for (i = 0; i < vec_len (n_list); i++)
@@ -511,11 +500,3 @@ cdp_periodic_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (cdp_periodic_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

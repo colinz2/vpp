@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/ip/ip.h>
@@ -84,6 +74,7 @@ mpls_label_dpo_create (fib_mpls_label_t *label_stack,
 
     mld = mpls_label_dpo_alloc();
     mld->mld_flags = flags;
+    mld->mld_payload_proto = payload_proto;
     dtype = mpls_label_dpo_types[flags];
 
     if (MPLS_LABEL_DPO_MAX_N_LABELS < vec_len(label_stack))
@@ -92,13 +83,12 @@ mpls_label_dpo_create (fib_mpls_label_t *label_stack,
         dpo_stack(dtype,
                   mld->mld_payload_proto,
                   &mld->mld_dpo,
-                  drop_dpo_get(DPO_PROTO_MPLS));
+                  drop_dpo_get(mld->mld_payload_proto));
     }
     else
     {
         mld->mld_n_labels = vec_len(label_stack);
         mld->mld_n_hdr_bytes = mld->mld_n_labels * sizeof(mld->mld_hdr[0]);
-        mld->mld_payload_proto = payload_proto;
 
         /*
          * construct label rewrite headers for each value passed.
@@ -398,22 +388,22 @@ mpls_label_imposition_inline (vlib_main_t * vm,
 
             /* Prefetch next iteration. */
             {
-                vlib_buffer_t * p2, * p3, *p4, *p5;
+	      vlib_buffer_t *p4, *p5, *p6, *p7;
 
-                p2 = vlib_get_buffer (vm, from[2]);
-                p3 = vlib_get_buffer (vm, from[3]);
-                p4 = vlib_get_buffer (vm, from[4]);
-                p5 = vlib_get_buffer (vm, from[5]);
+	      p4 = vlib_get_buffer (vm, from[4]);
+	      p5 = vlib_get_buffer (vm, from[5]);
+	      p6 = vlib_get_buffer (vm, from[6]);
+	      p7 = vlib_get_buffer (vm, from[7]);
 
-                vlib_prefetch_buffer_header (p2, STORE);
-                vlib_prefetch_buffer_header (p3, STORE);
-                vlib_prefetch_buffer_header (p4, STORE);
-                vlib_prefetch_buffer_header (p5, STORE);
+	      vlib_prefetch_buffer_header (p4, STORE);
+	      vlib_prefetch_buffer_header (p5, STORE);
+	      vlib_prefetch_buffer_header (p6, STORE);
+	      vlib_prefetch_buffer_header (p7, STORE);
 
-                CLIB_PREFETCH (p2->data, sizeof (hdr0[0]), STORE);
-                CLIB_PREFETCH (p3->data, sizeof (hdr0[0]), STORE);
-                CLIB_PREFETCH (p4->data, sizeof (hdr0[0]), STORE);
-                CLIB_PREFETCH (p5->data, sizeof (hdr0[0]), STORE);
+	      CLIB_PREFETCH (p4->data, sizeof (hdr0[0]), STORE);
+	      CLIB_PREFETCH (p5->data, sizeof (hdr0[0]), STORE);
+	      CLIB_PREFETCH (p6->data, sizeof (hdr0[0]), STORE);
+	      CLIB_PREFETCH (p7->data, sizeof (hdr0[0]), STORE);
             }
 
             from += 4;
@@ -446,6 +436,11 @@ mpls_label_imposition_inline (vlib_main_t * vm,
                 vnet_buffer (b1)->l3_hdr_offset = b1->current_data;
                 vnet_buffer (b2)->l3_hdr_offset = b2->current_data;
                 vnet_buffer (b3)->l3_hdr_offset = b3->current_data;
+
+                b0->flags |= VNET_BUFFER_F_L3_HDR_OFFSET_VALID;
+                b1->flags |= VNET_BUFFER_F_L3_HDR_OFFSET_VALID;
+                b2->flags |= VNET_BUFFER_F_L3_HDR_OFFSET_VALID;
+                b3->flags |= VNET_BUFFER_F_L3_HDR_OFFSET_VALID;
 
                 if (DPO_PROTO_IP4 == dproto)
                 {
@@ -792,6 +787,7 @@ mpls_label_imposition_inline (vlib_main_t * vm,
             if (DPO_PROTO_MPLS != dproto)
             {
                 vnet_buffer (b0)->l3_hdr_offset = b0->current_data;
+                b0->flags |= VNET_BUFFER_F_L3_HDR_OFFSET_VALID;
 
                 if (DPO_PROTO_IP4 == dproto)
                 {

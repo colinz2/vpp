@@ -6,13 +6,14 @@ from random import randint, choice
 
 import re
 import scapy.compat
-from framework import tag_fixme_ubuntu2204, is_distro_ubuntu2204
-from framework import VppTestCase, VppTestRunner, VppLoInterface
+from framework import VppTestCase, VppLoInterface
+from asfframework import VppTestRunner
 from scapy.data import IP_PROTOS
 from scapy.layers.inet import IP, TCP, UDP, ICMP, GRE
 from scapy.layers.inet import IPerror, TCPerror
 from scapy.layers.l2 import Ether
 from scapy.packet import Raw
+from statistics import variance
 from syslog_rfc5424_parser import SyslogMessage, ParseError
 from syslog_rfc5424_parser.constants import SyslogSeverity
 from util import ppp, pr, ip4_range
@@ -20,8 +21,10 @@ from vpp_acl import AclRule, VppAcl, VppAclInterface
 from vpp_ip_route import VppIpRoute, VppRoutePath
 from vpp_papi import VppEnum
 from util import StatsDiff
+from config import config
 
 
+@unittest.skipIf("nat" in config.excluded_plugins, "Exclude NAT plugin tests")
 class TestNAT44ED(VppTestCase):
     """NAT44ED Test Case"""
 
@@ -89,7 +92,7 @@ class TestNAT44ED(VppTestCase):
 
     @classmethod
     def create_and_add_ip4_table(cls, i, table_id=0):
-        cls.vapi.ip_table_add_del(is_add=1, table={"table_id": table_id})
+        cls.vapi.ip_table_add_del_v2(is_add=1, table={"table_id": table_id})
         i.set_table_ip4(table_id)
 
     @classmethod
@@ -142,7 +145,6 @@ class TestNAT44ED(VppTestCase):
         tag="",
         flags=0,
     ):
-
         if not (local_port and external_port):
             flags |= self.config_flags.NAT_IS_ADDR_ONLY
 
@@ -162,8 +164,6 @@ class TestNAT44ED(VppTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        if is_distro_ubuntu2204 == True and not hasattr(cls, "vpp"):
-            return
 
         cls.create_pg_interfaces(range(12))
         cls.interfaces = list(cls.pg_interfaces[:4])
@@ -174,7 +174,7 @@ class TestNAT44ED(VppTestCase):
             cls.configure_ip4_interface(i, hosts=3)
 
         # test specific (test-multiple-vrf)
-        cls.vapi.ip_table_add_del(is_add=1, table={"table_id": 1})
+        cls.vapi.ip_table_add_del_v2(is_add=1, table={"table_id": 1})
 
         # test specific (test-one-armed-nat44-static)
         cls.pg4.generate_remote_hosts(2)
@@ -687,7 +687,6 @@ class TestNAT44ED(VppTestCase):
     def frag_in_order_in_plus_out(
         self, in_addr, out_addr, in_port, out_port, proto=IP_PROTOS.tcp
     ):
-
         layer = self.proto2layer(proto)
 
         if proto == IP_PROTOS.tcp:
@@ -743,7 +742,6 @@ class TestNAT44ED(VppTestCase):
     def frag_out_of_order_in_plus_out(
         self, in_addr, out_addr, in_port, out_port, proto=IP_PROTOS.tcp
     ):
-
         layer = self.proto2layer(proto)
 
         if proto == IP_PROTOS.tcp:
@@ -2316,14 +2314,17 @@ class TestNAT44ED(VppTestCase):
             raise
 
     def test_outside_address_distribution(self):
-        """Outside address distribution based on source address"""
+        """NAT44ED outside address distribution based on source address"""
 
+        addresses = 65
         x = 100
-        nat_addresses = []
 
-        for i in range(1, x):
+        nat_addresses = []
+        nat_distribution = {}
+        for i in range(1, addresses):
             a = "10.0.0.%d" % i
             nat_addresses.append(a)
+            nat_distribution[a] = set()
 
         self.nat_add_inside_interface(self.pg0)
         self.nat_add_outside_interface(self.pg1)
@@ -2362,16 +2363,11 @@ class TestNAT44ED(VppTestCase):
             self.assertTrue(info is not None)
             self.assertEqual(packet_index, info.index)
             p_sent = info.data
-            packed = socket.inet_aton(p_sent[IP].src)
-            numeric = struct.unpack("!L", packed)[0]
-            numeric = socket.htonl(numeric)
-            a = nat_addresses[(numeric - 1) % len(nat_addresses)]
-            self.assertEqual(
-                a,
-                p_recvd[IP].src,
-                "Invalid packet (src IP %s translated to %s, but expected %s)"
-                % (p_sent[IP].src, p_recvd[IP].src, a),
-            )
+            self.assertIn(p_recvd[IP].src, nat_distribution)
+            nat_distribution[p_recvd[IP].src].add(p_sent[IP].src)
+
+        var = variance(map(len, nat_distribution.values()), x / addresses)
+        self.assertLess(var, 0.33, msg="Bad outside address distribution")
 
     def test_dynamic_edge_ports(self):
         """NAT44ED dynamic translation test: edge ports"""
@@ -2610,7 +2606,7 @@ class TestNAT44ED(VppTestCase):
             i.remove_vpp_config()
 
 
-@tag_fixme_ubuntu2204
+@unittest.skipIf("nat" in config.excluded_plugins, "Exclude NAT plugin tests")
 class TestNAT44EDMW(TestNAT44ED):
     """NAT44ED MW Test Case"""
 
@@ -2943,9 +2939,12 @@ class TestNAT44EDMW(TestNAT44ED):
 
         limit = 5
 
-        # 2 interfaces pg0, pg1 (vrf10, limit 1 tcp session)
-        # non existing vrf_id makes process core dump
+        # 2 interfaces pg0, pg1 (vrf10, limit 5 tcp sessions)
         self.vapi.nat44_set_session_limit(session_limit=limit, vrf_id=10)
+
+        # expect error when bad is specified
+        with self.vapi.assert_negative_api_retval():
+            self.vapi.nat44_set_session_limit(session_limit=limit, vrf_id=20)
 
         self.nat_add_inside_interface(inside)
         self.nat_add_inside_interface(inside_vrf10)
@@ -4400,8 +4399,8 @@ class TestNAT44EDMW(TestNAT44ED):
             self.pg7.unconfig()
             self.pg8.unconfig()
 
-            self.vapi.ip_table_add_del(is_add=0, table={"table_id": vrf_id_in})
-            self.vapi.ip_table_add_del(is_add=0, table={"table_id": vrf_id_out})
+            self.vapi.ip_table_add_del_v2(is_add=0, table={"table_id": vrf_id_in})
+            self.vapi.ip_table_add_del_v2(is_add=0, table={"table_id": vrf_id_out})
 
     def test_dynamic_output_feature_vrf(self):
         """NAT44ED dynamic translation test: output-feature, VRF"""
@@ -4470,7 +4469,7 @@ class TestNAT44EDMW(TestNAT44ED):
             self.pg7.unconfig()
             self.pg8.unconfig()
 
-            self.vapi.ip_table_add_del(is_add=0, table={"table_id": new_vrf_id})
+            self.vapi.ip_table_add_del_v2(is_add=0, table={"table_id": new_vrf_id})
 
     def test_next_src_nat(self):
         """NAT44ED On way back forward packet to nat44-in2out node."""

@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /*
  * ioam_cache_tunnel_select_node.c
  * This file implements anycast server selection using ioam data
@@ -235,7 +226,6 @@ ip6_ioam_cache_ts_node_fn (vlib_main_t * vm,
 /*
  * Node for IP6 iOAM header cache
  */
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ioam_cache_ts_node) =
 {
   .function = ip6_ioam_cache_ts_node_fn,
@@ -253,7 +243,6 @@ VLIB_REGISTER_NODE (ioam_cache_ts_node) =
     [IOAM_CACHE_TS_ERROR_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 typedef struct
 {
@@ -623,7 +612,6 @@ VLIB_NODE_FN (ip6_reset_ts_hbh_node) (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_reset_ts_hbh_node) =
 {
   .name = "ip6-add-syn-hop-by-hop",
@@ -642,7 +630,6 @@ VLIB_REGISTER_NODE (ip6_reset_ts_hbh_node) =
   },
 };
 
-/* *INDENT-ON* */
 
 #ifndef CLIB_MARCH_VARIANT
 vlib_node_registration_t ioam_cache_ts_timer_tick_node;
@@ -650,7 +637,7 @@ vlib_node_registration_t ioam_cache_ts_timer_tick_node;
 
 typedef struct
 {
-  u32 thread_index;
+  clib_thread_index_t thread_index;
 } ioam_cache_ts_timer_tick_trace_t;
 
 /* packet trace format function */
@@ -700,7 +687,7 @@ expired_cache_ts_timer_callback (u32 * expired_timers)
   ioam_cache_main_t *cm = &ioam_cache_main;
   int i;
   u32 pool_index;
-  u32 thread_index = vlib_get_thread_index ();
+  clib_thread_index_t thread_index = vlib_get_thread_index ();
   u32 count = 0;
 
   for (i = 0; i < vec_len (expired_timers); i++)
@@ -738,7 +725,6 @@ ioam_cache_ts_timer_tick_node_fn (vlib_main_t * vm,
 
   return 0;
 }
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ioam_cache_ts_timer_tick_node) = {
   .function = ioam_cache_ts_timer_tick_node_fn,
   .name = "ioam-cache-ts-timer-tick",
@@ -757,12 +743,3 @@ VLIB_REGISTER_NODE (ioam_cache_ts_timer_tick_node) = {
     [0] = "error-drop",
   },
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

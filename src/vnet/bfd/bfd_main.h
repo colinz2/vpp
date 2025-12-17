@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2011-2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /**
  * @file
  * @brief BFD global declarations
@@ -71,13 +62,13 @@ typedef enum
 /**
  * hop types
  */
-#define foreach_bfd_hop(F)                     \
-  F (SINGLE, "single")                         \
-  F (MULTI,  "multi")                          \
+#define foreach_bfd_hop(F)                                                    \
+  F (SINGLE)                                                                  \
+  F (MULTI)
 
 typedef enum
 {
-#define F(sym, str) BFD_HOP_TYPE_##sym,
+#define F(sym) BFD_HOP_TYPE_##sym,
   foreach_bfd_hop (F)
 #undef F
 } bfd_hop_type_e;
@@ -318,6 +309,15 @@ typedef struct
   /** vector of callback notification functions */
   bfd_notify_fn_t *listeners;
 
+  /**
+   * true if multihop support is enabled so sw_if_index of ~0
+   * represents a multihop session
+   */
+  bool multihop_enabled;
+
+  /** TOS field value of the IP part of the BFD packet */
+  u8 tos;
+
   /** log class */
   vlib_log_class_t log_class;
 
@@ -366,7 +366,6 @@ typedef enum
   BFD_EVENT_CONFIG_CHANGED,
 } bfd_process_event_e;
 
-/* *INDENT-OFF* */
 /** echo packet structure */
 typedef CLIB_PACKED (struct {
   /** local discriminator */
@@ -376,7 +375,6 @@ typedef CLIB_PACKED (struct {
   /** checksum - based on discriminator, local secret and expire time */
   u64 checksum;
 }) bfd_echo_pkt_t;
-/* *INDENT-ON* */
 
 static inline void
 bfd_lock (bfd_main_t * bm)
@@ -451,6 +449,7 @@ vnet_api_error_t bfd_session_set_params (bfd_main_t * bm, bfd_session_t * bs,
 
 u32 bfd_nsec_to_usec (u64 nsec);
 const char *bfd_poll_state_string (bfd_poll_state_e state);
+const char *bfd_hop_type_string (bfd_hop_type_e state);
 
 #define USEC_PER_MS (1000LL)
 #define MSEC_PER_SEC (1000LL)
@@ -484,15 +483,9 @@ typedef enum
   BFD_TX_IP6_REWRITE,
   BFD_TX_IP4_MIDCHAIN,
   BFD_TX_IP6_MIDCHAIN,
+  BFD_TX_IP4_LOOKUP,
+  BFD_TX_IP6_LOOKUP,
   BFD_TX_N_NEXT,
 } bfd_tx_next_t;
 
 #endif /* __included_bfd_main_h__ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

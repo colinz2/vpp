@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <lisp/lisp-cp/gid_dictionary.h>
@@ -488,13 +478,11 @@ ip4_compute_prefix_lengths_in_search_order (gid_ip4_table_t * db)
   vec_reset_length (db->ip4_prefix_lengths_in_search_order);
   /* Note: bitmap reversed so this is in fact a longest prefix match */
 
-  /* *INDENT-OFF* */
   clib_bitmap_foreach (i, db->ip4_non_empty_dst_address_length_bitmap)
    {
     int dst_address_length = 32 - i;
     vec_add1 (db->ip4_prefix_lengths_in_search_order, dst_address_length);
   }
-  /* *INDENT-ON* */
 
 }
 
@@ -671,13 +659,11 @@ ip6_compute_prefix_lengths_in_search_order (gid_ip6_table_t * db)
   vec_reset_length (db->ip6_prefix_lengths_in_search_order);
   /* Note: bitmap reversed so this is in fact a longest prefix match */
 
-  /* *INDENT-OFF* */
   clib_bitmap_foreach (i, db->ip6_non_empty_dst_address_length_bitmap)
    {
     int dst_address_length = 128 - i;
     vec_add1 (db->ip6_prefix_lengths_in_search_order, dst_address_length);
   }
-  /* *INDENT-ON* */
 }
 
 static u32
@@ -1067,11 +1053,3 @@ gid_dictionary_init (gid_dictionary_t * db)
   arp_ndp_lookup_init (&db->arp_ndp_table);
   nsh_lookup_init (&db->nsh_table);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

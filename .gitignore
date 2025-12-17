@@ -6,30 +6,44 @@
 /build-root/install-*/
 /build-root/tools
 /build-root/dpdk-includes/
+/build-root/dpdk_mlx_default.sh
 /build-root/packages-vpp/
 /build-root/path_setup
 /build-root/deb/debian/vpp-plugins/
 /build-root/deb/.pybuild/
+/build-root/debs
 /build-root/*.buildinfo
 /build-root/*.deb
 /build-root/*.rpm
 /build-root/*.tar.xz
 /build-root/*.changes
 /build-root/rpmbuild/
-/build-root/test-doc/
-/build-root/test-cov/
+/build-root/test-coverage*/
 /build-root/test/
-/test/run/
-/test/build/
-/test/coverage/
-/test/vapi_test/
-/test/doc/build/
 /build-config.mk
 /build/external/*.tar.gz
 /build/external/*.tar.xz
 /build/external/vpp-*
 /build/external/dpdk_mlx_default.sh
 /build/external/downloads/
+/build/external/deb/_build/
+/build/external/deb/debian/changelog
+/build/external/deb/debian/debhelper-build-stamp
+/build/external/deb/debian/tmp/
+/build/external/deb/debian/files/
+/build/external/deb/debian/.debhelper/
+/build/external/deb/debian/vpp-ext-deps*
+/build/optional/downloads/
+/build/optional/*.tar.gz
+/build/optional/*.tar.xz
+/build/optional/vpp-*
+/build/optional/deb/_build/
+/build/optional/deb/debian/changelog
+/build/optional/deb/debian/debhelper-build-stamp
+/build/optional/deb/debian/tmp/
+/build/optional/deb/debian/files/
+/build/optional/deb/debian/.debhelper/
+/build/optional/deb/debian/vpp-ext-deps*
 /path_setup
 /tools/
 # start autotools ignore
@@ -115,6 +129,9 @@ compile_commands.json
 # extras gomemif build files
 /extras/gomemif/bazel*
 
+# extras libmemif build files
+/extras/libmemif
+
 # vpptop build files
 /extras/vpptop/build/*
 
@@ -125,10 +142,29 @@ compile_commands.json
 **/test-run-*-*-*
 
 # host stack test framework
-/extras/hs-test/vpp-data
-/extras/hs-test/hs-test
-/extras/hs-test/http_server
-/extras/hs-test/.build.vpp
+/test/hs-test/vpp-data
+/test/hs-test/hs-test
+/test/hs-test/http_server
+/test/hs-test/.build.ok
+/test/hs-test/.build.cov.ok
+/test/hs-test/.last_hst_ppid
+/test/hs-test/summary/
+/test/hs-test/.last_state_hash
+/test/hs-test/.go_cache/
+
+# kube-test
+calicovppversion
+/extras/kube-test/vpp-data
+/extras/kube-test/.build.ok
+/extras/kube-test/.last_ppid
+/extras/kube-test/summary/
+/extras/kube-test/.last_state_hash
+/extras/kube-test/.kube_deps.ok
+/extras/kube-test/kubernetes/baremetal-calicovpp-config.yaml
+/extras/kube-test/kubernetes/kind-calicovpp-config.yaml
+/extras/kube-test/kubernetes/pod-definitions.yaml
+/extras/kube-test/kubernetes/.vars
+/extras/kube-test/*.tar
 
 # ./configure
 /CMakeFiles
@@ -136,8 +172,13 @@ compile_commands.json
 /lib
 /.ninja_deps
 /.ninja_log
+/.cmake
 /CMakeCache.txt
 /build.ninja
 /cmake_install.cmake
 /startup.conf
 /startup.vpp
+/install_manifest.txt
+
+# log file archives
+/archives

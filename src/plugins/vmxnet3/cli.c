@@ -1,19 +1,7 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
+
 #include <stdint.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
@@ -76,7 +64,6 @@ vmxnet3_create_command_fn (vlib_main_t * vm, unformat_input_t * input,
   return args.error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (vmxnet3_create_command, static) = {
   .path = "create interface vmxnet3",
   .short_help =
@@ -86,7 +73,6 @@ VLIB_CLI_COMMAND (vmxnet3_create_command, static) = {
     " [gso]",
   .function = vmxnet3_create_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 vmxnet3_delete_command_fn (vlib_main_t * vm, unformat_input_t * input,
@@ -131,14 +117,12 @@ vmxnet3_delete_command_fn (vlib_main_t * vm, unformat_input_t * input,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (vmxnet3_delete_command, static) = {
   .path = "delete interface vmxnet3",
   .short_help = "delete interface vmxnet3 "
     "{<interface> | sw_if_index <sw_idx>}",
   .function = vmxnet3_delete_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 vmxnet3_test_command_fn (vlib_main_t * vm, unformat_input_t * input,
@@ -192,14 +176,12 @@ vmxnet3_test_command_fn (vlib_main_t * vm, unformat_input_t * input,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (vmxnet3_test_command, static) = {
   .path = "test vmxnet3",
   .short_help = "test vmxnet3 <interface> | sw_if_index <sw_idx> [irq] "
     "[elog-on] [elog-off]",
   .function = vmxnet3_test_command_fn,
 };
-/* *INDENT-ON* */
 
 static void
 show_vmxnet3 (vlib_main_t * vm, u32 * hw_if_indices, u8 show_descr,
@@ -582,14 +564,12 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_vmxnet3_command, static) = {
   .path = "show vmxnet3",
   .short_help = "show vmxnet3 [[<interface>] ([desc] | ([rx-comp] | "
   "[rx-desc-0] | [rx-desc-1] | [tx-comp] | [tx-desc]) [<slot>])]",
   .function = show_vmxnet3_fn,
 };
-/* *INDENT-ON* */
 
 clib_error_t *
 vmxnet3_cli_init (vlib_main_t * vm)
@@ -607,11 +587,3 @@ vmxnet3_cli_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (vmxnet3_cli_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

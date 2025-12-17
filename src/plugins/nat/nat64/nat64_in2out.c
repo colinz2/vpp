@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <nat/nat64/nat64.h>
@@ -86,14 +76,12 @@ nat64_not_translate (u32 sw_if_index, ip6_address_t ip6_addr)
   ip_lookup_main_t *lm6 = &im6->lookup_main;
   ip_interface_address_t *ia = 0;
 
-  /* *INDENT-OFF* */
   foreach_ip_interface_address (lm6, ia, sw_if_index, 0,
   ({
 	addr = ip_interface_address_get_address (lm6, ia);
 	if (0 == ip6_address_compare (addr, &ip6_addr))
 		return 1;
   }));
-  /* *INDENT-ON* */
 
   return 0;
 }
@@ -744,7 +732,6 @@ nat64_in2out_tcp_udp_hairpinning (vlib_main_t * vm, vlib_buffer_t * b,
   daddr.ip4.as_u32 = ste->out_r_addr.as_u32;
 
   bibe = 0;
-  /* *INDENT-OFF* */
   vec_foreach (db, nm->db)
     {
       bibe = nat64_db_bib_entry_find (db, &daddr, dport, proto, 0, 0);
@@ -752,7 +739,6 @@ nat64_in2out_tcp_udp_hairpinning (vlib_main_t * vm, vlib_buffer_t * b,
       if (bibe)
 	break;
     }
-  /* *INDENT-ON* */
 
   if (!bibe)
     return -1;
@@ -851,7 +837,6 @@ nat64_in2out_icmp_hairpinning (vlib_main_t * vm, vlib_buffer_t * b,
   daddr.ip4.as_u32 = bibe->out_addr.as_u32;
 
   ste = 0;
-  /* *INDENT-OFF* */
   vec_foreach (db, nm->db)
     {
       ste = nat64_db_st_entry_find (db, &saddr, &daddr, sport, dport, proto,
@@ -860,7 +845,6 @@ nat64_in2out_icmp_hairpinning (vlib_main_t * vm, vlib_buffer_t * b,
       if (ste)
         break;
     }
-  /* *INDENT-ON* */
 
   if (!ste)
     return -1;
@@ -1006,7 +990,6 @@ nat64_in2out_unk_proto_hairpinning (vlib_main_t * vm, vlib_buffer_t * b,
   daddr.ip4.as_u32 = ste->out_r_addr.as_u32;
 
   bibe = 0;
-  /* *INDENT-OFF* */
   vec_foreach (db, nm->db)
     {
       bibe = nat64_db_bib_entry_find (db, &daddr, 0, proto, 0, 0);
@@ -1014,7 +997,6 @@ nat64_in2out_unk_proto_hairpinning (vlib_main_t * vm, vlib_buffer_t * b,
       if (bibe)
 	break;
     }
-  /* *INDENT-ON* */
 
   if (!bibe)
     return -1;
@@ -1226,7 +1208,6 @@ VLIB_NODE_FN (nat64_in2out_node) (vlib_main_t * vm,
   return nat64_in2out_node_fn_inline (vm, node, frame, 0);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (nat64_in2out_node) = {
   .name = "nat64-in2out",
   .vector_size = sizeof (u32),
@@ -1243,7 +1224,6 @@ VLIB_REGISTER_NODE (nat64_in2out_node) = {
     [NAT64_IN2OUT_NEXT_SLOWPATH] = "nat64-in2out-slowpath",
   },
 };
-/* *INDENT-ON* */
 
 VLIB_NODE_FN (nat64_in2out_slowpath_node) (vlib_main_t * vm,
 					   vlib_node_runtime_t * node,
@@ -1252,7 +1232,6 @@ VLIB_NODE_FN (nat64_in2out_slowpath_node) (vlib_main_t * vm,
   return nat64_in2out_node_fn_inline (vm, node, frame, 1);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (nat64_in2out_slowpath_node) = {
   .name = "nat64-in2out-slowpath",
   .vector_size = sizeof (u32),
@@ -1269,7 +1248,6 @@ VLIB_REGISTER_NODE (nat64_in2out_slowpath_node) = {
     [NAT64_IN2OUT_NEXT_SLOWPATH] = "nat64-in2out-slowpath",
   },
 };
-/* *INDENT-ON* */
 
 typedef struct nat64_in2out_frag_set_ctx_t_
 {
@@ -1384,7 +1362,6 @@ VLIB_NODE_FN (nat64_in2out_handoff_node) (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (nat64_in2out_handoff_node) = {
   .name = "nat64-in2out-handoff",
   .vector_size = sizeof (u32),
@@ -1399,12 +1376,3 @@ VLIB_REGISTER_NODE (nat64_in2out_handoff_node) = {
     [0] = "error-drop",
   },
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * vhost-user-input
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2014-2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * vhost-user-input
  */
 
 #include <fcntl.h>		/* for open */
@@ -31,7 +20,7 @@
 #include <linux/if_tun.h>
 
 #include <vlib/vlib.h>
-#include <vlib/unix/unix.h>
+#include <vlib/file.h>
 
 #include <vnet/ethernet/ethernet.h>
 #include <vnet/devices/devices.h>
@@ -381,6 +370,33 @@ vhost_user_input_setup_frame (vlib_main_t * vm, vlib_node_runtime_t * node,
     }
 }
 
+static_always_inline void
+vhost_user_if_input_trace (vlib_main_t *vm, vlib_node_runtime_t *node,
+			   u32 n_trace, vhost_user_intf_t *vui, u16 qid,
+			   u32 next_index, u16 last_avail_idx, u32 n_left,
+			   const u32 *bi)
+{
+  vhost_user_vring_t *txvq = &vui->vrings[VHOST_VRING_IDX_TX (qid)];
+
+  while (n_trace && n_left)
+    {
+      vlib_buffer_t *b = vlib_get_buffer (vm, bi[0]);
+
+      if (PREDICT_FALSE (vlib_trace_buffer (vm, node, next_index, b, 0)))
+	{
+	  vhost_trace_t *t0 = vlib_add_trace (vm, node, b, sizeof (t0[0]));
+	  vhost_user_rx_trace (t0, vui, qid, b, txvq, last_avail_idx);
+	  n_trace--;
+	}
+
+      n_left--;
+      last_avail_idx++;
+      bi++;
+    }
+
+  vlib_set_trace_count (vm, node, n_trace);
+}
+
 static_always_inline u32
 vhost_user_if_input (vlib_main_t *vm, vhost_user_main_t *vum,
 		     vhost_user_intf_t *vui, u16 qid,
@@ -548,17 +564,6 @@ vhost_user_if_input (vlib_main_t *vm, vhost_user_main_t *vum,
       /* The buffer should already be initialized */
       b_head->total_length_not_including_first_buffer = 0;
       b_head->flags |= VLIB_BUFFER_TOTAL_LENGTH_VALID;
-
-      if (PREDICT_FALSE
-	  (n_trace > 0 && vlib_trace_buffer (vm, node, next_index, b_head,
-					     /* follow_chain */ 0)))
-	{
-	  vhost_trace_t *t0 =
-	    vlib_add_trace (vm, node, b_head, sizeof (t0[0]));
-	  vhost_user_rx_trace (t0, vui, qid, b_head, txvq, last_avail_idx);
-	  n_trace--;
-	  vlib_set_trace_count (vm, node, n_trace);
-	}
 
       /* This depends on the setup but is very consistent
        * So I think the CPU branch predictor will make a pretty good job
@@ -735,6 +740,14 @@ stop:
     {
       vlib_error_count (vm, node->node_index,
 			VHOST_USER_INPUT_FUNC_ERROR_MMAP_FAIL, 1);
+    }
+
+  /* packet trace if enabled */
+  if (PREDICT_FALSE (n_trace))
+    {
+      vhost_user_if_input_trace (vm, node, n_trace, vui, qid, next_index,
+				 last_avail_idx - n_rx_packets, n_rx_packets,
+				 to_next - n_rx_packets);
     }
 
   /* give buffers back to driver */
@@ -1447,7 +1460,6 @@ VLIB_NODE_FN (vhost_user_input_node) (vlib_main_t * vm,
   return n_rx_packets;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (vhost_user_input_node) = {
   .type = VLIB_NODE_TYPE_INPUT,
   .name = "vhost-user-input",
@@ -1463,12 +1475,3 @@ VLIB_REGISTER_NODE (vhost_user_input_node) = {
   .n_errors = VHOST_USER_INPUT_FUNC_N_ERROR,
   .error_strings = vhost_user_input_func_error_strings,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

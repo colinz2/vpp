@@ -1,24 +1,6 @@
-/*
-  Copyright (c) 2009-2017 Dave Gamble and cJSON contributors
-
-  Permission is hereby granted, free of charge, to any person obtaining a copy
-  of this software and associated documentation files (the "Software"), to deal
-  in the Software without restriction, including without limitation the rights
-  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-  copies of the Software, and to permit persons to whom the Software is
-  furnished to do so, subject to the following conditions:
-
-  The above copyright notice and this permission notice shall be included in
-  all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-  THE SOFTWARE.
-*/
+/* SPDX-License-Identifier: MIT
+ * Copyright (c) 2009-2017 Dave Gamble and cJSON contributors
+ */
 
 #ifndef cJSON__h
 #define cJSON__h
@@ -81,7 +63,7 @@ then using the CJSON_API_VISIBILITY flag to "export" the same symbols the way CJ
 /* project version */
 #define CJSON_VERSION_MAJOR 1
 #define CJSON_VERSION_MINOR 7
-#define CJSON_VERSION_PATCH 14
+#define CJSON_VERSION_PATCH 17
 
 #include <stddef.h>
 
@@ -127,8 +109,7 @@ typedef struct cJSON_Hooks
       /* malloc/free are CDECL on Windows regardless of the default calling convention of the compiler, so ensure the hooks allow passing those functions directly. */
       void *(CJSON_CDECL *malloc_fn)(size_t sz);
       void (CJSON_CDECL *free_fn)(void *ptr);
-      void *(CJSON_CDECL *realloc_fn) (void *ptr, size_t new_size,
-				       size_t old_size);
+      void *(CJSON_CDECL *realloc_fn) (void *ptr, size_t sz);
 } cJSON_Hooks;
 
 typedef int cJSON_bool;
@@ -256,9 +237,10 @@ CJSON_PUBLIC(cJSON *) cJSON_Duplicate(const cJSON *item, cJSON_bool recurse);
  * case_sensitive determines if object keys are treated case sensitive (1) or case insensitive (0) */
 CJSON_PUBLIC(cJSON_bool) cJSON_Compare(const cJSON * const a, const cJSON * const b, const cJSON_bool case_sensitive);
 
-/* Minify a strings, remove blank characters(such as ' ', '\t', '\r', '\n') from strings.
- * The input pointer json cannot point to a read-only address area, such as a string constant, 
- * but should point to a readable and writable adress area. */
+/* Minify a strings, remove blank characters(such as ' ', '\t', '\r', '\n')
+ * from strings. The input pointer json cannot point to a read-only address
+ * area, such as a string constant,
+ * but should point to a readable and writable address area. */
 CJSON_PUBLIC(void) cJSON_Minify(char *json);
 
 /* Helper functions for creating and adding items to an object at the same time.
@@ -281,14 +263,21 @@ CJSON_PUBLIC(double) cJSON_SetNumberHelper(cJSON *object, double number);
 /* Change the valuestring of a cJSON_String object, only takes effect when type of object is cJSON_String */
 CJSON_PUBLIC(char*) cJSON_SetValuestring(cJSON *object, const char *valuestring);
 
+/* If the object is not a boolean type this does nothing and returns
+ * cJSON_Invalid else it returns the new type*/
+#define cJSON_SetBoolValue(object, boolValue)                                 \
+  ((object != NULL && ((object)->type & (cJSON_False | cJSON_True))) ?        \
+	   (object)->type = ((object)->type & (~(cJSON_False | cJSON_True))) |      \
+		      ((boolValue) ? cJSON_True : cJSON_False) :              \
+	   cJSON_Invalid)
+
 /* Macro for iterating over an array or object */
 #define cJSON_ArrayForEach(element, array) for(element = (array != NULL) ? (array)->child : NULL; element != NULL; element = element->next)
 
 /* malloc/free objects using the malloc/free functions that have been set with cJSON_InitHooks */
 CJSON_PUBLIC(void *) cJSON_malloc(size_t size);
 CJSON_PUBLIC(void) cJSON_free(void *object);
-CJSON_PUBLIC (void *)
-cJSON_realloc (void *object, size_t new_size, size_t old_size);
+CJSON_PUBLIC (void *) cJSON_realloc (void *object, size_t size);
 
 #ifdef __cplusplus
 }

@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <stddef.h>
@@ -81,7 +71,7 @@ cnat_endpoint_encode (const cnat_endpoint_t * in,
   if (in->ce_flags & CNAT_EP_FLAG_RESOLVED)
     ip_address_encode2 (&in->ce_ip, &out->addr);
   else
-    clib_memset ((void *) &in->ce_ip, 0, sizeof (in->ce_ip));
+    clib_memset (&out->addr, 0, sizeof (out->addr));
 }
 
 static void
@@ -97,6 +87,7 @@ vl_api_cnat_translation_update_t_handler (vl_api_cnat_translation_update_t
   int rv = 0;
   u32 pi, n_paths;
   cnat_lb_type_t lb_type;
+  flow_hash_config_t flow_hash_config = 0;
 
   rv = ip_proto_decode (mp->translation.ip_proto, &ip_proto);
 
@@ -123,7 +114,10 @@ vl_api_cnat_translation_update_t_handler (vl_api_cnat_translation_update_t
     flags |= CNAT_FLAG_EXCLUSIVE;
 
   lb_type = (cnat_lb_type_t) mp->translation.lb_type;
-  id = cnat_translation_update (&vip, ip_proto, paths, flags, lb_type);
+  flow_hash_config = (flow_hash_config_t) clib_net_to_host_u32 (
+    mp->translation.flow_hash_config);
+  id = cnat_translation_update (&vip, ip_proto, paths, flags, lb_type,
+				flow_hash_config);
 
   vec_free (paths);
 
@@ -384,14 +378,6 @@ cnat_api_init (vlib_main_t * vm)
 VLIB_INIT_FUNCTION (cnat_api_init);
 
 VLIB_PLUGIN_REGISTER () = {
-    .version = VPP_BUILD_VER,
-    .description = "CNat Translate",
+  .version = VPP_BUILD_VER,
+  .description = "CNat Translate",
 };
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

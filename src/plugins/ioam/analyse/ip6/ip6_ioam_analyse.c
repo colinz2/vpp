@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/ethernet/ethernet.h>
@@ -94,13 +84,11 @@ set_ioam_analyse_command_fn (vlib_main_t * vm, unformat_input_t * input,
   return (ioam_analyse_enable_disable (vm, is_add, is_export, remote_listen));
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_ioam_analyse_command, static) = {
   .path = "set ioam analyse",
   .short_help = "set ioam analyse [export-ipfix-collector] [disable] [listen-ipfix]",
   .function = set_ioam_analyse_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 show_ioam_analyse_cmd_fn (vlib_main_t * vm, unformat_input_t * input,
@@ -130,13 +118,11 @@ show_ioam_analyse_cmd_fn (vlib_main_t * vm, unformat_input_t * input,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (ip6_show_ioam_ipfix_cmd, static) = {
   .path = "show ioam analyse ",
   .short_help = "show ioam analyser information",
   .function = show_ioam_analyse_cmd_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 ioam_analyse_init (vlib_main_t * vm)
@@ -154,11 +140,3 @@ ioam_analyse_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (ioam_analyse_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * af_packet.c - linux kernel packet interface
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * af_packet.c - linux kernel packet interface
  */
 
 #include <fcntl.h>		/* for open */
@@ -47,6 +36,7 @@ af_packet_create_command_fn (vlib_main_t * vm, unformat_input_t * input,
   af_packet_create_if_arg_t _arg, *arg = &_arg;
   clib_error_t *error = NULL;
   u8 hwaddr[6];
+  u32 nqs;
   int r;
 
   clib_memset (arg, 0, sizeof (*arg));
@@ -79,10 +69,10 @@ af_packet_create_command_fn (vlib_main_t * vm, unformat_input_t * input,
       else if (unformat (line_input, "tx-per-block %u",
 			 &arg->tx_frames_per_block))
 	;
-      else if (unformat (line_input, "num-rx-queues %u", &arg->num_rxqs))
-	;
-      else if (unformat (line_input, "num-tx-queues %u", &arg->num_txqs))
-	;
+      else if (unformat (line_input, "num-rx-queues %u", &nqs))
+	arg->num_rxqs = nqs;
+      else if (unformat (line_input, "num-tx-queues %u", &nqs))
+	arg->num_txqs = nqs;
       else if (unformat (line_input, "qdisc-bypass-disable"))
 	arg->flags &= ~AF_PACKET_IF_FLAGS_QDISC_BYPASS;
       else if (unformat (line_input, "cksum-gso-disable"))
@@ -278,6 +268,52 @@ VLIB_CLI_COMMAND (af_packet_set_l4_cksum_offload_command, static) = {
   .function = af_packet_set_l4_cksum_offload_command_fn,
 };
 
+static clib_error_t *
+af_packet_enable_disable_qdisc_bypass_command_fn (vlib_main_t *vm,
+						  unformat_input_t *input,
+						  vlib_cli_command_t *cmd)
+{
+  unformat_input_t _line_input, *line_input = &_line_input;
+  u8 enable_disable = 0;
+  clib_error_t *error = NULL;
+  vnet_main_t *vnm = vnet_get_main ();
+  u32 sw_if_index;
+
+  if (!unformat_user (input, unformat_line_input, line_input))
+    return 0;
+
+  while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (line_input, "%U", unformat_vnet_sw_interface, vnm,
+		    &sw_if_index))
+	;
+      else if (unformat (line_input, "enable"))
+	enable_disable = 1;
+      else if (unformat (line_input, "disable"))
+	enable_disable = 0;
+      else
+	{
+	  error = clib_error_return (0, "unknown input '%U'",
+				     format_unformat_error, line_input);
+	  goto done;
+	}
+    }
+
+  if (af_packet_enable_disable_qdisc_bypass (sw_if_index, enable_disable) < 0)
+    error = clib_error_return (0, "not an af_packet interface");
+
+done:
+  unformat_free (line_input);
+  return error;
+}
+
+VLIB_CLI_COMMAND (af_packet_enable_disable_qdisc_bypass_command, static) = {
+  .path = "set host-interface qdisc-bypass",
+  .short_help =
+    "set host-interface qdisc-bypass <host-if-name> <enable|disable>",
+  .function = af_packet_enable_disable_qdisc_bypass_command_fn,
+};
+
 clib_error_t *
 af_packet_cli_init (vlib_main_t * vm)
 {
@@ -285,11 +321,3 @@ af_packet_cli_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (af_packet_cli_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

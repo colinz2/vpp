@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <stdint.h>
@@ -279,7 +269,6 @@ VLIB_NODE_FN (ip4_flow_classify_node) (vlib_main_t * vm,
   return flow_classify_inline (vm, node, frame, FLOW_CLASSIFY_TABLE_IP4);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip4_flow_classify_node) = {
   .name = "ip4-flow-classify",
   .vector_size = sizeof (u32),
@@ -291,7 +280,6 @@ VLIB_REGISTER_NODE (ip4_flow_classify_node) = {
     [FLOW_CLASSIFY_NEXT_INDEX_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 VLIB_NODE_FN (ip6_flow_classify_node) (vlib_main_t * vm,
 				       vlib_node_runtime_t * node,
@@ -300,7 +288,6 @@ VLIB_NODE_FN (ip6_flow_classify_node) (vlib_main_t * vm,
   return flow_classify_inline (vm, node, frame, FLOW_CLASSIFY_TABLE_IP6);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_flow_classify_node) = {
   .name = "ip6-flow-classify",
   .vector_size = sizeof (u32),
@@ -313,7 +300,6 @@ VLIB_REGISTER_NODE (ip6_flow_classify_node) = {
   },
 };
 
-/* *INDENT-ON* */
 
 
 static clib_error_t *
@@ -329,11 +315,3 @@ flow_classify_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (flow_classify_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

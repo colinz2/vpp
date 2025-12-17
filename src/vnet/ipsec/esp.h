@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef __ESP_H__
 #define __ESP_H__
 
@@ -37,27 +28,21 @@ typedef struct
   u8 next_header;
 } esp_footer_t;
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   ip4_header_t ip4;
   esp_header_t esp;
 }) ip4_and_esp_header_t;
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   ip4_header_t ip4;
   udp_header_t udp;
   esp_header_t esp;
 }) ip4_and_udp_and_esp_header_t;
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   ip6_header_t ip6;
   esp_header_t esp;
 }) ip6_and_esp_header_t;
-/* *INDENT-ON* */
 
 /**
  * AES counter mode nonce
@@ -85,46 +70,28 @@ typedef struct esp_aead_t_
   u32 data[3];
 } __clib_packed esp_aead_t;
 
-#define ESP_SEQ_MAX		(4294967295UL)
-
 u8 *format_esp_header (u8 * s, va_list * args);
 
 /* TODO seq increment should be atomic to be accessed by multiple workers */
 always_inline int
-esp_seq_advance (ipsec_sa_t * sa)
+esp_seq_advance (ipsec_sa_outb_rt_t *ort)
 {
-  if (PREDICT_TRUE (ipsec_sa_is_set_USE_ESN (sa)))
-    {
-      if (PREDICT_FALSE (sa->seq == ESP_SEQ_MAX))
-	{
-	  if (PREDICT_FALSE (ipsec_sa_is_set_USE_ANTI_REPLAY (sa) &&
-			     sa->seq_hi == ESP_SEQ_MAX))
-	    return 1;
-	  sa->seq_hi++;
-	}
-      sa->seq++;
-    }
-  else
-    {
-      if (PREDICT_FALSE (ipsec_sa_is_set_USE_ANTI_REPLAY (sa) &&
-			 sa->seq == ESP_SEQ_MAX))
-	return 1;
-      sa->seq++;
-    }
-
+  u64 max = ort->use_esn ? CLIB_U64_MAX : CLIB_U32_MAX;
+  if (ort->seq64 == max)
+    return 1;
+  ort->seq64++;
   return 0;
 }
 
 always_inline u16
-esp_aad_fill (u8 *data, const esp_header_t *esp, const ipsec_sa_t *sa,
-	      u32 seq_hi)
+esp_aad_fill (u8 *data, const esp_header_t *esp, int use_esn, u32 seq_hi)
 {
   esp_aead_t *aad;
 
   aad = (esp_aead_t *) data;
   aad->data[0] = esp->spi;
 
-  if (ipsec_sa_is_set_USE_ESN (sa))
+  if (use_esn)
     {
       /* SPI, seq-hi, seq-low */
       aad->data[1] = (u32) clib_host_to_net_u32 (seq_hi);
@@ -193,8 +160,8 @@ esp_decrypt_err_to_sa_err (u32 err)
 
 always_inline void
 esp_encrypt_set_next_index (vlib_buffer_t *b, vlib_node_runtime_t *node,
-			    u32 thread_index, u32 err, u16 index, u16 *nexts,
-			    u16 drop_next, u32 sa_index)
+			    clib_thread_index_t thread_index, u32 err,
+			    u16 index, u16 *nexts, u16 drop_next, u32 sa_index)
 {
   ipsec_set_next_index (b, node, thread_index, err,
 			esp_encrypt_err_to_sa_err (err), index, nexts,
@@ -203,37 +170,12 @@ esp_encrypt_set_next_index (vlib_buffer_t *b, vlib_node_runtime_t *node,
 
 always_inline void
 esp_decrypt_set_next_index (vlib_buffer_t *b, vlib_node_runtime_t *node,
-			    u32 thread_index, u32 err, u16 index, u16 *nexts,
-			    u16 drop_next, u32 sa_index)
+			    clib_thread_index_t thread_index, u32 err,
+			    u16 index, u16 *nexts, u16 drop_next, u32 sa_index)
 {
   ipsec_set_next_index (b, node, thread_index, err,
 			esp_decrypt_err_to_sa_err (err), index, nexts,
 			drop_next, sa_index);
-}
-
-/* when submitting a frame is failed, drop all buffers in the frame */
-always_inline u32
-esp_async_recycle_failed_submit (vlib_main_t *vm, vnet_crypto_async_frame_t *f,
-				 vlib_node_runtime_t *node, u32 err,
-				 u32 ipsec_sa_err, u16 index, u32 *from,
-				 u16 *nexts, u16 drop_next_index)
-{
-  vlib_buffer_t *b;
-  u32 n_drop = f->n_elts;
-  u32 *bi = f->buffer_indices;
-
-  while (n_drop--)
-    {
-      from[index] = bi[0];
-      b = vlib_get_buffer (vm, bi[0]);
-      ipsec_set_next_index (b, node, vm->thread_index, err, ipsec_sa_err,
-			    index, nexts, drop_next_index,
-			    vnet_buffer (b)->ipsec.sad_index);
-      bi++;
-      index++;
-    }
-
-  return (f->n_elts);
 }
 
 /**
@@ -249,7 +191,8 @@ typedef struct
     {
       u8 icv_sz;
       u8 iv_sz;
-      ipsec_sa_flags_t flags;
+      u8 esp_advance;
+      u8 tail_base;
       u32 sa_index;
     };
     u64 sa_data;
@@ -310,12 +253,41 @@ typedef struct
 extern esp_async_post_next_t esp_encrypt_async_next;
 extern esp_async_post_next_t esp_decrypt_async_next;
 
-#endif /* __ESP_H__ */
+/* when submitting a frame is failed, drop all buffers in the frame */
+always_inline u32
+esp_async_recycle_failed_submit (vlib_main_t *vm, vnet_crypto_async_frame_t *f,
+				 vlib_node_runtime_t *node, u32 err,
+				 u32 ipsec_sa_err, u16 index, u32 *from,
+				 u16 *nexts, u16 drop_next_index,
+				 bool is_encrypt)
+{
+  vlib_buffer_t *b;
+  u32 n_drop = f->n_elts;
+  u32 *bi = f->buffer_indices;
 
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+  while (n_drop--)
+    {
+      u32 sa_index;
+
+      from[index] = bi[0];
+      b = vlib_get_buffer (vm, bi[0]);
+
+      if (is_encrypt)
+	{
+	  sa_index = vnet_buffer (b)->ipsec.sad_index;
+	}
+      else
+	{
+	  sa_index = esp_post_data (b)->decrypt_data.sa_index;
+	}
+
+      ipsec_set_next_index (b, node, vm->thread_index, err, ipsec_sa_err,
+			    index, nexts, drop_next_index, sa_index);
+      bi++;
+      index++;
+    }
+
+  return (f->n_elts);
+}
+
+#endif /* __ESP_H__ */

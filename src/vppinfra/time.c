@@ -1,39 +1,7 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright (c) 2005 Eliot Dresselhaus
  */
-/*
-  Copyright (c) 2005 Eliot Dresselhaus
-
-  Permission is hereby granted, free of charge, to any person obtaining
-  a copy of this software and associated documentation files (the
-  "Software"), to deal in the Software without restriction, including
-  without limitation the rights to use, copy, modify, merge, publish,
-  distribute, sublicense, and/or sell copies of the Software, and to
-  permit persons to whom the Software is furnished to do so, subject to
-  the following conditions:
-
-  The above copyright notice and this permission notice shall be
-  included in all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
 
 #include <vppinfra/os.h>
 #include <vppinfra/time.h>
@@ -74,35 +42,35 @@ clock_frequency_from_proc_filesystem (void)
 {
   f64 cpu_freq = 1e9;		/* better than 40... */
   f64 ppc_timebase = 0;		/* warnings be gone */
-  int fd;
   unformat_input_t input;
 
-/* $$$$ aarch64 kernel doesn't report "cpu MHz" */
-#if defined(__aarch64__)
+#if defined(__x86_64__)
+  if (clib_cpu_supports_aperfmperf ())
+    return 0.0;
+#elif defined(__aarch64__)
+  /* $$$$ aarch64 kernel doesn't report "cpu MHz" */
   return 0.0;
 #endif
 
   cpu_freq = 0;
-  fd = open ("/proc/cpuinfo", 0);
-  if (fd < 0)
-    return cpu_freq;
-
-  unformat_init_clib_file (&input, fd);
 
   ppc_timebase = 0;
-  while (unformat_check_input (&input) != UNFORMAT_END_OF_INPUT)
+  if (unformat_init_file (&input, "/proc/cpuinfo"))
     {
-      if (unformat (&input, "cpu MHz : %f", &cpu_freq))
-	cpu_freq *= 1e6;
-      else if (unformat (&input, "timebase : %f", &ppc_timebase))
-	;
-      else
-	unformat_skip_line (&input);
+      while (unformat_check_input (&input) != UNFORMAT_END_OF_INPUT)
+	{
+	  if (unformat (&input, "cpu MHz : %f", &cpu_freq))
+	    cpu_freq *= 1e6;
+	  else if (unformat (&input, "timebase : %f", &ppc_timebase))
+	    ;
+	  else
+	    unformat_skip_line (&input);
+	}
+
+      unformat_free (&input);
     }
-
-  unformat_free (&input);
-
-  close (fd);
+  else
+    return cpu_freq;
 
   /* Override CPU frequency with time base for PPC. */
   if (ppc_timebase != 0)
@@ -117,21 +85,19 @@ static f64
 clock_frequency_from_sys_filesystem (void)
 {
   f64 cpu_freq = 0.0;
-  int fd;
   unformat_input_t input;
 
   /* Time stamp always runs at max frequency. */
   cpu_freq = 0;
-  fd = open ("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq", 0);
-  if (fd < 0)
-    goto done;
 
-  unformat_init_clib_file (&input, fd);
-  (void) unformat (&input, "%f", &cpu_freq);
-  cpu_freq *= 1e3;		/* measured in kHz */
-  unformat_free (&input);
-  close (fd);
-done:
+  if (unformat_init_file (
+	&input, "/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq"))
+    {
+      if (unformat (&input, "%f", &cpu_freq))
+	cpu_freq *= 1e3; /* measured in kHz */
+      unformat_free (&input);
+    }
+
   return cpu_freq;
 }
 
@@ -334,6 +300,7 @@ format_clib_time (u8 * s, va_list * args)
   clib_time_t *c = va_arg (*args, clib_time_t *);
   int verbose = va_arg (*args, int);
   f64 now, reftime, delta_reftime_in_seconds, error;
+  u32 indent = format_get_indent (s);
 
   /* Compute vpp elapsed time from the CPU clock */
   reftime = unix_time_now ();
@@ -348,15 +315,13 @@ format_clib_time (u8 * s, va_list * args)
 
   error = now - delta_reftime_in_seconds;
 
-  s = format (s, ", reftime %.6f, error %.6f, clocks/sec %.6f",
-	      delta_reftime_in_seconds, error, c->clocks_per_second);
+  s = format (s, "\n%Ucpu time %.6f now %lu last %lu since start %lu \n",
+	      format_white_space, indent, now, clib_cpu_time_now (),
+	      c->last_cpu_time, c->total_cpu_time);
+  s = format (s, "%Ureftime %.6f now %.6f last %.6f init %.6f\n",
+	      format_white_space, indent, delta_reftime_in_seconds, reftime,
+	      c->last_verify_reference_time, c->init_reference_time);
+  s = format (s, "%Uerror %.6f, clocks/sec %.6f", format_white_space, indent,
+	      error, c->clocks_per_second);
   return (s);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

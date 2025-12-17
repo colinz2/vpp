@@ -1,31 +1,26 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2022 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/session/application.h>
 #include <vnet/session/application_interface.h>
 #include <vnet/session/session.h>
 #include <http/http.h>
+#include <http/http_content_types.h>
+
+#define HTS_RX_BUF_SIZE (64 << 10)
 
 typedef struct
 {
   CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
   u32 session_index;
-  u32 thread_index;
+  clib_thread_index_t thread_index;
   u64 data_len;
   u64 data_offset;
   u32 vpp_session_index;
+  u64 left_recv;
+  u64 total_recv;
   union
   {
     /** threshold after which connection is closed */
@@ -34,6 +29,9 @@ typedef struct
     u32 close_rate;
   };
   u8 *uri;
+  u8 *rx_buf;
+  http_headers_ctx_t resp_headers;
+  u8 *resp_headers_buf;
 } hts_session_t;
 
 typedef struct hts_listen_cfg_
@@ -42,6 +40,7 @@ typedef struct hts_listen_cfg_
   u32 vrf;
   f64 rnd_close;
   u8 is_del;
+  u8 listen_h3;
 } hts_listen_cfg_t;
 
 typedef struct hs_main_
@@ -65,12 +64,13 @@ typedef struct hs_main_
   u8 no_zc;
   u8 *default_uri;
   u32 seed;
+  u8 *test_header_value;
 } hts_main_t;
 
 static hts_main_t hts_main;
 
 static hts_session_t *
-hts_session_alloc (u32 thread_index)
+hts_session_alloc (clib_thread_index_t thread_index)
 {
   hts_main_t *htm = &hts_main;
   hts_session_t *hs;
@@ -78,12 +78,13 @@ hts_session_alloc (u32 thread_index)
   pool_get_zero (htm->sessions[thread_index], hs);
   hs->session_index = hs - htm->sessions[thread_index];
   hs->thread_index = thread_index;
+  vec_validate (hs->resp_headers_buf, 255);
 
   return hs;
 }
 
 static hts_session_t *
-hts_session_get (u32 thread_index, u32 hts_index)
+hts_session_get (clib_thread_index_t thread_index, u32 hts_index)
 {
   hts_main_t *htm = &hts_main;
 
@@ -101,6 +102,9 @@ hts_session_free (hts_session_t *hs)
 
   if (htm->debug_level > 0)
     clib_warning ("Freeing session %u", hs->session_index);
+
+  vec_free (hs->rx_buf);
+  vec_free (hs->resp_headers_buf);
 
   if (CLIB_DEBUG)
     clib_memset (hs, 0xfa, sizeof (*hs));
@@ -151,7 +155,7 @@ hts_session_tx_zc (hts_session_t *hs, session_t *ts)
     svm_fifo_add_want_deq_ntf (ts->tx_fifo, SVM_FIFO_WANT_DEQ_NOTIF);
 
   if (svm_fifo_set_event (ts->tx_fifo))
-    session_send_io_evt_to_thread (ts->tx_fifo, SESSION_IO_EVT_TX);
+    session_program_tx_io_evt (ts->handle, SESSION_IO_EVT_TX);
 }
 
 static void
@@ -198,7 +202,7 @@ hts_session_tx_no_zc (hts_session_t *hs, session_t *ts)
     svm_fifo_add_want_deq_ntf (ts->tx_fifo, SVM_FIFO_WANT_DEQ_NOTIF);
 
   if (svm_fifo_set_event (ts->tx_fifo))
-    session_send_io_evt_to_thread (ts->tx_fifo, SESSION_IO_EVT_TX);
+    session_program_tx_io_evt (ts->handle, SESSION_IO_EVT_TX);
 }
 
 static inline void
@@ -223,22 +227,39 @@ hts_start_send_data (hts_session_t *hs, http_status_code_t status)
 {
   http_msg_t msg;
   session_t *ts;
+  u32 n_segs = 1;
+  svm_fifo_seg_t seg[2];
   int rv;
+
+  msg.data.headers_offset = 0;
+  msg.data.headers_len = 0;
+
+  if (hs->resp_headers.tail_offset)
+    {
+      msg.data.headers_len = hs->resp_headers.tail_offset;
+      seg[1].data = hs->resp_headers_buf;
+      seg[1].len = msg.data.headers_len;
+      n_segs = 2;
+    }
 
   msg.type = HTTP_MSG_REPLY;
   msg.code = status;
-  msg.content_type = HTTP_CONTENT_APP_OCTET_STREAM;
   msg.data.type = HTTP_MSG_DATA_INLINE;
-  msg.data.len = hs->data_len;
+  msg.data.body_len = hs->data_len;
+  msg.data.body_offset = msg.data.headers_len;
+  msg.data.len = msg.data.body_len + msg.data.headers_len;
+  seg[0].data = (u8 *) &msg;
+  seg[0].len = sizeof (msg);
 
   ts = session_get (hs->vpp_session_index, hs->thread_index);
-  rv = svm_fifo_enqueue (ts->tx_fifo, sizeof (msg), (u8 *) &msg);
-  ASSERT (rv == sizeof (msg));
+  rv = svm_fifo_enqueue_segments (ts->tx_fifo, seg, n_segs,
+				  0 /* allow partial */);
+  ASSERT (rv == (sizeof (msg) + msg.data.headers_len));
 
-  if (!msg.data.len)
+  if (!msg.data.body_len)
     {
       if (svm_fifo_set_event (ts->tx_fifo))
-	session_send_io_evt_to_thread (ts->tx_fifo, SESSION_IO_EVT_TX);
+	session_program_tx_io_evt (ts->handle, SESSION_IO_EVT_TX);
       return;
     }
 
@@ -246,7 +267,7 @@ hts_start_send_data (hts_session_t *hs, http_status_code_t status)
 }
 
 static int
-try_test_file (hts_session_t *hs, u8 *request)
+try_test_file (hts_session_t *hs, u8 *target)
 {
   char *test_str = "test_file";
   hts_main_t *htm = &hts_main;
@@ -254,10 +275,10 @@ try_test_file (hts_session_t *hs, u8 *request)
   uword file_size;
   int rc = 0;
 
-  if (memcmp (request, test_str, clib_strnlen (test_str, 9)))
+  if (memcmp (target, test_str, clib_strnlen (test_str, 9)))
     return -1;
 
-  unformat_init_vector (&input, vec_dup (request));
+  unformat_init_vector (&input, vec_dup (target));
   if (!unformat (&input, "test_file_%U", unformat_memory_size, &file_size))
     {
       rc = -1;
@@ -286,6 +307,9 @@ try_test_file (hts_session_t *hs, u8 *request)
 	}
     }
 
+  http_add_header (&hs->resp_headers, HTTP_HEADER_CONTENT_TYPE,
+		   http_content_type_token (HTTP_CONTENT_APP_OCTET_STREAM));
+
   hts_start_send_data (hs, HTTP_STATUS_OK);
 
 done:
@@ -294,39 +318,156 @@ done:
   return rc;
 }
 
+static inline void
+hts_session_rx_body (hts_session_t *hs, session_t *ts)
+{
+  hts_main_t *htm = &hts_main;
+  u32 n_deq;
+  int rv;
+
+  n_deq = svm_fifo_max_dequeue (ts->rx_fifo);
+  if (!htm->no_zc)
+    {
+      svm_fifo_dequeue_drop_all (ts->rx_fifo);
+    }
+  else
+    {
+      n_deq = clib_min (n_deq, HTS_RX_BUF_SIZE);
+      rv = svm_fifo_dequeue (ts->rx_fifo, n_deq, hs->rx_buf);
+      ASSERT (rv == n_deq);
+    }
+  hs->left_recv -= n_deq;
+  if (svm_fifo_needs_deq_ntf (ts->rx_fifo, n_deq))
+    {
+      svm_fifo_clear_deq_ntf (ts->rx_fifo);
+      session_program_transport_io_evt (ts->handle, SESSION_IO_EVT_RX);
+    }
+
+  if (hs->close_threshold > 0)
+    {
+      if ((f64) (hs->total_recv - hs->left_recv) / hs->total_recv >
+	  hs->close_threshold)
+	hts_disconnect_transport (hs);
+    }
+
+  if (hs->left_recv == 0)
+    {
+      hts_start_send_data (hs, HTTP_STATUS_OK);
+      vec_free (hs->rx_buf);
+    }
+}
+
 static int
 hts_ts_rx_callback (session_t *ts)
 {
+  hts_main_t *htm = &hts_main;
   hts_session_t *hs;
-  u8 *request = 0;
+  u8 *target = 0, *query = 0;
   http_msg_t msg;
+  unformat_input_t input;
+  u64 test_header_len;
   int rv;
 
   hs = hts_session_get (ts->thread_index, ts->opaque);
 
-  /* Read the http message header */
-  rv = svm_fifo_dequeue (ts->rx_fifo, sizeof (msg), (u8 *) &msg);
-  ASSERT (rv == sizeof (msg));
-
-  if (msg.type != HTTP_MSG_REQUEST || msg.method_type != HTTP_REQ_GET)
+  if (hs->left_recv == 0)
     {
-      hts_start_send_data (hs, HTTP_STATUS_METHOD_NOT_ALLOWED);
-      goto done;
+      hs->data_len = 0;
+      hs->rx_buf = 0;
+      http_init_headers_ctx (&hs->resp_headers, hs->resp_headers_buf,
+			     vec_len (hs->resp_headers_buf));
+      /* Read the http message header */
+      rv = svm_fifo_dequeue (ts->rx_fifo, sizeof (msg), (u8 *) &msg);
+      ASSERT (rv == sizeof (msg));
+
+      if (msg.type != HTTP_MSG_REQUEST)
+	{
+	  hts_start_send_data (hs, HTTP_STATUS_INTERNAL_ERROR);
+	  goto done;
+	}
+      if (msg.method_type != HTTP_REQ_GET && msg.method_type != HTTP_REQ_POST)
+	{
+	  http_add_header (&hs->resp_headers, HTTP_HEADER_ALLOW,
+			   http_token_lit ("GET, POST"));
+	  hts_start_send_data (hs, HTTP_STATUS_METHOD_NOT_ALLOWED);
+	  goto done;
+	}
+
+      if (msg.data.target_path_len == 0)
+	{
+	  hts_start_send_data (hs, HTTP_STATUS_BAD_REQUEST);
+	  goto done;
+	}
+
+      vec_validate (target, msg.data.target_path_len - 1);
+      rv = svm_fifo_peek (ts->rx_fifo, msg.data.target_path_offset,
+			  msg.data.target_path_len, target);
+      ASSERT (rv == msg.data.target_path_len);
+
+      if (htm->debug_level)
+	clib_warning ("%s request target: %v",
+		      msg.method_type == HTTP_REQ_GET ? "GET" : "POST",
+		      target);
+
+      if (msg.data.target_query_len != 0)
+	{
+	  vec_validate (query, msg.data.target_query_len - 1);
+	  rv = svm_fifo_peek (ts->rx_fifo, msg.data.target_query_offset,
+			      msg.data.target_query_len, query);
+	  ASSERT (rv == msg.data.target_query_len);
+	  if (htm->debug_level)
+	    clib_warning ("query: %v", query);
+	  unformat_init_vector (&input, query);
+	  if (unformat (&input, "test_header=%U", unformat_memory_size,
+			&test_header_len))
+	    {
+	      if (test_header_len > vec_len (htm->test_header_value))
+		{
+		  test_header_len = vec_len (htm->test_header_value);
+		  clib_warning ("test_header_len too big, truncated to %U",
+				format_memory_size, test_header_len);
+		}
+	      vec_resize (hs->resp_headers_buf,
+			  sizeof (http_app_header_t) + test_header_len);
+	      hs->resp_headers.len = vec_len (hs->resp_headers_buf);
+	      hs->resp_headers.buf = hs->resp_headers_buf;
+	      http_add_custom_header (
+		&hs->resp_headers, http_token_lit ("x-test"),
+		(const char *) htm->test_header_value, test_header_len);
+	    }
+	  vec_free (query);
+	}
+
+      if (msg.method_type == HTTP_REQ_GET)
+	{
+	  if (try_test_file (hs, target))
+	    hts_start_send_data (hs, HTTP_STATUS_NOT_FOUND);
+	  vec_free (target);
+	}
+      else
+	{
+	  vec_free (target);
+	  if (!msg.data.body_len)
+	    {
+	      hts_start_send_data (hs, HTTP_STATUS_BAD_REQUEST);
+	      goto done;
+	    }
+	  /* drop everything up to body */
+	  svm_fifo_dequeue_drop (ts->rx_fifo, msg.data.body_offset);
+	  hs->left_recv = msg.data.body_len;
+	  hs->total_recv = msg.data.body_len;
+	  if (htm->no_zc)
+	    vec_validate (hs->rx_buf, HTS_RX_BUF_SIZE - 1);
+	  if (svm_fifo_max_dequeue (ts->rx_fifo))
+	    hts_session_rx_body (hs, ts);
+	  return 0;
+	}
+
+    done:
+      svm_fifo_dequeue_drop (ts->rx_fifo, msg.data.len);
     }
-
-  if (!msg.data.len)
-    {
-      hts_start_send_data (hs, HTTP_STATUS_BAD_REQUEST);
-      goto done;
-    }
-
-  vec_validate (request, msg.data.len - 1);
-  rv = svm_fifo_dequeue (ts->rx_fifo, msg.data.len, request);
-
-  if (try_test_file (hs, request))
-    hts_start_send_data (hs, HTTP_STATUS_NOT_FOUND);
-
-done:
+  else
+    hts_session_rx_body (hs, ts);
 
   return 0;
 }
@@ -354,6 +495,7 @@ hts_ts_accept_callback (session_t *ts)
 
   hs = hts_session_alloc (ts->thread_index);
   hs->vpp_session_index = ts->session_index;
+  hs->left_recv = 0;
 
   ts->opaque = hs->session_index;
   ts->session_state = SESSION_STATE_READY;
@@ -493,49 +635,42 @@ hts_attach (hts_main_t *hm)
 }
 
 static int
-hts_transport_needs_crypto (transport_proto_t proto)
-{
-  return proto == TRANSPORT_PROTO_TLS || proto == TRANSPORT_PROTO_DTLS ||
-	 proto == TRANSPORT_PROTO_QUIC;
-}
-
-static int
 hts_start_listen (hts_main_t *htm, session_endpoint_cfg_t *sep, u8 *uri,
-		  f64 rnd_close)
+		  hts_listen_cfg_t *lcfg)
 {
   vnet_listen_args_t _a, *a = &_a;
-  u8 need_crypto;
   hts_session_t *hls;
   session_t *ls;
-  u32 thread_index = 0;
+  clib_thread_index_t thread_index = 0;
   int rv;
 
   clib_memset (a, 0, sizeof (*a));
   a->app_index = htm->app_index;
 
-  need_crypto = hts_transport_needs_crypto (sep->transport_proto);
-
   sep->transport_proto = TRANSPORT_PROTO_HTTP;
   clib_memcpy (&a->sep_ext, sep, sizeof (*sep));
 
-  if (need_crypto)
+  if (sep->flags & SESSION_ENDPT_CFG_F_SECURE)
     {
-      session_endpoint_alloc_ext_cfg (&a->sep_ext,
-				      TRANSPORT_ENDPT_EXT_CFG_CRYPTO);
-      a->sep_ext.ext_cfg->crypto.ckpair_index = htm->ckpair_index;
+      transport_endpt_ext_cfg_t *ext_cfg = session_endpoint_add_ext_cfg (
+	&a->sep_ext, TRANSPORT_ENDPT_EXT_CFG_CRYPTO,
+	sizeof (transport_endpt_crypto_cfg_t));
+      ext_cfg->crypto.ckpair_index = htm->ckpair_index;
+      if (lcfg->listen_h3)
+	ext_cfg->crypto.alpn_protos[0] = TLS_ALPN_PROTO_HTTP_3;
     }
 
   rv = vnet_listen (a);
 
-  if (need_crypto)
-    clib_mem_free (a->sep_ext.ext_cfg);
+  if (sep->flags & SESSION_ENDPT_CFG_F_SECURE)
+    session_endpoint_free_ext_cfgs (&a->sep_ext);
 
   if (rv)
     return rv;
 
   hls = hts_session_alloc (thread_index);
   hls->uri = vec_dup (uri);
-  hls->close_rate = (f64) 1 / rnd_close;
+  hls->close_rate = (f64) 1 / lcfg->rnd_close;
   ls = listen_session_get_from_handle (a->handle);
   hls->vpp_session_index = ls->session_index;
   hash_set_mem (htm->uri_to_handle, hls->uri, hls->session_index);
@@ -622,7 +757,7 @@ hts_listen (hts_main_t *htm, hts_listen_cfg_t *lcfg)
       sep.fib_index = fib_index;
     }
 
-  if ((rv = hts_start_listen (htm, &sep, uri_key, lcfg->rnd_close)))
+  if ((rv = hts_start_listen (htm, &sep, uri_key, lcfg)))
     {
       error = clib_error_return (0, "failed to listen on %v: %U", uri,
 				 format_session_error, rv);
@@ -646,6 +781,8 @@ hts_create (vlib_main_t *vm)
 
   if (htm->no_zc)
     vec_validate (htm->test_data, (64 << 10) - 1);
+
+  vec_validate_init_empty (htm->test_header_value, htm->fifo_size - 1024, 'x');
 
   if (hts_attach (htm))
     {
@@ -687,6 +824,8 @@ hts_create_command_fn (vlib_main_t *vm, unformat_input_t *input,
 	htm->debug_level = 1;
       else if (unformat (line_input, "vrf %u", &lcfg.vrf))
 	;
+      else if (unformat (line_input, "h3"))
+	lcfg.listen_h3 = 1;
       else if (unformat (line_input, "uri %s", &lcfg.uri))
 	;
       else if (unformat (line_input, "rnd-close %f", &lcfg.rnd_close))
@@ -717,7 +856,10 @@ start_server:
 
   if (htm->app_index == (u32) ~0)
     {
-      vnet_session_enable_disable (vm, 1 /* is_enable */);
+      session_enable_disable_args_t args = { .is_en = 1,
+					     .rt_engine_type =
+					       RT_BACKEND_ENGINE_RULE_TABLE };
+      vnet_session_enable_disable (vm, &args);
 
       if (hts_create (vm))
 	{
@@ -829,11 +971,3 @@ hs_main_init (vlib_main_t *vm)
 }
 
 VLIB_INIT_FUNCTION (hs_main_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

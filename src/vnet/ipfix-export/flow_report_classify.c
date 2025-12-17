@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vnet/ipfix-export/flow_report.h>
 #include <vnet/ipfix-export/flow_report_classify.h>
 #include <vnet/api_errno.h>
@@ -480,13 +471,11 @@ ipfix_classify_table_add_del_command_fn (vlib_main_t * vm,
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (ipfix_classify_table_add_del_command, static) = {
   .path = "ipfix classify table",
   .short_help = "ipfix classify table add|del <table-index>",
   .function = ipfix_classify_table_add_del_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 set_ipfix_classify_stream_command_fn (vlib_main_t * vm,
@@ -523,14 +512,12 @@ set_ipfix_classify_stream_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_ipfix_classify_stream_command, static) = {
   .path = "set ipfix classify stream",
   .short_help = "set ipfix classify stream"
                 "[domain <domain-id>] [src-port <src-port>]",
   .function = set_ipfix_classify_stream_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 flow_report_classify_init (vlib_main_t * vm)
@@ -544,11 +531,3 @@ flow_report_classify_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (flow_report_classify_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

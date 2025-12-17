@@ -1,19 +1,8 @@
-/*
- * node.c: p2p ethernet vpp node
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* node.c: p2p ethernet vpp node */
 
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
@@ -63,7 +52,7 @@ VLIB_NODE_FN (p2p_ethernet_input_node) (vlib_main_t * vm,
 					vlib_node_runtime_t * node,
 					vlib_frame_t * frame)
 {
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   u32 n_trace = vlib_get_trace_count (vm, node);
   u32 n_left_from, *from, *to_next;
   u32 next_index;
@@ -235,7 +224,6 @@ VLIB_NODE_FN (p2p_ethernet_input_node) (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (p2p_ethernet_input_node) = {
   .name = "p2p-ethernet-input",
   .vector_size = sizeof (u32),
@@ -253,12 +241,3 @@ VLIB_REGISTER_NODE (p2p_ethernet_input_node) = {
     [0] = "error-drop",
   },
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

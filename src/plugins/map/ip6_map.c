@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include "map.h"
 
 #include <vnet/ip/ip_frag.h>
@@ -166,7 +157,7 @@ ip6_map (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * frame)
     vlib_node_get_runtime (vm, ip6_map_node.index);
   map_main_t *mm = &map_main;
   vlib_combined_counter_main_t *cm = mm->domain_counters;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
 
   from = vlib_frame_vector_args (frame);
   n_left_from = frame->n_vectors;
@@ -559,7 +550,7 @@ ip6_map_post_ip4_reass (vlib_main_t * vm,
     vlib_node_get_runtime (vm, ip6_map_post_ip4_reass_node.index);
   map_main_t *mm = &map_main;
   vlib_combined_counter_main_t *cm = mm->domain_counters;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
 
   from = vlib_frame_vector_args (frame);
   n_left_from = frame->n_vectors;
@@ -651,7 +642,7 @@ ip6_map_icmp_relay (vlib_main_t * vm,
   vlib_node_runtime_t *error_node =
     vlib_node_get_runtime (vm, ip6_map_icmp_relay_node.index);
   map_main_t *mm = &map_main;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   u16 *fragment_ids, *fid;
 
   from = vlib_frame_vector_args (frame);
@@ -803,7 +794,6 @@ ip6_map_icmp_relay (vlib_main_t * vm,
 
 }
 
-/* *INDENT-OFF* */
 VNET_FEATURE_INIT (ip6_map_feature, static) =
 {
   .arc_name = "ip6-unicast",
@@ -836,9 +826,7 @@ VLIB_REGISTER_NODE(ip6_map_node) = {
     [IP6_MAP_NEXT_ICMP] = "ip6-icmp-error",
   },
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE(ip6_map_post_ip4_reass_node) = {
   .function = ip6_map_post_ip4_reass,
   .name = "ip6-map-post-ip4-reass",
@@ -854,9 +842,7 @@ VLIB_REGISTER_NODE(ip6_map_post_ip4_reass_node) = {
     [IP6_MAP_POST_IP4_REASS_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE(ip6_map_icmp_relay_node, static) = {
   .function = ip6_map_icmp_relay,
   .name = "ip6-map-icmp-relay",
@@ -871,7 +857,6 @@ VLIB_REGISTER_NODE(ip6_map_icmp_relay_node, static) = {
     [IP6_ICMP_RELAY_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 clib_error_t *
 ip6_map_init (vlib_main_t * vm)
@@ -882,14 +867,6 @@ ip6_map_init (vlib_main_t * vm)
   return 0;
 }
 
-VLIB_INIT_FUNCTION (ip6_map_init) =
-{
-.runs_after = VLIB_INITS ("map_init"),};
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+VLIB_INIT_FUNCTION (ip6_map_init) = {
+  .runs_after = VLIB_INITS ("map_init"),
+};

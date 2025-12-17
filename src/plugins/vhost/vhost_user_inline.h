@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #ifndef __VIRTIO_VHOST_USER_INLINE_H__
 #define __VIRTIO_VHOST_USER_INLINE_H__
 /* vhost-user inline functions */
@@ -135,18 +126,16 @@ vhost_map_guest_mem_done:
 	}
     }
 #endif
-  /* *INDENT-OFF* */
   ELOG_TYPE_DECLARE (el) =
   {
     .format = "failed to map guest mem addr %lx",
     .format_args = "i8",
   };
-  /* *INDENT-ON* */
   struct
   {
     uword addr;
   } *ed;
-  ed = ELOG_DATA (&vlib_global_main.elog_main, el);
+  ed = ELOG_DATA (vlib_get_elog_main (), el);
   ed->addr = addr;
   *hint = 0;
   return 0;
@@ -486,11 +475,3 @@ vhost_user_advance_last_used_idx (vhost_user_vring_t * vring)
 }
 
 #endif
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

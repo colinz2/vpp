@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef included_ring_h
@@ -33,19 +23,24 @@ clib_ring_header (void *v)
 }
 
 always_inline void
+clib_ring_reset (void *v)
+{
+  clib_ring_header_t *h = clib_ring_header (v);
+  h->next = 0;
+  h->n_enq = 0;
+}
+
+always_inline void
 clib_ring_new_inline (void **p, u32 elt_bytes, u32 size, u32 align)
 {
   void *v;
-  clib_ring_header_t *h;
   vec_attr_t va = { .elt_sz = elt_bytes,
 		    .hdr_sz = sizeof (clib_ring_header_t),
 		    .align = align };
 
   v = _vec_alloc_internal (size, &va);
 
-  h = clib_ring_header (v);
-  h->next = 0;
-  h->n_enq = 0;
+  clib_ring_reset (v);
   p[0] = v;
 }
 
@@ -123,11 +118,3 @@ clib_ring_get_first_inline (ring, sizeof(ring[0]), 1)
 clib_ring_get_first_inline (ring, sizeof(ring[0]), 0)
 
 #endif /* included_ring_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

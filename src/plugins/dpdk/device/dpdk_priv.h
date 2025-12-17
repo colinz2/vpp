@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #define DPDK_NB_RX_DESC_DEFAULT   1024
@@ -47,28 +37,36 @@ dpdk_device_flag_set (dpdk_device_t *xd, __typeof__ (xd->flags) flag, int val)
   xd->flags = val ? xd->flags | flag : xd->flags & ~flag;
 }
 
-static inline void
-dpdk_get_xstats (dpdk_device_t * xd)
-{
-  int len, ret;
+void dpdk_counters_xstats_init (dpdk_device_t *xd);
 
+static inline void
+dpdk_get_xstats (dpdk_device_t *xd, clib_thread_index_t thread_index)
+{
+  int ret;
+  int i;
   if (!(xd->flags & DPDK_DEVICE_FLAG_ADMIN_UP))
     return;
 
-  len = rte_eth_xstats_get (xd->port_id, NULL, 0);
-  if (len < 0)
-    return;
-
-  vec_validate (xd->xstats, len - 1);
-
-  ret = rte_eth_xstats_get (xd->port_id, xd->xstats, len);
-  if (ret < 0 || ret > len)
+  ret = rte_eth_xstats_get (xd->port_id, xd->xstats, vec_len (xd->xstats));
+  if (ret < 0)
     {
-      vec_set_len (xd->xstats, 0);
+      dpdk_log_warn ("rte_eth_xstats_get(%d) failed: %d", xd->port_id, ret);
+      return;
+    }
+  else if (ret != vec_len (xd->xstats))
+    {
+      dpdk_log_warn (
+	"rte_eth_xstats_get(%d) returned %d/%d stats. Resetting counters.",
+	xd->port_id, ret, vec_len (xd->xstats));
+      dpdk_counters_xstats_init (xd);
       return;
     }
 
-  vec_set_len (xd->xstats, len);
+  vec_foreach_index (i, xd->xstats)
+    {
+      vlib_set_simple_counter (&xd->xstats_counters, thread_index, i,
+			       xd->xstats[i].value);
+    }
 }
 
 #define DPDK_UPDATE_COUNTER(vnm, tidx, xd, stat, cnt)                         \
@@ -93,7 +91,7 @@ static inline void
 dpdk_update_counters (dpdk_device_t * xd, f64 now)
 {
   vnet_main_t *vnm = vnet_get_main ();
-  u32 thread_index = vlib_get_thread_index ();
+  clib_thread_index_t thread_index = vlib_get_thread_index ();
 
   xd->time_last_stats_update = now ? now : xd->time_last_stats_update;
   clib_memcpy_fast (&xd->last_stats, &xd->stats, sizeof (xd->last_stats));
@@ -107,7 +105,7 @@ dpdk_update_counters (dpdk_device_t * xd, f64 now)
   DPDK_UPDATE_COUNTER (vnm, thread_index, xd, ierrors,
 		       VNET_INTERFACE_COUNTER_RX_ERROR);
 
-  dpdk_get_xstats (xd);
+  dpdk_get_xstats (xd, thread_index);
 }
 
 #if RTE_VERSION < RTE_VERSION_NUM(21, 11, 0, 0)
@@ -184,7 +182,7 @@ dpdk_update_counters (dpdk_device_t * xd, f64 now)
 #define RTE_ETH_RSS_ESP			    ETH_RSS_ESP
 #define RTE_ETH_RSS_L4_DST_ONLY		    ETH_RSS_L4_DST_ONLY
 #define RTE_ETH_RSS_L4_SRC_ONLY		    ETH_RSS_L4_SRC_ONLY
-#define RTE_ETH_RSS_L3_DST_ONL		    ETH_RSS_L3_DST_ONL
+#define RTE_ETH_RSS_L3_DST_ONLY		    ETH_RSS_L3_DST_ONLY
 #define RTE_ETH_RSS_L3_SRC_ONLY		    ETH_RSS_L3_SRC_ONLY
 #define RTE_ETH_RETA_GROUP_SIZE		    RTE_RETA_GROUP_SIZE
 #define RTE_ETH_TX_OFFLOAD_IPV4_CKSUM	    DEV_TX_OFFLOAD_IPV4_CKSUM
@@ -194,6 +192,9 @@ dpdk_update_counters (dpdk_device_t * xd, f64 now)
 #define RTE_ETH_TX_OFFLOAD_OUTER_UDP_CKSUM  DEV_TX_OFFLOAD_OUTER_UDP_CKSUM
 #define RTE_ETH_TX_OFFLOAD_TCP_TSO	    DEV_TX_OFFLOAD_TCP_TSO
 #define RTE_ETH_TX_OFFLOAD_VXLAN_TNL_TSO    DEV_TX_OFFLOAD_VXLAN_TNL_TSO
+#define RTE_ETH_TX_OFFLOAD_GRE_TNL_TSO	    DEV_TX_OFFLOAD_GRE_TNL_TSO
+#define RTE_ETH_TX_OFFLOAD_IPIP_TNL_TSO	    DEV_TX_OFFLOAD_IPIP_TNL_TSO
+#define RTE_ETH_TX_OFFLOAD_GENEVE_TNL_TSO   DEV_TX_OFFLOAD_GENEVE_TNL_TSO
 #define RTE_ETH_TX_OFFLOAD_MULTI_SEGS	    DEV_TX_OFFLOAD_MULTI_SEGS
 #define RTE_ETH_RX_OFFLOAD_IPV4_CKSUM	    DEV_RX_OFFLOAD_IPV4_CKSUM
 #define RTE_ETH_RX_OFFLOAD_SCATTER	    DEV_RX_OFFLOAD_SCATTER
@@ -222,11 +223,3 @@ dpdk_update_counters (dpdk_device_t * xd, f64 now)
 #define RTE_ETH_RSS_UDP			    ETH_RSS_UDP
 #define RTE_ETH_RSS_TCP			    ETH_RSS_TCP
 #endif
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

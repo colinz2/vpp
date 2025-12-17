@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <stddef.h>
@@ -98,70 +88,6 @@ format_ip46_ping_result (u8 * s, va_list * args)
  * Make them thread-safe via a simple spinlock.
  *
  */
-
-
-static_always_inline uword
-get_cli_process_id_by_icmp_id_mt (vlib_main_t * vm, u16 icmp_id)
-{
-  ping_main_t *pm = &ping_main;
-  uword cli_process_id = PING_CLI_UNKNOWN_NODE;
-  ping_run_t *pr;
-
-  clib_spinlock_lock_if_init (&pm->ping_run_check_lock);
-  vec_foreach (pr, pm->active_ping_runs)
-  {
-    if (pr->icmp_id == icmp_id)
-      {
-	cli_process_id = pr->cli_process_id;
-	break;
-      }
-  }
-  clib_spinlock_unlock_if_init (&pm->ping_run_check_lock);
-  return cli_process_id;
-}
-
-
-static_always_inline void
-set_cli_process_id_by_icmp_id_mt (vlib_main_t * vm, u16 icmp_id,
-				  uword cli_process_id)
-{
-  ping_main_t *pm = &ping_main;
-  ping_run_t *pr;
-
-  clib_spinlock_lock_if_init (&pm->ping_run_check_lock);
-  vec_foreach (pr, pm->active_ping_runs)
-  {
-    if (pr->icmp_id == icmp_id)
-      {
-	pr->cli_process_id = cli_process_id;
-	goto have_found_and_set;
-      }
-  }
-  /* no such key yet - add a new one */
-  ping_run_t new_pr = {.icmp_id = icmp_id,.cli_process_id = cli_process_id };
-  vec_add1 (pm->active_ping_runs, new_pr);
-have_found_and_set:
-  clib_spinlock_unlock_if_init (&pm->ping_run_check_lock);
-}
-
-
-static_always_inline void
-clear_cli_process_id_by_icmp_id_mt (vlib_main_t * vm, u16 icmp_id)
-{
-  ping_main_t *pm = &ping_main;
-  ping_run_t *pr;
-
-  clib_spinlock_lock_if_init (&pm->ping_run_check_lock);
-  vec_foreach (pr, pm->active_ping_runs)
-  {
-    if (pr->icmp_id == icmp_id)
-      {
-	vec_del1 (pm->active_ping_runs, pr - pm->active_ping_runs);
-	break;
-      }
-  }
-  clib_spinlock_unlock_if_init (&pm->ping_run_check_lock);
-}
 
 static_always_inline int
 ip46_get_icmp_id_and_seq (vlib_main_t * vm, vlib_buffer_t * b0,
@@ -339,7 +265,6 @@ ip6_icmp_echo_reply_node_fn (vlib_main_t * vm,
 					     1 /* is_ip6 */ );
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_icmp_echo_reply_node, static) =
 {
   .function = ip6_icmp_echo_reply_node_fn,
@@ -365,7 +290,6 @@ VLIB_REGISTER_NODE (ip4_icmp_echo_reply_node, static) =
     [ICMP46_ECHO_REPLY_NEXT_PUNT] = "ip4-punt",
   },
 };
-/* *INDENT-ON* */
 
 static uword
 ip4_icmp_echo_request (vlib_main_t * vm,
@@ -560,7 +484,6 @@ format_icmp_input_trace (u8 * s, va_list * va)
   return s;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip4_icmp_echo_request_node,static) = {
   .function = ip4_icmp_echo_request,
   .name = "ip4-icmp-echo-request",
@@ -574,7 +497,6 @@ VLIB_REGISTER_NODE (ip4_icmp_echo_request_node,static) = {
     [0] = "ip4-load-balance",
   },
 };
-/* *INDENT-ON* */
 
 typedef enum
 {
@@ -1229,9 +1151,8 @@ done:
   return err;
 }
 
-static send_ip46_ping_result_t
-send_ip6_ping (vlib_main_t * vm,
-	       u32 table_id, ip6_address_t * pa6,
+send_ip46_ping_result_t
+send_ip6_ping (vlib_main_t *vm, u32 table_id, ip6_address_t *pa6,
 	       u32 sw_if_index, u16 seq_host, u16 id_host, u16 data_len,
 	       u32 burst, u8 verbose)
 {
@@ -1241,9 +1162,8 @@ send_ip6_ping (vlib_main_t * vm,
 			 id_host, data_len, burst, verbose, 1 /* is_ip6 */ );
 }
 
-static send_ip46_ping_result_t
-send_ip4_ping (vlib_main_t * vm,
-	       u32 table_id, ip4_address_t * pa4,
+send_ip46_ping_result_t
+send_ip4_ping (vlib_main_t *vm, u32 table_id, ip4_address_t *pa4,
 	       u32 sw_if_index, u16 seq_host, u16 id_host, u16 data_len,
 	       u32 burst, u8 verbose)
 {
@@ -1646,7 +1566,6 @@ done:
  * @cliexend
  * @endparblock
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (ping_command, static) =
 {
   .path = "ping",
@@ -1657,7 +1576,6 @@ VLIB_CLI_COMMAND (ping_command, static) =
   " [burst <count:1>] [verbose]",
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 ping_cli_init (vlib_main_t * vm)
@@ -1678,22 +1596,14 @@ ping_cli_init (vlib_main_t * vm)
   icmp6_register_type (vm, ICMP6_echo_request,
 		       ip6_icmp_echo_request_node.index);
 
+  ping_plugin_api_hookup (vm);
+
   return 0;
 }
 
 VLIB_INIT_FUNCTION (ping_cli_init);
 
-/* *INDENT-OFF* */
 VLIB_PLUGIN_REGISTER () = {
-    .version = VPP_BUILD_VER,
-    .description = "Ping (ping)",
+  .version = VPP_BUILD_VER,
+  .description = "Ping (ping)",
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,16 +1,5 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2021 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 /**
@@ -94,6 +83,22 @@ typedef struct vls_shared_data_
   clib_bitmap_t *listeners; /**< bitmap of wrks actively listening */
 } vls_shared_data_t;
 
+#define foreach_vls_flag _ (APP_CLOSED, "app closed")
+
+enum vls_flags_bits_
+{
+#define _(sym, str) VLS_FLAG_BIT_##sym,
+  foreach_vls_flag
+#undef _
+};
+
+typedef enum vls_flags_
+{
+#define _(sym, str) VLS_F_##sym = 1 << VLS_FLAG_BIT_##sym,
+  foreach_vls_flag
+#undef _
+} vls_flags_t;
+
 typedef struct vcl_locked_session_
 {
   clib_spinlock_t lock;	   /**< vls lock when in use */
@@ -103,6 +108,8 @@ typedef struct vcl_locked_session_
   u32 shared_data_index;   /**< shared data index if any */
   u32 owner_vcl_wrk_index; /**< vcl wrk of the vls wrk at alloc */
   uword *vcl_wrk_index_to_session_index; /**< map vcl wrk to session */
+  int libc_epfd;			 /**< epoll fd for libc epoll */
+  vls_flags_t flags;			 /**< vls flags */
 } vcl_locked_session_t;
 
 typedef struct vls_worker_
@@ -118,10 +125,13 @@ typedef struct vls_local_
 {
   int vls_wrk_index;		      /**< vls wrk index, 1 per process */
   volatile int vls_mt_n_threads;      /**< number of threads detected */
+  volatile int vls_mt_needs_locks;    /**< mt single vcl wrk needs locks */
   clib_rwlock_t vls_pool_lock;	      /**< per process/wrk vls pool locks */
   pthread_mutex_t vls_mt_mq_mlock;    /**< vcl mq lock */
-  pthread_mutex_t vls_mt_spool_mlock; /**< vcl select or pool lock */
+  pthread_rwlock_t vls_mt_spool_rwlock; /**< vcl select or pool rwlock */
+  volatile u32 vls_mt_spool_pending_wr; /**< pending writers */
   volatile u8 select_mp_check;	      /**< flag set if select checks done */
+  struct sigaction old_sa;	      /**< old sigaction to restore */
 } vls_process_local_t;
 
 static vls_process_local_t vls_local;
@@ -136,6 +146,37 @@ typedef struct vls_main_
 } vls_main_t;
 
 vls_main_t *vlsm;
+
+static pthread_key_t vls_mt_pthread_stop_key;
+
+#define foreach_mt_lock_type                                                  \
+  _ (LOCK_MQ, "mq")                                                           \
+  _ (RLOCK_SPOOL, "rlock_spool")                                              \
+  _ (WLOCK_SPOOL, "wlock_spool")                                              \
+  _ (RLOCK_POOL, "rlock_pool")                                                \
+  _ (WLOCK_POOL, "wlock_pool")
+
+enum vls_mt_lock_type_bit_
+{
+#define _(sym, str) VLS_MT_BIT_##sym,
+  foreach_mt_lock_type
+#undef _
+};
+
+typedef enum vls_mt_lock_type_
+{
+#define _(sym, str) VLS_MT_##sym = 1 << VLS_MT_BIT_##sym,
+  foreach_mt_lock_type
+#undef _
+} vls_mt_lock_type_t;
+
+typedef struct vls_mt_pthread_local_
+{
+  vls_mt_lock_type_t locks_acq;
+} vls_mt_pthread_local_t;
+
+static __thread vls_mt_pthread_local_t vls_mt_pthread_local;
+#define vlspt (&vls_mt_pthread_local)
 
 typedef enum
 {
@@ -246,29 +287,56 @@ vls_shared_data_pool_runlock (void)
 static inline void
 vls_mt_pool_rlock (void)
 {
-  if (vlsl->vls_mt_n_threads > 1)
-    clib_rwlock_reader_lock (&vlsl->vls_pool_lock);
+  if (vlsl->vls_mt_needs_locks)
+    {
+      clib_rwlock_reader_lock (&vlsl->vls_pool_lock);
+      vlspt->locks_acq |= VLS_MT_RLOCK_POOL;
+    }
 }
 
 static inline void
 vls_mt_pool_runlock (void)
 {
-  if (vlsl->vls_mt_n_threads > 1)
-    clib_rwlock_reader_unlock (&vlsl->vls_pool_lock);
+  if (vlspt->locks_acq & VLS_MT_RLOCK_POOL)
+    {
+      clib_rwlock_reader_unlock (&vlsl->vls_pool_lock);
+      vlspt->locks_acq &= ~VLS_MT_RLOCK_POOL;
+    }
 }
 
 static inline void
 vls_mt_pool_wlock (void)
 {
-  if (vlsl->vls_mt_n_threads > 1)
-    clib_rwlock_writer_lock (&vlsl->vls_pool_lock);
+  if (vlsl->vls_mt_needs_locks)
+    {
+      clib_rwlock_writer_lock (&vlsl->vls_pool_lock);
+      vlspt->locks_acq |= VLS_MT_WLOCK_POOL;
+    }
 }
 
 static inline void
 vls_mt_pool_wunlock (void)
 {
-  if (vlsl->vls_mt_n_threads > 1)
-    clib_rwlock_writer_unlock (&vlsl->vls_pool_lock);
+  if (vlspt->locks_acq & VLS_MT_WLOCK_POOL)
+    {
+      clib_rwlock_writer_unlock (&vlsl->vls_pool_lock);
+      vlspt->locks_acq &= ~VLS_MT_WLOCK_POOL;
+    }
+}
+
+static inline void
+vls_mt_pool_unlock (void)
+{
+  if (vlspt->locks_acq & VLS_MT_RLOCK_POOL)
+    {
+      clib_rwlock_reader_unlock (&vlsl->vls_pool_lock);
+      vlspt->locks_acq &= ~VLS_MT_RLOCK_POOL;
+    }
+  else if (vlspt->locks_acq & VLS_MT_WLOCK_POOL)
+    {
+      clib_rwlock_writer_unlock (&vlsl->vls_pool_lock);
+      vlspt->locks_acq &= ~VLS_MT_WLOCK_POOL;
+    }
 }
 
 typedef enum
@@ -279,16 +347,15 @@ typedef enum
   VLS_MT_OP_XPOLL,
 } vls_mt_ops_t;
 
-typedef enum
-{
-  VLS_MT_LOCK_MQ = 1 << 0,
-  VLS_MT_LOCK_SPOOL = 1 << 1
-} vls_mt_lock_type_t;
-
 static void
 vls_mt_add (void)
 {
-  vlsl->vls_mt_n_threads += 1;
+  u32 n_threads;
+
+  vlsl->vls_mt_needs_locks = 1;
+  n_threads =
+    __atomic_add_fetch (&vlsl->vls_mt_n_threads, 1, __ATOMIC_RELAXED);
+  vlspt->locks_acq = 0;
 
   /* If multi-thread workers are supported, for each new thread register a new
    * vcl worker with vpp. Otherwise, all threads use the same vcl worker, so
@@ -300,37 +367,128 @@ vls_mt_add (void)
     }
   else
     vcl_set_worker_index (vlsl->vls_wrk_index);
+
+  /* Only allow new pthread to be cancled in vls_mt_mq_lock */
+  if (n_threads >= 2)
+    pthread_setcancelstate (PTHREAD_CANCEL_DISABLE, NULL);
+
+  if (pthread_setspecific (vls_mt_pthread_stop_key, vcl_worker_get_current ()))
+    VDBG (0, "failed to setup key value");
 }
 
 static inline void
 vls_mt_mq_lock (void)
 {
   pthread_mutex_lock (&vlsl->vls_mt_mq_mlock);
+  vlspt->locks_acq |= VLS_MT_LOCK_MQ;
+}
+
+static inline int
+vls_mt_mq_trylock (void)
+{
+  int rv = pthread_mutex_trylock (&vlsl->vls_mt_mq_mlock);
+  vlspt->locks_acq |= rv ? 0 : VLS_MT_LOCK_MQ;
+  return rv;
 }
 
 static inline void
 vls_mt_mq_unlock (void)
 {
   pthread_mutex_unlock (&vlsl->vls_mt_mq_mlock);
+  vlspt->locks_acq &= ~VLS_MT_LOCK_MQ;
 }
 
 static inline void
-vls_mt_spool_lock (void)
+vls_mt_spool_rlock (void)
 {
-  pthread_mutex_lock (&vlsl->vls_mt_spool_mlock);
+  /* Favor writers as they can be close operations that hold off all other
+   * operations */
+  while (vlsl->vls_mt_spool_pending_wr)
+    CLIB_PAUSE ();
+  pthread_rwlock_rdlock (&vlsl->vls_mt_spool_rwlock);
+  vlspt->locks_acq |= VLS_MT_RLOCK_SPOOL;
 }
 
 static inline void
-vls_mt_create_unlock (void)
+vls_mt_spool_wlock (void)
 {
-  pthread_mutex_unlock (&vlsl->vls_mt_spool_mlock);
+  vlsl->vls_mt_spool_pending_wr += 1;
+  pthread_rwlock_wrlock (&vlsl->vls_mt_spool_rwlock);
+  vlspt->locks_acq |= VLS_MT_WLOCK_SPOOL;
+  vlsl->vls_mt_spool_pending_wr -= 1;
+}
+
+static inline void
+vls_mt_spool_runlock (void)
+{
+  pthread_rwlock_unlock (&vlsl->vls_mt_spool_rwlock);
+  vlspt->locks_acq &= ~VLS_MT_RLOCK_SPOOL;
+}
+
+static inline void
+vls_mt_spool_wunlock (void)
+{
+  pthread_rwlock_unlock (&vlsl->vls_mt_spool_rwlock);
+  vlspt->locks_acq &= ~VLS_MT_WLOCK_SPOOL;
+}
+
+static inline void
+vls_mt_spool_unlock (void)
+{
+  if (vlspt->locks_acq & VLS_MT_RLOCK_SPOOL)
+    vls_mt_spool_runlock ();
+  else if (vlspt->locks_acq & VLS_MT_WLOCK_SPOOL)
+    vls_mt_spool_wunlock ();
+}
+
+static void
+vls_mt_rel_locks ()
+{
+  if (vlspt->locks_acq & VLS_MT_LOCK_MQ)
+    vls_mt_mq_unlock ();
+  if (vlspt->locks_acq & (VLS_MT_RLOCK_SPOOL | VLS_MT_WLOCK_SPOOL))
+    vls_mt_spool_unlock ();
 }
 
 static void
 vls_mt_locks_init (void)
 {
   pthread_mutex_init (&vlsl->vls_mt_mq_mlock, NULL);
-  pthread_mutex_init (&vlsl->vls_mt_spool_mlock, NULL);
+  pthread_rwlock_init (&vlsl->vls_mt_spool_rwlock, NULL);
+}
+
+static void
+vls_mt_del (void *arg)
+{
+  vcl_worker_t *wrk = (vcl_worker_t *) arg;
+  u32 n_threads;
+
+  VDBG (0, "vls worker %u vcl worker %u nthreads %u cleaning up pthread",
+	vlsl->vls_wrk_index, vcl_get_worker_index (), vlsl->vls_mt_n_threads);
+
+  if (wrk != vcl_worker_get_current ())
+    {
+      VDBG (0, "vls_mt_del called with wrong worker %u != %u", wrk->wrk_index,
+	    vcl_get_worker_index ());
+      return;
+    }
+
+  n_threads =
+    __atomic_sub_fetch (&vlsl->vls_mt_n_threads, 1, __ATOMIC_RELAXED);
+
+  /* drop locks if any held */
+  vls_mt_rel_locks ();
+  vls_mt_pool_unlock ();
+
+  if (vls_mt_wrk_supported ())
+    {
+      vppcom_worker_unregister ();
+    }
+  else
+    {
+      if (!n_threads)
+	vppcom_worker_unregister ();
+    }
 }
 
 u8
@@ -342,14 +500,22 @@ vls_is_shared (vcl_locked_session_t * vls)
 static inline void
 vls_lock (vcl_locked_session_t * vls)
 {
-  if ((vlsl->vls_mt_n_threads > 1) || vls_is_shared (vls))
+  if (vlsl->vls_mt_needs_locks || vls_is_shared (vls))
     clib_spinlock_lock (&vls->lock);
+}
+
+static inline int
+vls_trylock (vcl_locked_session_t *vls)
+{
+  if (vlsl->vls_mt_needs_locks || vls_is_shared (vls))
+    return !clib_spinlock_trylock (&vls->lock);
+  return 0;
 }
 
 static inline void
 vls_unlock (vcl_locked_session_t * vls)
 {
-  if ((vlsl->vls_mt_n_threads > 1) || vls_is_shared (vls))
+  if (vlsl->vls_mt_needs_locks || vls_is_shared (vls))
     clib_spinlock_unlock (&vls->lock);
 }
 
@@ -374,7 +540,13 @@ vls_worker_get_current (void)
   return pool_elt_at_index (vlsm->workers, vls_get_worker_index ());
 }
 
-static void
+static inline u8
+vls_n_workers (void)
+{
+  return pool_elts (vlsm->workers);
+}
+
+static vls_worker_t *
 vls_worker_alloc (void)
 {
   vls_worker_t *wrk;
@@ -385,6 +557,8 @@ vls_worker_alloc (void)
   wrk->vcl_wrk_index = vcl_get_worker_index ();
   vec_validate (wrk->pending_vcl_wrk_cleanup, 16);
   vec_reset_length (wrk->pending_vcl_wrk_cleanup);
+
+  return wrk;
 }
 
 static void
@@ -545,12 +719,30 @@ vlsh_to_sh (vls_handle_t vlsh)
   return rv;
 }
 
-vcl_session_handle_t
-vlsh_to_session_index (vls_handle_t vlsh)
+void
+vlsh_to_session_and_worker_index (vls_handle_t vlsh, u32 *session_index,
+				  u32 *wrk_index)
 {
-  vcl_session_handle_t sh;
-  sh = vlsh_to_sh (vlsh);
-  return vppcom_session_index (sh);
+  vcl_locked_session_t *vls;
+
+  vls_mt_pool_rlock ();
+
+  /* Do not lock vls because for mt apps that use select this could
+   * deadlock if multiple threads select on the same vlsh */
+  vls = vls_get (vlsh);
+
+  if (!vls)
+    {
+      *session_index = INVALID_SESSION_ID;
+      *wrk_index = INVALID_SESSION_ID;
+    }
+  else
+    {
+      *session_index = vls->session_index;
+      *wrk_index = vls->vcl_wrk_index;
+    }
+
+  vls_mt_pool_runlock ();
 }
 
 vls_handle_t
@@ -680,6 +872,7 @@ vls_listener_wrk_start_listen (vcl_locked_session_t * vls, u32 wrk_index)
   if (ls->flags & VCL_SESSION_F_PENDING_LISTEN)
     return;
 
+  ls->flags &= ~VCL_SESSION_F_LISTEN_NO_MQ;
   vcl_send_session_listen (wrk, ls);
 
   vls_listener_wrk_set (vls, wrk_index, 1 /* is_active */);
@@ -696,7 +889,7 @@ vls_listener_wrk_stop_listen (vcl_locked_session_t * vls, u32 wrk_index)
   if (s->session_state != VCL_STATE_LISTEN)
     return;
   vcl_send_session_unlisten (wrk, s);
-  s->session_state = VCL_STATE_LISTEN_NO_MQ;
+  s->flags |= VCL_SESSION_F_LISTEN_NO_MQ;
   vls_listener_wrk_set (vls, wrk_index, 0 /* is_active */ );
 }
 
@@ -847,13 +1040,14 @@ vls_share_session (vls_worker_t * vls_wrk, vcl_locked_session_t * vls)
 
   vls_shared_data_pool_runlock ();
 
-  if (s->rx_fifo)
+  if (s->session_state == VCL_STATE_LISTEN)
+    {
+      s->flags |= VCL_SESSION_F_LISTEN_NO_MQ;
+      s->rx_fifo = s->tx_fifo = 0;
+    }
+  else if (s->rx_fifo)
     {
       vcl_session_share_fifos (s, s->rx_fifo, s->tx_fifo);
-    }
-  else if (s->session_state == VCL_STATE_LISTEN)
-    {
-      s->session_state = VCL_STATE_LISTEN_NO_MQ;
     }
 }
 
@@ -862,7 +1056,6 @@ vls_share_sessions (vls_worker_t * vls_parent_wrk, vls_worker_t * vls_wrk)
 {
   vcl_locked_session_t *vls, *parent_vls;
 
-  /* *INDENT-OFF* */
   pool_foreach (vls, vls_wrk->vls_pool)  {
     /* Initialize sharing on parent session */
     if (vls->shared_data_index == ~0)
@@ -873,7 +1066,6 @@ vls_share_sessions (vls_worker_t * vls_parent_wrk, vls_worker_t * vls_wrk)
       }
     vls_share_session (vls_wrk, vls);
   }
-  /* *INDENT-ON* */
 }
 
 static void
@@ -948,8 +1140,21 @@ vls_worker_copy_on_fork (vcl_worker_t * parent_wrk)
   vls_share_sessions (vls_parent_wrk, vls_wrk);
 }
 
+static inline u8
+vcl_session_is_write_nonblk (vcl_session_t *s)
+{
+  int rv = vcl_session_write_ready (s);
+
+  if (!s->is_dgram)
+    return rv != 0;
+
+  /* Probably not common, but without knowing the actual write size, this is
+   * the only way we can guarantee the write won't block */
+  return rv < 0 ? 1 : (rv > (64 << 10));
+}
+
 static void
-vls_mt_acq_locks (vcl_locked_session_t * vls, vls_mt_ops_t op, int *locks_acq)
+vls_mt_acq_locks (vcl_locked_session_t *vls, vls_mt_ops_t op)
 {
   vcl_worker_t *wrk = vcl_worker_get_current ();
   vcl_session_t *s = 0;
@@ -966,44 +1171,34 @@ vls_mt_acq_locks (vcl_locked_session_t * vls, vls_mt_ops_t op, int *locks_acq)
   switch (op)
     {
     case VLS_MT_OP_READ:
-      if (!is_nonblk)
-	is_nonblk = vcl_session_read_ready (s) != 0;
-      if (!is_nonblk)
+      is_nonblk = is_nonblk ?: vcl_session_read_ready (s) != 0;
+      while (!is_nonblk && vls_mt_mq_trylock ())
 	{
-	  vls_mt_mq_lock ();
-	  *locks_acq |= VLS_MT_LOCK_MQ;
+	  /* might get data while waiting for lock */
+	  is_nonblk = vcl_session_read_ready (s) != 0;
 	}
+      vls_mt_spool_rlock ();
       break;
     case VLS_MT_OP_WRITE:
       ASSERT (s);
-      if (!is_nonblk)
-	is_nonblk = vcl_session_write_ready (s) != 0;
-      if (!is_nonblk)
+      is_nonblk = is_nonblk ?: vcl_session_is_write_nonblk (s);
+      while (!is_nonblk && vls_mt_mq_trylock ())
 	{
-	  vls_mt_mq_lock ();
-	  *locks_acq |= VLS_MT_LOCK_MQ;
+	  /* might get space while waiting for lock */
+	  is_nonblk = vcl_session_is_write_nonblk (s);
 	}
+      vls_mt_spool_rlock ();
       break;
     case VLS_MT_OP_XPOLL:
       vls_mt_mq_lock ();
-      *locks_acq |= VLS_MT_LOCK_MQ;
+      vls_mt_spool_rlock ();
       break;
     case VLS_MT_OP_SPOOL:
-      vls_mt_spool_lock ();
-      *locks_acq |= VLS_MT_LOCK_SPOOL;
+      vls_mt_spool_wlock ();
       break;
     default:
       break;
     }
-}
-
-static void
-vls_mt_rel_locks (int locks_acq)
-{
-  if (locks_acq & VLS_MT_LOCK_MQ)
-    vls_mt_mq_unlock ();
-  if (locks_acq & VLS_MT_LOCK_SPOOL)
-    vls_mt_create_unlock ();
 }
 
 static inline u8
@@ -1120,7 +1315,6 @@ vls_mt_detect (void)
 }
 
 #define vls_mt_guard(_vls, _op)                                               \
-  int _locks_acq = 0;                                                         \
   if (vls_mt_wrk_supported ())                                                \
     {                                                                         \
       if (PREDICT_FALSE (_vls &&                                              \
@@ -1134,13 +1328,13 @@ vls_mt_detect (void)
     }                                                                         \
   else                                                                        \
     {                                                                         \
-      if (PREDICT_FALSE (vlsl->vls_mt_n_threads > 1))                         \
-	vls_mt_acq_locks (_vls, _op, &_locks_acq);                            \
+      if (PREDICT_FALSE (vlsl->vls_mt_needs_locks))                           \
+	vls_mt_acq_locks (_vls, _op);                                         \
     }
 
-#define vls_mt_unguard()						\
-  if (PREDICT_FALSE (_locks_acq))					\
-    vls_mt_rel_locks (_locks_acq)
+#define vls_mt_unguard()                                                      \
+  if (PREDICT_FALSE (vlspt->locks_acq))                                       \
+  vls_mt_rel_locks ()
 
 int
 vls_write (vls_handle_t vlsh, void *buf, size_t nbytes)
@@ -1299,7 +1493,7 @@ vls_mp_checks (vcl_locked_session_t * vls, int is_add)
   vcl_session_t *s;
   u32 owner_wrk;
 
-  if (vls_mt_wrk_supported ())
+  if (vls_mt_wrk_supported () && vls_n_workers () <= 1)
     return;
 
   ASSERT (wrk->wrk_index == vls->vcl_wrk_index);
@@ -1307,36 +1501,41 @@ vls_mp_checks (vcl_locked_session_t * vls, int is_add)
   switch (s->session_state)
     {
     case VCL_STATE_LISTEN:
-      if (is_add)
+      if (!(s->flags & VCL_SESSION_F_LISTEN_NO_MQ))
 	{
-	  vls_listener_wrk_set (vls, vls->vcl_wrk_index, 1 /* is_active */);
-	  break;
+	  if (is_add)
+	    {
+	      vls_listener_wrk_set (vls, vls->vcl_wrk_index,
+				    1 /* is_active */);
+	      break;
+	    }
+	  /* Although removal from epoll means listener no longer accepts new
+	   * sessions, the accept queue built by vpp cannot be drained by
+	   * stopping the listener. Morover, some applications, e.g., nginx,
+	   * might constantly remove and add listeners to their epfds. Removing
+	   * listeners in such situations causes a lot of churn in vpp as
+	   * segments and segment managers need to be recreated. */
+	  /* vls_listener_wrk_stop_listen (vls, vls->vcl_wrk_index); */
 	}
-      /* Although removal from epoll means listener no longer accepts new
-       * sessions, the accept queue built by vpp cannot be drained by stopping
-       * the listener. Morover, some applications, e.g., nginx, might
-       * constantly remove and add listeners to their epfds. Removing
-       * listeners in such situations causes a lot of churn in vpp as segments
-       * and segment managers need to be recreated. */
-      /* vls_listener_wrk_stop_listen (vls, vls->vcl_wrk_index); */
-      break;
-    case VCL_STATE_LISTEN_NO_MQ:
-      if (!is_add)
-	break;
+      else
+	{
+	  if (!is_add)
+	    break;
 
-      /* Register worker as listener */
-      vls_listener_wrk_start_listen (vls, vls->vcl_wrk_index);
+	  /* Register worker as listener */
+	  vls_listener_wrk_start_listen (vls, vls->vcl_wrk_index);
 
-      /* If owner worker did not attempt to accept/xpoll on the session,
-       * force a listen stop for it, since it may not be interested in
-       * accepting new sessions.
-       * This is pretty much a hack done to give app workers the illusion
-       * that it is fine to listen and not accept new sessions for a
-       * given listener. Without it, we would accumulate unhandled
-       * accepts on the passive worker message queue. */
-      owner_wrk = vls_shared_get_owner (vls);
-      if (!vls_listener_wrk_is_active (vls, owner_wrk))
-	vls_listener_wrk_stop_listen (vls, owner_wrk);
+	  /* If owner worker did not attempt to accept/xpoll on the session,
+	   * force a listen stop for it, since it may not be interested in
+	   * accepting new sessions.
+	   * This is pretty much a hack done to give app workers the illusion
+	   * that it is fine to listen and not accept new sessions for a
+	   * given listener. Without it, we would accumulate unhandled
+	   * accepts on the passive worker message queue. */
+	  owner_wrk = vls_shared_get_owner (vls);
+	  if (!vls_listener_wrk_is_active (vls, owner_wrk))
+	    vls_listener_wrk_stop_listen (vls, owner_wrk);
+	}
       break;
     default:
       break;
@@ -1398,13 +1597,11 @@ vls_mt_session_cleanup (vcl_locked_session_t * vls)
 
   current_vcl_wrk = vcl_get_worker_index ();
 
-  /* *INDENT-OFF* */
   hash_foreach (wrk_index, session_index, vls->vcl_wrk_index_to_session_index,
     ({
       if (current_vcl_wrk != wrk_index)
 	vls_send_session_cleanup_rpc (wrk, wrk_index, session_index);
     }));
-  /* *INDENT-ON* */
   hash_free (vls->vcl_wrk_index_to_session_index);
 }
 
@@ -1415,14 +1612,22 @@ vls_close (vls_handle_t vlsh)
   int rv;
 
   vls_mt_detect ();
-  vls_mt_pool_wlock ();
 
-  vls = vls_get_and_lock (vlsh);
+  /* Notify vcl while holding a reader lock. Allows other threads to
+   * regrab vls and unlock it if needed. */
+  vls_mt_pool_rlock ();
+
+  vls = vls_get (vlsh);
   if (!vls)
     {
-      vls_mt_pool_wunlock ();
+      vls_mt_pool_runlock ();
       return VPPCOM_EBADFD;
     }
+
+  /* Notify other threads, if any, that app closed. Do it before
+   * grabbing lock as vls might be already locked */
+  vls->flags |= VLS_F_APP_CLOSED;
+  vls_lock (vls);
 
   vls_mt_guard (vls, VLS_MT_OP_SPOOL);
 
@@ -1434,8 +1639,23 @@ vls_close (vls_handle_t vlsh)
   if (vls_mt_wrk_supported ())
     vls_mt_session_cleanup (vls);
 
-  vls_free (vls);
   vls_mt_unguard ();
+  vls_unlock (vls);
+  vls_mt_pool_runlock ();
+
+  /* Drop mt reader lock on pool and acquire writer lock */
+  vls_mt_pool_wlock ();
+
+  vls = vls_get (vlsh);
+
+  /* Other threads might be still using the session */
+  while (vls_trylock (vls))
+    {
+      vls_mt_pool_wunlock ();
+      vls_mt_pool_wlock ();
+    }
+
+  vls_free (vls);
 
   vls_mt_pool_wunlock ();
 
@@ -1579,7 +1799,6 @@ vls_select_mp_checks (vcl_si_set * read_map)
   vlsl->select_mp_check = 1;
   wrk = vcl_worker_get_current ();
 
-  /* *INDENT-OFF* */
   clib_bitmap_foreach (si, read_map)  {
     s = vcl_session_get (wrk, si);
     if (s->session_state == VCL_STATE_LISTEN)
@@ -1588,7 +1807,6 @@ vls_select_mp_checks (vcl_si_set * read_map)
 	vls_mp_checks (vls, 1 /* is_add */);
       }
   }
-  /* *INDENT-ON* */
 }
 
 int
@@ -1608,6 +1826,20 @@ vls_select (int n_bits, vcl_si_set * read_map, vcl_si_set * write_map,
   return rv;
 }
 
+int
+vls_poll (vcl_poll_t *vp, uint32_t n_sids, double wait_for_time)
+{
+  int rv;
+  vcl_locked_session_t *vls = NULL;
+
+  vls_mt_detect ();
+  vls_mt_guard (vls, VLS_MT_OP_XPOLL);
+  rv = vppcom_poll (vp, n_sids, wait_for_time);
+  vls_mt_unguard ();
+  vls_handle_pending_wrk_cleanup ();
+  return rv;
+}
+
 static void
 vls_unshare_vcl_worker_sessions (vcl_worker_t * wrk)
 {
@@ -1621,13 +1853,11 @@ vls_unshare_vcl_worker_sessions (vcl_worker_t * wrk)
   current_wrk = vcl_get_worker_index ();
   is_current = current_wrk == wrk->wrk_index;
 
-  /* *INDENT-OFF* */
   pool_foreach (s, wrk->sessions)  {
     vls = vls_get (vls_si_wi_to_vlsh (s->session_index, wrk->wrk_index));
     if (vls && (is_current || vls_is_shared_by_wrk (vls, current_wrk)))
       vls_unshare_session (vls, wrk);
   }
-  /* *INDENT-ON* */
 }
 
 static void
@@ -1691,8 +1921,6 @@ vls_handle_pending_wrk_cleanup (void)
   vec_reset_length (vls_wrk->pending_vcl_wrk_cleanup);
 }
 
-static struct sigaction old_sa;
-
 static void
 vls_intercept_sigchld_handler (int signum, siginfo_t * si, void *uc)
 {
@@ -1702,7 +1930,7 @@ vls_intercept_sigchld_handler (int signum, siginfo_t * si, void *uc)
   if (vcl_get_worker_index () == ~0)
     return;
 
-  if (sigaction (SIGCHLD, &old_sa, 0))
+  if (sigaction (SIGCHLD, &vlsl->old_sa, 0))
     {
       VERR ("couldn't restore sigchld");
       exit (-1);
@@ -1715,6 +1943,9 @@ vls_intercept_sigchld_handler (int signum, siginfo_t * si, void *uc)
   child_wrk = vcl_worker_get_if_valid (wrk->forked_child);
   if (!child_wrk)
     goto done;
+
+  /* TODO we need to support multiple children */
+  wrk->forked_child = ~0;
 
   if (si && si->si_pid != child_wrk->current_pid)
     {
@@ -1731,14 +1962,15 @@ vls_intercept_sigchld_handler (int signum, siginfo_t * si, void *uc)
   vec_add1 (vls_wrk->pending_vcl_wrk_cleanup, child_wrk->wrk_index);
 
 done:
-  if (old_sa.sa_flags & SA_SIGINFO)
+  if (vlsl->old_sa.sa_flags & SA_SIGINFO)
     {
-      void (*fn) (int, siginfo_t *, void *) = old_sa.sa_sigaction;
-      fn (signum, si, uc);
+      void (*fn) (int, siginfo_t *, void *) = vlsl->old_sa.sa_sigaction;
+      if (fn)
+	fn (signum, si, uc);
     }
   else
     {
-      void (*fn) (int) = old_sa.sa_handler;
+      void (*fn) (int) = vlsl->old_sa.sa_handler;
       if (fn)
 	fn (signum);
     }
@@ -1748,7 +1980,7 @@ static void
 vls_incercept_sigchld ()
 {
   struct sigaction sa;
-  if (old_sa.sa_sigaction)
+  if (vlsl->old_sa.sa_sigaction)
     {
       VDBG (0, "have intercepted sigchld");
       return;
@@ -1756,11 +1988,17 @@ vls_incercept_sigchld ()
   clib_memset (&sa, 0, sizeof (sa));
   sa.sa_sigaction = vls_intercept_sigchld_handler;
   sa.sa_flags = SA_SIGINFO;
-  if (sigaction (SIGCHLD, &sa, &old_sa))
+  if (sigaction (SIGCHLD, &sa, &vlsl->old_sa))
     {
       VERR ("couldn't intercept sigchld");
       exit (-1);
     }
+
+  /* Not entirely clear how, but some processes can clear old_sa after fork
+   * and subsequently fork and register vls_intercept_sigchld_handler as
+   * old_sa handler leading to recursion */
+  if (vlsl->old_sa.sa_sigaction == vls_intercept_sigchld_handler)
+    vlsl->old_sa.sa_sigaction = 0;
 }
 
 static void
@@ -1774,6 +2012,7 @@ static void
 vls_app_fork_child_handler (void)
 {
   vcl_worker_t *parent_wrk;
+  vls_worker_t *vls_wrk;
   int parent_wrk_index;
 
   parent_wrk_index = vcl_get_worker_index ();
@@ -1797,11 +2036,11 @@ vls_app_fork_child_handler (void)
   /*
    * Allocate/initialize vls worker and share sessions
    */
-  vls_worker_alloc ();
+  vls_wrk = vls_worker_alloc ();
 
   /* Reset number of threads and set wrk index */
-  vlsl->vls_mt_n_threads = 0;
-  vlsl->vls_wrk_index = vcl_get_worker_index ();
+  vlsl->vls_mt_n_threads = 1;
+  vlsl->vls_wrk_index = vls_wrk - vlsm->workers;
   vlsl->select_mp_check = 0;
   clib_rwlock_init (&vlsl->vls_pool_lock);
   vls_mt_locks_init ();
@@ -1965,10 +2204,69 @@ vls_send_session_cleanup_rpc (vcl_worker_t * wrk,
 	dst_wrk_index, msg->session_index, msg->origin_vcl_wrk, ret);
 }
 
+static inline void
+vls_mt_mq_wait_lock (vcl_session_handle_t vcl_sh)
+{
+  vcl_locked_session_t *vls;
+  vls_worker_t *wrk;
+  uword *vlshp;
+
+  /* If mt wrk supported or single threaded just return */
+  if (vls_mt_wrk_supported () || !vlsl->vls_mt_needs_locks)
+    return;
+
+  wrk = vls_worker_get_current ();
+  /* Expect current thread to have dropped lock before calling vcl */
+  vls_mt_pool_rlock ();
+
+  vlshp = vls_sh_to_vlsh_table_get (wrk, vcl_sh);
+  if (vlshp)
+    {
+      vls = vls_get (*vlshp);
+      /* Handle case here other threads might've closed the session */
+      if (vls->flags & VLS_F_APP_CLOSED)
+	{
+	  vcl_session_t *s;
+	  s = vcl_session_get_w_handle (vcl_worker_get_current (), vcl_sh);
+	  s->flags |= VCL_SESSION_F_APP_CLOSING;
+	  vls_mt_pool_runlock ();
+	  return;
+	}
+    }
+
+  vls_mt_pool_runlock ();
+
+  vls_mt_mq_unlock ();
+
+  /* Only lock taken should be spool reader. Needed because VCL is probably
+   * touching a session while waiting for events */
+}
+
+static inline void
+vls_mt_mq_wait_unlock (vcl_session_handle_t vcl_sh)
+{
+  if (vls_mt_wrk_supported () || !vlsl->vls_mt_needs_locks)
+    return;
+
+  vls_mt_spool_runlock ();
+
+  /* No locks should be taken by pthread at this point. So writers to spool,
+   * which were blocked until now, should be able to proceed */
+
+  vls_mt_mq_lock ();
+  vls_mt_spool_rlock ();
+}
+
 int
 vls_app_create (char *app_name)
 {
   int rv;
+
+  if (pthread_key_create (&vls_mt_pthread_stop_key, vls_mt_del))
+    {
+      VDBG (0, "failed to add pthread cleanup function");
+      return -1;
+    }
 
   if ((rv = vppcom_app_create (app_name)))
     return rv;
@@ -1984,9 +2282,17 @@ vls_app_create (char *app_name)
   atexit (vls_app_exit);
   vls_worker_alloc ();
   vlsl->vls_wrk_index = vcl_get_worker_index ();
+  vlsl->vls_mt_n_threads = 1;
+  vlspt->locks_acq = 0;
+  if (pthread_setspecific (vls_mt_pthread_stop_key, vcl_worker_get_current ()))
+    VDBG (0, "failed to setup key value");
   clib_rwlock_init (&vlsl->vls_pool_lock);
   vls_mt_locks_init ();
   vcm->wrk_rpc_fn = vls_rpc_handler;
+  /* For multi threaded apps where sessions are implicitly shared, ask vcl
+   * to use these callbacks prior and after blocking on io operations */
+  vcl_worker_set_wait_mq_fns (vls_mt_mq_wait_lock, vls_mt_mq_wait_unlock);
+
   return VPPCOM_OK;
 }
 
@@ -2003,12 +2309,57 @@ vls_mt_wrk_supported (void)
 }
 
 int
-vls_use_real_epoll (void)
+vls_set_libc_epfd (vls_handle_t ep_vlsh, int libc_epfd)
 {
-  if (vcl_get_worker_index () == ~0)
-    return 0;
+  vcl_locked_session_t *vls;
 
-  return vcl_worker_get_current ()->vcl_needs_real_epoll;
+  vls_mt_detect ();
+  if (!(vls = vls_get_w_dlock (ep_vlsh)))
+    return VPPCOM_EBADFD;
+  if (vls_mt_session_should_migrate (vls))
+    {
+      vls = vls_mt_session_migrate (vls);
+      if (PREDICT_FALSE (!vls))
+	return VPPCOM_EBADFD;
+    }
+  vls->libc_epfd = libc_epfd;
+  vls_unlock (vls);
+  vls_mt_pool_runlock ();
+  return 0;
+}
+
+int
+vls_get_libc_epfd (vls_handle_t ep_vlsh)
+{
+  vcl_locked_session_t *vls;
+  int rv;
+
+  vls_mt_detect ();
+  vls_mt_pool_rlock ();
+
+  vls = vls_get (ep_vlsh);
+  if (!vls)
+    {
+      vls_mt_pool_runlock ();
+      return VPPCOM_EBADFD;
+    }
+
+  /* Avoid locking. In mt scenarios, one thread might be blocking waiting on
+   * the fd while another might be closing it. While closing, this attribute
+   * might be retrieved, so avoid deadlock */
+  rv = vls->libc_epfd;
+
+  vls_mt_pool_runlock ();
+
+  return rv;
+}
+
+void
+vls_set_epoll_fns (vls_epoll_fns_t ep_fns)
+{
+  vcm->vcl_epoll_create1 = ep_fns.epoll_create1_fn;
+  vcm->vcl_epoll_ctl = ep_fns.epoll_ctl_fn;
+  vcm->vcl_epoll_wait = ep_fns.epoll_wait_fn;
 }
 
 void
@@ -2016,11 +2367,3 @@ vls_register_vcl_worker (void)
 {
   vls_mt_add ();
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

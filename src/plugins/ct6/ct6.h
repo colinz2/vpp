@@ -1,20 +1,10 @@
 
-/*
- * ct6.h - skeleton vpp engine plug-in header file
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) <current-year> <your-organization>
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* ct6.h - skeleton vpp engine plug-in header file */
+
 #ifndef __included_ct6_h__
 #define __included_ct6_h__
 
@@ -26,7 +16,6 @@
 #include <vppinfra/hash.h>
 #include <vppinfra/error.h>
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED (struct
 {
   union
@@ -43,12 +32,11 @@ typedef CLIB_PACKED (struct
     u64 as_u64[6];
   };
 }) ct6_session_key_t;
-/* *INDENT-ON* */
 
 typedef struct
 {
   ct6_session_key_t key;
-  u32 thread_index;
+  clib_thread_index_t thread_index;
   u32 next_index;
   u32 prev_index;
   u32 hits;
@@ -97,7 +85,7 @@ static inline void
 ct6_lru_remove (ct6_main_t * cmp, ct6_session_t * s0)
 {
   ct6_session_t *next_sess, *prev_sess;
-  u32 thread_index;
+  clib_thread_index_t thread_index;
   u32 s0_index;
 
   thread_index = s0->thread_index;
@@ -130,7 +118,7 @@ static inline void
 ct6_lru_add (ct6_main_t * cmp, ct6_session_t * s0, f64 now)
 {
   ct6_session_t *next_sess;
-  u32 thread_index;
+  clib_thread_index_t thread_index;
   u32 s0_index;
 
   s0->hits++;
@@ -169,11 +157,3 @@ ct6_update_session_hit (ct6_main_t * cmp, ct6_session_t * s0, f64 now)
 }
 
 #endif /* __included_ct6_h__ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

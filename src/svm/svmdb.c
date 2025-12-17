@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * svmdb.c -- simple shared memory database
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2009 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * svmdb.c -- simple shared memory database
  */
 
 #include <stdio.h>
@@ -414,7 +403,6 @@ svmdb_local_dump_strings (svmdb_client_t * client)
 
   h = client->shm->namespaces[SVMDB_NAMESPACE_STRING];
 
-  /* *INDENT-OFF* */
   hash_foreach_mem(key, value, h,
   ({
     svmdb_value_t *v = pool_elt_at_index (shm->values, value);
@@ -422,7 +410,6 @@ svmdb_local_dump_strings (svmdb_client_t * client)
     fformat(stdout, "%s: %s\n", key,
             vec_len(v->value) ? v->value : (u8 *)"(nil)");
   }));
-  /* *INDENT-ON* */
   region_unlock (client->db_rp);
 }
 
@@ -438,7 +425,7 @@ svmdb_local_serialize_strings (svmdb_client_t * client, char *filename)
   u8 *sanitized_name = 0;
   int fd = 0;
 
-  if (strstr (filename, "..") || index (filename, '/'))
+  if (strstr (filename, "..") || strchr (filename, '/'))
     {
       error = clib_error_return (0, "Illegal characters in filename '%s'",
 				 filename);
@@ -463,7 +450,6 @@ svmdb_local_serialize_strings (svmdb_client_t * client, char *filename)
 
   serialize_likely_small_unsigned_integer (sm, hash_elts (h));
 
-  /* *INDENT-OFF* */
   hash_foreach_mem(key, value, h,
   ({
     svmdb_value_t *v = pool_elt_at_index (shm->values, value);
@@ -475,7 +461,6 @@ svmdb_local_serialize_strings (svmdb_client_t * client, char *filename)
         serialize_cstring (sm, (char *)v->value);
       }
   }));
-  /* *INDENT-ON* */
   region_unlock (client->db_rp);
 
   serialize_close (sm);
@@ -610,7 +595,6 @@ svmdb_local_dump_vecs (svmdb_client_t * client)
 
   h = client->shm->namespaces[SVMDB_NAMESPACE_VEC];
 
-  /* *INDENT-OFF* */
   hash_foreach_mem(key, value, h,
   ({
     svmdb_value_t *v = pool_elt_at_index (shm->values, value);
@@ -618,7 +602,6 @@ svmdb_local_dump_vecs (svmdb_client_t * client)
                    format_hex_bytes, v->value,
                    vec_len(v->value)*v->elsize, ((f64 *)(v->value))[0]);
   }));
-  /* *INDENT-ON* */
 
   region_unlock (client->db_rp);
 }
@@ -665,11 +648,3 @@ out:
   region_unlock (client->db_rp);
   return (rv);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

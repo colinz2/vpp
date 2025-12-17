@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vppinfra/time_range.h>
@@ -120,7 +110,7 @@ clib_timebase_time_to_components (f64 now, clib_timebase_component_t * cp)
       now = now - ((f64) days_in_year) * 86400.0;
       year++;
     }
-  while (now > 0.0);
+  while (now >= 0.0);
 
   days_since_epoch -= days_in_year;
   now += ((f64) days_in_year) * 86400;
@@ -138,7 +128,7 @@ clib_timebase_time_to_components (f64 now, clib_timebase_component_t * cp)
       now = now - ((f64) days_in_month) * 86400.0;
       month++;
     }
-  while (now > 0.0);
+  while (now >= 0.0);
 
   days_since_epoch -= days_in_month;
   now += ((f64) days_in_month) * 86400;
@@ -151,7 +141,7 @@ clib_timebase_time_to_components (f64 now, clib_timebase_component_t * cp)
       day_of_month++;
       days_since_epoch++;
     }
-  while (now > 0.0);
+  while (now >= 0.0);
 
   day_of_month--;
   days_since_epoch--;
@@ -264,11 +254,10 @@ format_clib_timebase_time (u8 * s, va_list * args)
 
   clib_timebase_time_to_components (now, cp);
 
-  s = format (s, "%s, %u %s %u %u:%02u:%02u",
-	      day_names_epoch_order[cp->day_name_index],
-	      cp->day,
-	      month_short_names[cp->month],
-	      cp->year, cp->hour, cp->minute, cp->second);
+  s = format (s, "%s, %02u %s %u %02u:%02u:%02u",
+	      day_names_epoch_order[cp->day_name_index], cp->day,
+	      month_short_names[cp->month], cp->year, cp->hour, cp->minute,
+	      cp->second);
   return (s);
 }
 
@@ -470,11 +459,3 @@ clib_timebase_summer_offset (clib_timebase_t * tb, f64 now)
   else
     return (0.0);
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

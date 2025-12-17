@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/session/application_namespace.h>
@@ -34,9 +24,28 @@ static app_namespace_t *app_namespace_pool;
 
 static u8 app_sapi_enabled;
 
+void
+app_namespace_walk (app_namespace_walk_fn_t fn, void *ctx)
+{
+  app_namespace_t *app_ns;
+
+  pool_foreach (app_ns, app_namespace_pool)
+    {
+      fn (app_ns, ctx);
+    }
+}
+
 app_namespace_t *
 app_namespace_get (u32 index)
 {
+  return pool_elt_at_index (app_namespace_pool, index);
+}
+
+app_namespace_t *
+app_namespace_get_if_valid (u32 index)
+{
+  if (pool_is_free_index (app_namespace_pool, index))
+    return 0;
   return pool_elt_at_index (app_namespace_pool, index);
 }
 
@@ -81,22 +90,26 @@ app_namespace_alloc (const u8 *ns_id)
   return app_ns;
 }
 
-int
-vnet_app_namespace_add_del (vnet_app_namespace_add_del_args_t * a)
+session_error_t
+vnet_app_namespace_add_del (vnet_app_namespace_add_del_args_t *a)
 {
   app_namespace_t *app_ns;
   session_table_t *st;
   u32 ns_index;
-  int rv;
+  session_error_t rv;
+  u32 ip4_fib_index, ip6_fib_index;
 
   if (a->is_add)
     {
       if (a->sw_if_index != APP_NAMESPACE_INVALID_INDEX
 	  && !vnet_get_sw_interface_or_null (vnet_get_main (),
 					     a->sw_if_index))
-	return VNET_API_ERROR_INVALID_SW_IF_INDEX;
+	return SESSION_E_INVALID;
 
-
+      /*
+       * sw_if_index takes precedence over fib_id's.
+       * When sw_if_index is provided, overwrite what's in fib_id's
+       */
       if (a->sw_if_index != APP_NAMESPACE_INVALID_INDEX)
 	{
 	  a->ip4_fib_id =
@@ -106,9 +119,24 @@ vnet_app_namespace_add_del (vnet_app_namespace_add_del_args_t * a)
 	    fib_table_get_table_id_for_sw_if_index (FIB_PROTOCOL_IP6,
 						    a->sw_if_index);
 	}
-      if (a->sw_if_index == APP_NAMESPACE_INVALID_INDEX
-	  && a->ip4_fib_id == APP_NAMESPACE_INVALID_INDEX)
-	return VNET_API_ERROR_INVALID_VALUE;
+      /* Either sw_if_index or one of 2 fib_id's must be provided */
+      if (a->sw_if_index == APP_NAMESPACE_INVALID_INDEX &&
+	  a->ip4_fib_id == APP_NAMESPACE_INVALID_INDEX &&
+	  a->ip6_fib_id == APP_NAMESPACE_INVALID_INDEX)
+	return SESSION_E_INVALID;
+
+      /* Validate the fib_id's */
+      ip4_fib_index = fib_table_find (FIB_PROTOCOL_IP4, a->ip4_fib_id);
+      ip6_fib_index = fib_table_find (FIB_PROTOCOL_IP6, a->ip6_fib_id);
+      if ((ip4_fib_index == ~0) && (ip6_fib_index == ~0))
+	return SESSION_E_INVALID;
+
+      /* if fib_id entered, check fib_id exist */
+      if (((a->ip4_fib_id != APP_NAMESPACE_INVALID_INDEX) &&
+	   (ip4_fib_index == ~0)) ||
+	  ((a->ip6_fib_id != APP_NAMESPACE_INVALID_INDEX) &&
+	   (ip6_fib_index == ~0)))
+	return SESSION_E_INVALID;
 
       app_ns = app_namespace_get_from_id (a->ns_id);
       if (!app_ns)
@@ -117,7 +145,7 @@ vnet_app_namespace_add_del (vnet_app_namespace_add_del_args_t * a)
 	  st = session_table_alloc ();
 	  session_table_init (st, FIB_PROTOCOL_MAX);
 	  st->is_local = 1;
-	  st->appns_index = app_namespace_index (app_ns);
+	  vec_add1 (st->appns_index, app_namespace_index (app_ns));
 	  app_ns->local_table_index = session_table_index (st);
 	  if (a->sock_name)
 	    {
@@ -134,25 +162,36 @@ vnet_app_namespace_add_del (vnet_app_namespace_add_del_args_t * a)
 		return rv;
 	    }
 	}
+      else
+	{
+	  /*
+	   * Not creating a new app_ns. We are just changing the binding of an
+	   * existing app_ns to different fib tables. Clean up the old session
+	   * table that was bound to these fib indices.
+	   */
+	  ns_index = app_namespace_index (app_ns);
+	  session_lookup_table_cleanup (FIB_PROTOCOL_IP4,
+					app_ns->ip4_fib_index, ns_index);
+	  session_lookup_table_cleanup (FIB_PROTOCOL_IP6,
+					app_ns->ip6_fib_index, ns_index);
+	}
 
       app_ns->ns_secret = a->secret;
       app_ns->sw_if_index = a->sw_if_index;
-      app_ns->ip4_fib_index =
-	fib_table_find (FIB_PROTOCOL_IP4, a->ip4_fib_id);
-      app_ns->ip6_fib_index =
-	fib_table_find (FIB_PROTOCOL_IP6, a->ip6_fib_id);
-      session_lookup_set_tables_appns (app_ns);
 
+      app_ns->ip4_fib_index = ip4_fib_index;
+      app_ns->ip6_fib_index = ip6_fib_index;
+      session_lookup_set_tables_appns (app_ns);
     }
   else
     {
       ns_index = app_namespace_index_from_id (a->ns_id);
       if (ns_index == APP_NAMESPACE_INVALID_INDEX)
-	return VNET_API_ERROR_INVALID_VALUE;
+	return SESSION_E_INVALID;
 
       app_ns = app_namespace_get (ns_index);
       if (!app_ns)
-	return VNET_API_ERROR_INVALID_VALUE;
+	return SESSION_E_INVALID;
 
       application_namespace_cleanup (app_ns);
 
@@ -164,6 +203,11 @@ vnet_app_namespace_add_del (vnet_app_namespace_add_del_args_t * a)
       session_table_free (st, FIB_PROTOCOL_MAX);
       if (app_ns->sock_name)
 	vec_free (app_ns->sock_name);
+
+      session_lookup_table_cleanup (FIB_PROTOCOL_IP4, app_ns->ip4_fib_index,
+				    ns_index);
+      session_lookup_table_cleanup (FIB_PROTOCOL_IP6, app_ns->ip6_fib_index,
+				    ns_index);
 
       app_namespace_free (app_ns);
     }
@@ -232,10 +276,97 @@ appns_sapi_enabled (void)
   return app_sapi_enabled;
 }
 
+static void
+app_namespace_table_bind_v4 (ip4_main_t *im, uword opaque, u32 sw_if_index,
+			     u32 new_fib_index, u32 old_fib_index)
+{
+  app_namespace_t *app_ns;
+
+  pool_foreach (app_ns, app_namespace_pool)
+    {
+      if (app_ns->sw_if_index == sw_if_index)
+	{
+	  /*
+	   * For add, call vnet_app_namespace_add_del without sw_if_index and
+	   * keep the existing ip6_fib_index.
+	   */
+	  vnet_app_namespace_add_del_args_t add = {
+	    .ns_id = vec_dup (app_ns->ns_id),
+	    .secret = app_ns->ns_secret,
+	    .sw_if_index = APP_NAMESPACE_INVALID_INDEX,
+	    .sock_name = vec_dup (app_ns->sock_name),
+	    .ip4_fib_id =
+	      fib_table_get_table_id (new_fib_index, FIB_PROTOCOL_IP4),
+	    .ip6_fib_id =
+	      fib_table_get_table_id (app_ns->ip6_fib_index, FIB_PROTOCOL_IP6),
+	    .is_add = 1,
+	  };
+	  vnet_app_namespace_add_del_args_t del = {
+	    .ns_id = app_ns->ns_id,
+	    .is_add = 0,
+	  };
+	  vnet_app_namespace_add_del (&del);
+
+	  vnet_app_namespace_add_del (&add);
+
+	  /* keep the sw_if_index */
+	  app_ns->sw_if_index = sw_if_index;
+
+	  vec_free (add.ns_id);
+	  vec_free (add.sock_name);
+	}
+    }
+}
+
+static void
+app_namespace_table_bind_v6 (ip6_main_t *im, uword opaque, u32 sw_if_index,
+			     u32 new_fib_index, u32 old_fib_index)
+{
+  app_namespace_t *app_ns;
+
+  pool_foreach (app_ns, app_namespace_pool)
+    {
+      if (app_ns->sw_if_index == sw_if_index)
+	{
+	  /*
+	   * For add, call vnet_app_namespace_add_del without sw_if_index and
+	   * keep the existing ip4_fib_index.
+	   */
+	  vnet_app_namespace_add_del_args_t add = {
+	    .ns_id = vec_dup (app_ns->ns_id),
+	    .secret = app_ns->ns_secret,
+	    .sw_if_index = APP_NAMESPACE_INVALID_INDEX,
+	    .sock_name = vec_dup (app_ns->sock_name),
+	    .ip4_fib_id =
+	      fib_table_get_table_id (app_ns->ip4_fib_index, FIB_PROTOCOL_IP4),
+	    .ip6_fib_id =
+	      fib_table_get_table_id (new_fib_index, FIB_PROTOCOL_IP6),
+	    .is_add = 1,
+	  };
+	  vnet_app_namespace_add_del_args_t del = {
+	    .ns_id = app_ns->ns_id,
+	    .is_add = 0,
+	  };
+	  vnet_app_namespace_add_del (&del);
+
+	  vnet_app_namespace_add_del (&add);
+
+	  /* keep the sw_if_index */
+	  app_ns->sw_if_index = sw_if_index;
+
+	  vec_free (add.ns_id);
+	  vec_free (add.sock_name);
+	}
+    }
+}
+
 void
 app_namespaces_init (void)
 {
   u8 *ns_id = format (0, "default");
+
+  VNET_SW_INTERFACE_TABLE_BIND_V4_CB (app_namespace_table_bind_v4);
+  VNET_SW_INTERFACE_TABLE_BIND_V6_CB (app_namespace_table_bind_v6);
 
   if (!app_namespace_lookup_table)
     app_namespace_lookup_table =
@@ -264,9 +395,11 @@ app_ns_fn (vlib_main_t * vm, unformat_input_t * input,
 	   vlib_cli_command_t * cmd)
 {
   u8 is_add = 0, *ns_id = 0, secret_set = 0, sw_if_index_set = 0;
+  u8 fib6_id_set = 0, fib4_id_set = 0;
   u8 *sock_name = 0;
   unformat_input_t _line_input, *line_input = &_line_input;
-  u32 sw_if_index, fib_id = APP_NAMESPACE_INVALID_INDEX;
+  u32 sw_if_index = APP_NAMESPACE_INVALID_INDEX;
+  u32 fib4_id = ~0, fib6_id = ~0;
   vnet_main_t *vnm = vnet_get_main ();
   u64 secret;
   clib_error_t *error = 0;
@@ -292,8 +425,10 @@ app_ns_fn (vlib_main_t * vm, unformat_input_t * input,
       else if (unformat (line_input, "if %U", unformat_vnet_sw_interface, vnm,
 			 &sw_if_index))
 	sw_if_index_set = 1;
-      else if (unformat (line_input, "fib_id", &fib_id))
-	;
+      else if (unformat (line_input, "ip4-fib-id %u", &fib4_id))
+	fib4_id_set = 1;
+      else if (unformat (line_input, "ip6-fib-id %u", &fib6_id))
+	fib6_id_set = 1;
       else if (unformat (line_input, "sock-name %_%v%_", &sock_name))
 	;
       else
@@ -310,9 +445,23 @@ app_ns_fn (vlib_main_t * vm, unformat_input_t * input,
       goto done;
     }
 
-  if (is_add && (!secret_set || !sw_if_index_set))
+  if (is_add &&
+      (!secret_set || (!sw_if_index_set && !fib4_id_set && !fib6_id_set)))
     {
-      vlib_cli_output (vm, "secret and interface must be provided");
+      vlib_cli_output (vm, "secret and interface or fib-id must be provided");
+      goto done;
+    }
+
+  /* Validate the fib-id is valid */
+  if (fib4_id_set && (fib_table_find (FIB_PROTOCOL_IP4, fib4_id) == ~0))
+    {
+      vlib_cli_output (vm, "ip4-fib-id %u does not exist", fib4_id);
+      goto done;
+    }
+
+  if (fib6_id_set && (fib_table_find (FIB_PROTOCOL_IP6, fib6_id) == ~0))
+    {
+      vlib_cli_output (vm, "ip6-fib-id %u does not exist", fib6_id);
       goto done;
     }
 
@@ -322,7 +471,8 @@ app_ns_fn (vlib_main_t * vm, unformat_input_t * input,
     .secret = secret,
     .sw_if_index = sw_if_index,
     .sock_name = sock_name,
-    .ip4_fib_id = fib_id,
+    .ip4_fib_id = fib4_id,
+    .ip6_fib_id = fib6_id,
     .is_add = is_add,
   };
   /* clang-format on */
@@ -339,14 +489,13 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (app_ns_command, static) = {
   .path = "app ns",
   .short_help = "app ns [add|del] id <namespace-id> secret <secret> "
-		"sw_if_index <sw_if_index> if <interface>",
+		"sw_if_index <sw_if_index> "
+		"{ip4-fib-id <id> ip6-fib-id <id> | if <interface>}",
   .function = app_ns_fn,
 };
-/* *INDENT-ON* */
 
 u8 *
 format_app_namespace (u8 * s, va_list * args)
@@ -387,7 +536,6 @@ app_namespace_show_api (vlib_main_t * vm, app_namespace_t * app_ns)
   vlib_cli_output (vm, "%12s%12s%5s", "app index", "wrk index", "fd");
 
 
-  /* *INDENT-OFF* */
   pool_foreach (cs, app_ns->app_sockets)  {
     handle = (app_ns_api_handle_t *) &cs->private_data;
     cf = clib_file_get (&file_main, handle->aah_file_index);
@@ -400,7 +548,6 @@ app_namespace_show_api (vlib_main_t * vm, app_namespace_t * app_ns)
     vlib_cli_output (vm, "%12d%12d%5u", app_wrk->app_index,
                      app_wrk->wrk_map_index, cf->file_descriptor);
   }
-  /* *INDENT-ON* */
 }
 
 static clib_error_t *
@@ -494,18 +641,8 @@ done:
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_app_ns_command, static) = {
   .path = "show app ns",
   .short_help = "show app ns [id <id> [api-clients]]",
   .function = show_app_ns_fn,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,25 +1,6 @@
-/*
-  Copyright (c) 2020 Damjan Marion
-
-  Permission is hereby granted, free of charge, to any person obtaining
-  a copy of this software and associated documentation files (the
-  "Software"), to deal in the Software without restriction, including
-  without limitation the rights to use, copy, modify, merge, publish,
-  distribute, sublicense, and/or sell copies of the Software, and to
-  permit persons to whom the Software is furnished to do so, subject to
-  the following conditions:
-
-  The above copyright notice and this permission notice shall be
-  included in all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
+/* SPDX-License-Identifier: MIT
+ * Copyright (c) 2020 Damjan Marion
+ */
 
 #include <vppinfra/format.h>
 #include <vppinfra/format_table.h>
@@ -125,6 +106,7 @@ format_table (u8 *s, va_list *args)
   table_t *t = va_arg (*args, table_t *);
   table_cell_t title_cell = { .text = t->title };
   int table_width = 0;
+  u32 indent = format_get_indent (s);
   for (int i = 0; i < vec_len (t->row_sizes); i++)
     table_width += t->row_sizes[i];
 
@@ -134,7 +116,7 @@ format_table (u8 *s, va_list *args)
       title_default =
 	t->default_title.as_u32 ? &t->default_title : &default_title;
       s = format_text_cell (t, s, &title_cell, title_default, table_width);
-      s = format (s, "\n");
+      s = format (s, "\n%U", format_white_space, indent);
     }
 
   for (int c = 0; c < vec_len (t->cells); c++)
@@ -161,7 +143,7 @@ format_table (u8 *s, va_list *args)
 				t->row_sizes[r]);
 	}
       if (c + 1 < vec_len (t->cells))
-	s = format (s, "\n");
+	s = format (s, "\n%U", format_white_space, indent);
     }
 
   return s;

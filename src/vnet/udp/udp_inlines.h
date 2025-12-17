@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef SRC_VNET_UDP_UDP_INLINES_H_
@@ -26,7 +16,7 @@
 #include <vnet/udp/udp_encap.h>
 
 always_inline void *
-vlib_buffer_push_udp (vlib_buffer_t * b, u16 sp, u16 dp, u8 offload_csum)
+vlib_buffer_push_udp (vlib_buffer_t *b, u16 sp, u16 dp)
 {
   udp_header_t *uh;
   u16 udp_len = sizeof (udp_header_t) + b->current_length;
@@ -38,8 +28,6 @@ vlib_buffer_push_udp (vlib_buffer_t * b, u16 sp, u16 dp, u8 offload_csum)
   uh->dst_port = dp;
   uh->checksum = 0;
   uh->length = clib_host_to_net_u16 (udp_len);
-  if (offload_csum)
-    vnet_buffer_offload_flags_set (b, VNET_BUFFER_OFFLOAD_F_UDP_CKSUM);
   vnet_buffer (b)->l4_hdr_offset = (u8 *) uh - b->data;
   b->flags |= VNET_BUFFER_F_L4_HDR_OFFSET_VALID;
   return uh;
@@ -306,11 +294,3 @@ ip_udp_encap_two (vlib_main_t *vm, vlib_buffer_t *b0, vlib_buffer_t *b1,
 }
 
 #endif /* SRC_VNET_UDP_UDP_INLINES_H_ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

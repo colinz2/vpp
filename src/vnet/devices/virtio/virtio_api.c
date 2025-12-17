@@ -1,20 +1,6 @@
 /*
- *------------------------------------------------------------------
- * virtio_api.c - vnet virtio pci device driver API support
- *
- * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2018-2025 Cisco and/or its affiliates.
  */
 
 #include <vnet/vnet.h>
@@ -111,18 +97,18 @@ vl_api_virtio_pci_create_v2_t_handler (vl_api_virtio_pci_create_v2_t * mp)
   STATIC_ASSERT (((int) VIRTIO_API_FLAG_BUFFERING ==
 		  (int) VIRTIO_FLAG_BUFFERING),
 		 "virtio buffering api flag mismatch");
+  STATIC_ASSERT (((int) VIRTIO_API_FLAG_RSS == (int) VIRTIO_FLAG_RSS),
+		 "virtio rss api flag mismatch");
 
   ap->virtio_flags = clib_net_to_host_u32 (mp->virtio_flags);
   ap->features = clib_net_to_host_u64 (mp->features);
 
   if (ap->virtio_flags & VIRTIO_API_FLAG_GSO)
     ap->gso_enabled = 1;
-  else
-    ap->gso_enabled = 0;
   if (ap->virtio_flags & VIRTIO_API_FLAG_CSUM_OFFLOAD)
     ap->checksum_offload_enabled = 1;
-  else
-    ap->checksum_offload_enabled = 0;
+  if (ap->virtio_flags & VIRTIO_API_FLAG_RSS)
+    ap->rss_enabled = 1;
 
   virtio_pci_create_if (vm, ap);
 
@@ -218,12 +204,9 @@ static void
     return;
 
   pool_foreach (vif, vmx->interfaces)
-  {
-    if (vif->type == VIRTIO_IF_TYPE_PCI)
-      {
-	virtio_pci_send_sw_interface_details (am, reg, vif, mp->context);
-      }
-  }
+    {
+      virtio_pci_send_sw_interface_details (am, reg, vif, mp->context);
+    }
 }
 
 #include <vnet/devices/virtio/virtio.api.c>
@@ -240,11 +223,3 @@ virtio_pci_api_hookup (vlib_main_t * vm)
 }
 
 VLIB_API_INIT_FUNCTION (virtio_pci_api_hookup);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

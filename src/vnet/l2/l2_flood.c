@@ -1,19 +1,8 @@
-/*
- * l2_flood.c : layer 2 flooding
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2013 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* l2_flood.c : layer 2 flooding */
 
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
@@ -141,7 +130,7 @@ VLIB_NODE_FN (l2flood_node) (vlib_main_t * vm,
   u32 n_left_from, *from, *to_next;
   l2flood_next_t next_index;
   l2flood_main_t *msm = &l2flood_main;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
 
   from = vlib_frame_vector_args (frame);
   n_left_from = frame->n_vectors;
@@ -362,7 +351,6 @@ VLIB_NODE_FN (l2flood_node) (vlib_main_t * vm,
 }
 
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (l2flood_node) = {
   .name = "l2-flood",
   .vector_size = sizeof (u32),
@@ -380,7 +368,6 @@ VLIB_REGISTER_NODE (l2flood_node) = {
         [L2FLOOD_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 #ifndef CLIB_MARCH_VARIANT
 clib_error_t *
@@ -468,18 +455,8 @@ done:
  * Example of how to disable flooding:
  * @cliexcmd{set interface l2 flood GigabitEthernet0/8/0 disable}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (int_flood_cli, static) = {
   .path = "set interface l2 flood",
   .short_help = "set interface l2 flood <interface> [disable]",
   .function = int_flood,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

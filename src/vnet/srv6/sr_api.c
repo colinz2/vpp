@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * sr_api.c - ipv6 segment routing api
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * sr_api.c - ipv6 segment routing api
  */
 
 #include <vnet/vnet.h>
@@ -39,6 +28,8 @@ static void vl_api_sr_localsid_add_del_t_handler
 {
   vl_api_sr_localsid_add_del_reply_t *rmp;
   int rv = 0;
+  int usid_len = 0;
+  u16 localsid_prefix_len = 128;
   ip46_address_t prefix;
   ip6_address_t localsid;
 /*
@@ -46,21 +37,31 @@ static void vl_api_sr_localsid_add_del_t_handler
  *  char end_psp, u8 behavior, u32 sw_if_index, u32 vlan_index, u32 fib_table,
  *  ip46_address_t *nh_addr, void *ls_plugin_mem)
  */
-  if (mp->behavior == SR_BEHAVIOR_X ||
-      mp->behavior == SR_BEHAVIOR_DX6 ||
-      mp->behavior == SR_BEHAVIOR_DX4 || mp->behavior == SR_BEHAVIOR_DX2)
+  if (mp->behavior == SR_BEHAVIOR_X || mp->behavior == SR_BEHAVIOR_UA ||
+      mp->behavior == SR_BEHAVIOR_DX6 || mp->behavior == SR_BEHAVIOR_DX4 ||
+      mp->behavior == SR_BEHAVIOR_DX2)
     VALIDATE_SW_IF_INDEX (mp);
+
+  if (mp->behavior == SR_BEHAVIOR_END_UN_PERF ||
+      mp->behavior == SR_BEHAVIOR_END_UN)
+    {
+      usid_len = 16;
+      localsid_prefix_len = 48;
+    }
+
+  if (mp->behavior == SR_BEHAVIOR_UA)
+    {
+      usid_len = 16;
+      localsid_prefix_len = 64;
+    }
 
   ip6_address_decode (mp->localsid, &localsid);
   ip_address_decode (&mp->nh_addr, &prefix);
 
-  rv = sr_cli_localsid (mp->is_del,
-			&localsid, 128,
-			mp->end_psp,
-			mp->behavior,
-			ntohl (mp->sw_if_index),
-			ntohl (mp->vlan_index),
-			ntohl (mp->fib_table), &prefix, 0, NULL);
+  rv = sr_cli_localsid (mp->is_del, &localsid, localsid_prefix_len,
+			mp->end_psp, mp->behavior, ntohl (mp->sw_if_index),
+			ntohl (mp->vlan_index), ntohl (mp->fib_table), &prefix,
+			usid_len, NULL);
 
   BAD_SW_IF_INDEX_LABEL;
   REPLY_MACRO (VL_API_SR_LOCALSID_ADD_DEL_REPLY);
@@ -163,7 +164,7 @@ vl_api_sr_policy_add_v2_t_handler (vl_api_sr_policy_add_v2_t *mp)
 		   mp->type, ntohl (mp->fib_table), mp->is_encap, 0, NULL);
   vec_free (segments);
 
-  REPLY_MACRO (VL_API_SR_POLICY_ADD_REPLY);
+  REPLY_MACRO (VL_API_SR_POLICY_ADD_V2_REPLY);
 }
 
 static void
@@ -203,7 +204,7 @@ vl_api_sr_policy_mod_v2_t_handler (vl_api_sr_policy_mod_v2_t *mp)
 		   ntohl (mp->sl_index), ntohl (mp->sids.weight));
   vec_free (segments);
 
-  REPLY_MACRO (VL_API_SR_POLICY_MOD_REPLY);
+  REPLY_MACRO (VL_API_SR_POLICY_MOD_V2_REPLY);
 }
 
 static void
@@ -321,12 +322,10 @@ static void vl_api_sr_localsids_dump_t_handler
   if (!reg)
     return;
 
-  /* *INDENT-OFF* */
   pool_foreach (t, sm->localsids)
    {
     send_sr_localsid_details(t, reg, mp->context);
   }
-  /* *INDENT-ON* */
 }
 
 static void
@@ -453,12 +452,10 @@ vl_api_sr_policies_dump_t_handler (vl_api_sr_policies_dump_t * mp)
   if (!reg)
     return;
 
-  /* *INDENT-OFF* */
   pool_foreach (t, sm->sr_policies)
    {
     send_sr_policies_details(t, reg, mp->context);
   }
-  /* *INDENT-ON* */
 }
 
 static void
@@ -583,12 +580,10 @@ static void
   if (!reg)
     return;
 
-  /* *INDENT-OFF* */
   pool_foreach (t, sm->sr_policies)
    {
     send_sr_policies_details_with_sl_index(t, reg, mp->context);
   }
-  /* *INDENT-ON* */
 }
 
 static void send_sr_steering_pol_details
@@ -630,12 +625,10 @@ static void vl_api_sr_steering_pol_dump_t_handler
   if (!reg)
     return;
 
-  /* *INDENT-OFF* */
   pool_foreach (t, sm->steer_policies)
    {
     send_sr_steering_pol_details(t, reg, mp->context);
   }
-  /* *INDENT-ON* */
 }
 
 #include <vnet/srv6/sr.api.c>
@@ -651,11 +644,3 @@ sr_api_hookup (vlib_main_t * vm)
 }
 
 VLIB_API_INIT_FUNCTION (sr_api_hookup);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

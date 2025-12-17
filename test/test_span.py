@@ -3,17 +3,19 @@
 import unittest
 
 from scapy.packet import Raw
-from scapy.layers.l2 import Ether, Dot1Q, GRE, ERSPAN
+from scapy.layers.l2 import Ether, GRE
+from scapy.contrib.erspan import ERSPAN
 from scapy.layers.inet import IP, UDP
 from scapy.layers.vxlan import VXLAN
 
-from framework import VppTestCase, VppTestRunner
-from util import Host, ppp
+from framework import VppTestCase
+from asfframework import VppTestRunner
 from vpp_sub_interface import L2_VTR_OP, VppDot1QSubint, VppDot1ADSubint
 from vpp_gre_interface import VppGreInterface
 from vpp_vxlan_tunnel import VppVxlanTunnel
 from collections import namedtuple
 from vpp_papi import VppEnum
+from config import config
 
 
 Tag = namedtuple("Tag", ["dot1", "vlan"])
@@ -21,6 +23,9 @@ DOT1AD = 0x88A8
 DOT1Q = 0x8100
 
 
+@unittest.skipIf(
+    "vxlan" in config.excluded_plugins, "Exclude tests requiring VXLAN plugin"
+)
 class TestSpan(VppTestCase):
     """SPAN Test Case"""
 

@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
 #include <vppinfra/error.h>
@@ -74,11 +65,15 @@ format_ikev2_child_sa (u8 * s, va_list * va)
   ikev2_ts_t *ts;
   ikev2_sa_transform_t *tr;
   u8 *c = 0;
+  vlib_main_t *vm = vlib_get_main ();
 
   u32 indent = format_get_indent (s);
   indent += 1;
 
   s = format (s, "child sa %u:", index);
+
+  s = format (s, "\n    uptime: %f (s)\n    ",
+	      vlib_time_now (vm) - child->timestamp);
 
   tr = ikev2_sa_get_td_for_type (child->r_proposals,
 				 IKEV2_TRANSFORM_TYPE_ENCR);
@@ -121,6 +116,12 @@ format_ikev2_child_sa (u8 * s, va_list * va)
   return s;
 }
 
+static char *stateNames[] = {
+#define _(v, f, s) s,
+  foreach_ikev2_state
+#undef _
+};
+
 static u8 *
 format_ikev2_sa (u8 * s, va_list * va)
 {
@@ -129,6 +130,12 @@ format_ikev2_sa (u8 * s, va_list * va)
   ikev2_sa_transform_t *tr;
   ikev2_child_sa_t *child;
   u32 indent = 1;
+  vlib_main_t *vm = vlib_get_main ();
+
+  ikev2_main_t *km = &ikev2_main;
+  ikev2_profile_t *p;
+
+  p = pool_elt_at_index (km->profiles, sa->profile_index);
 
   s = format (s, "iip %U ispi %lx rip %U rspi %lx",
 	      format_ip_address, &sa->iaddr, sa->ispi,
@@ -149,6 +156,16 @@ format_ikev2_sa (u8 * s, va_list * va)
 
   tr = ikev2_sa_get_td_for_type (sa->r_proposals, IKEV2_TRANSFORM_TYPE_DH);
   s = format (s, "%U", format_ikev2_sa_transform, tr);
+
+  s = format (s, "\n profile: %v", p->name);
+
+  if (sa->state <= IKEV2_STATE_NO_PROPOSAL_CHOSEN)
+    {
+      s = format (s, "\n state: %s", stateNames[sa->state]);
+    }
+
+  s =
+    format (s, "\n uptime: %f (s)\n", vlib_time_now (vm) - sa->auth_timestamp);
 
   s = format (s, "\n%U", format_white_space, indent);
 
@@ -232,7 +249,6 @@ show_ikev2_sa_command_fn (vlib_main_t * vm,
 
   vec_foreach (tkm, km->per_thread_data)
   {
-    /* *INDENT-OFF* */
     pool_foreach (sa, tkm->sas)  {
       if (show_one)
         {
@@ -245,7 +261,6 @@ show_ikev2_sa_command_fn (vlib_main_t * vm,
       else
         s = format (s, "%U\n", format_ikev2_sa, sa, details);
     }
-    /* *INDENT-ON* */
   }
 
   vlib_cli_output (vm, "%v", s);
@@ -253,13 +268,11 @@ show_ikev2_sa_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_ikev2_sa_command, static) = {
     .path = "show ikev2 sa",
     .short_help = "show ikev2 sa [rspi <rspi>] [details]",
     .function = show_ikev2_sa_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 ikev2_disable_dpd_command_fn (vlib_main_t * vm,
@@ -270,13 +283,11 @@ ikev2_disable_dpd_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (ikev2_cli_disable_dpd_command, static) = {
   .path = "ikev2 dpd disable",
   .short_help = "ikev2 dpd disable",
   .function = ikev2_disable_dpd_command_fn,
 };
-/* *INDENT-ON* */
 
 static uword
 unformat_ikev2_token (unformat_input_t * input, va_list * va)
@@ -553,7 +564,6 @@ done:
   return r;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (ikev2_profile_add_del_command, static) = {
     .path = "ikev2 profile",
     .short_help =
@@ -574,7 +584,6 @@ VLIB_CLI_COMMAND (ikev2_profile_add_del_command, static) = {
     "ikev2 profile set <id> disable natt\n",
     .function = ikev2_profile_add_del_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 show_ikev2_profile_command_fn (vlib_main_t * vm,
@@ -584,7 +593,6 @@ show_ikev2_profile_command_fn (vlib_main_t * vm,
   ikev2_main_t *km = &ikev2_main;
   ikev2_profile_t *p;
 
-  /* *INDENT-OFF* */
   pool_foreach (p, km->profiles)  {
     vlib_cli_output(vm, "profile %v", p->name);
 
@@ -651,18 +659,15 @@ show_ikev2_profile_command_fn (vlib_main_t * vm,
     vlib_cli_output(vm, "  lifetime %d jitter %d handover %d maxdata %d",
                     p->lifetime, p->lifetime_jitter, p->handover, p->lifetime_maxdata);
   }
-  /* *INDENT-ON* */
 
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_ikev2_profile_command, static) = {
     .path = "show ikev2 profile",
     .short_help = "show ikev2 profile",
     .function = show_ikev2_profile_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 set_ikev2_liveness_period_fn (vlib_main_t * vm,
@@ -695,13 +700,65 @@ done:
   return r;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_ikev2_liveness_command, static) = {
   .path = "ikev2 set liveness",
   .short_help = "ikev2 set liveness <period> <max-retires>",
   .function = set_ikev2_liveness_period_fn,
 };
-/* *INDENT-ON* */
+
+static clib_error_t *
+set_ikev2_sleep_interval_fn (vlib_main_t *vm, unformat_input_t *input,
+			     vlib_cli_command_t *cmd)
+{
+  unformat_input_t _line_input, *line_input = &_line_input;
+  clib_error_t *r = 0;
+  f64 interval = 0.0;
+
+  if (!unformat_user (input, unformat_line_input, line_input))
+    return 0;
+
+  while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (line_input, "%lf", &interval))
+	{
+	  r = ikev2_set_sleep_interval (interval);
+	  goto done;
+	}
+      else
+	break;
+    }
+
+  r = clib_error_return (0, "parse error: '%U'", format_unformat_error,
+			 line_input);
+
+done:
+  unformat_free (line_input);
+  return r;
+}
+
+VLIB_CLI_COMMAND (set_ikev2_sleep_interval, static) = {
+  .path = "ikev2 set sleep interval",
+  .short_help = "ikev2 set sleep interval <timeout>",
+  .function = set_ikev2_sleep_interval_fn,
+};
+
+static clib_error_t *
+show_ikev2_sleep_interval_command_fn (vlib_main_t *vm, unformat_input_t *input,
+				      vlib_cli_command_t *cmd)
+{
+  f64 sleep_interval = ikev2_get_sleep_interval ();
+
+  vlib_cli_output (vm, "IKEv2 Manager sleep interval: %.2f seconds",
+		   sleep_interval);
+
+  return 0;
+}
+
+VLIB_CLI_COMMAND (show_ikev2_sleep_interval_command, static) = {
+  .path = "show ikev2 sleep interval",
+  .short_help = "show ikev2 sleep interval",
+  .function = show_ikev2_sleep_interval_command_fn,
+};
 
 static clib_error_t *
 set_ikev2_local_key_command_fn (vlib_main_t * vm,
@@ -735,14 +792,12 @@ done:
   return r;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_ikev2_local_key_command, static) = {
     .path = "set ikev2 local key",
     .short_help =
     "set ikev2 local key <file>",
     .function = set_ikev2_local_key_command_fn,
 };
-/* *INDENT-ON* */
 
 
 static clib_error_t *
@@ -793,7 +848,6 @@ done:
   return r;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (ikev2_initiate_command, static) = {
     .path = "ikev2 initiate",
     .short_help =
@@ -803,7 +857,6 @@ VLIB_CLI_COMMAND (ikev2_initiate_command, static) = {
         "ikev2 initiate rekey-child-sa <child sa ispi>\n",
     .function = ikev2_initiate_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 ikev2_set_log_level_command_fn (vlib_main_t * vm,
@@ -833,18 +886,8 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (ikev2_set_log_level_command, static) = {
   .path = "ikev2 set logging level",
   .function = ikev2_set_log_level_command_fn,
   .short_help = "ikev2 set logging level <0-5>",
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

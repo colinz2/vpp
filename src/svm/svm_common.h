@@ -1,26 +1,18 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2009 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #ifndef __included_svm_common_h__
 #define __included_svm_common_h__
 
 #include <stdarg.h>
+#ifdef __FreeBSD__
+#include <stdint.h>
+#endif /* __FreeBSD__ */
 #include <pthread.h>
+#ifdef __linux__
 #include <sys/user.h>
+#endif /* __linux__ */
 #include <vppinfra/clib.h>
 #include <vppinfra/types.h>
 
@@ -82,16 +74,14 @@ typedef struct svm_map_region_args_
 /*
  * Memory mapped to high addresses for session/vppcom/vcl/etc...
  */
-#if __WORDSIZE == 64
+#if uword_bits == 64
 #ifdef CLIB_SANITIZE_ADDR
 #define HIGH_SEGMENT_BASEVA 0x300000000000	/* DO NOT CHANGE THIS: YOU'LL BREAK ASAN */
 #else /* CLIB_SANITIZE_ADDR */
 #define HIGH_SEGMENT_BASEVA (128ULL << 30)	/* 128GB */
-#endif /* CLIB_SANITIZE_ADDR */
-#elif __WORDSIZE == 32
-#define HIGH_SEGMENT_BASEVA (3584UL << 20)	/* 3.5GB */
+#endif						/* CLIB_SANITIZE_ADDR */
 #else
-#error "unknown __WORDSIZE"
+#define HIGH_SEGMENT_BASEVA (3584UL << 20) /* 3.5GB */
 #endif
 
 /*
@@ -145,11 +135,3 @@ u8 *format_svm_region (u8 * s, va_list * args);
 svm_region_t *svm_get_root_rp (void);
 
 #endif /* __included_svm_common_h__ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

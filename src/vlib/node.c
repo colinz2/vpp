@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * node.c: VLIB processing nodes
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* node.c: VLIB processing nodes */
 
 #include <vlib/vlib.h>
 #include <vlib/threads.h>
@@ -69,7 +37,7 @@ node_set_elog_name (vlib_main_t * vm, uword node_index)
   t->format = (char *) format (0, "%v-return: %%d%c", n->name, 0);
 
   n->name_elog_string =
-    elog_string (&vlib_global_main.elog_main, "%v%c", n->name, 0);
+    elog_string (vlib_get_elog_main (), "%v%c", n->name, 0);
 }
 
 void
@@ -130,12 +98,10 @@ vlib_node_runtime_update (vlib_main_t * vm, u32 node_index, u32 next_index)
 	    && pf->next_frame_index >= i)
 	  pf->next_frame_index += n_insert;
       }
-      /* *INDENT-OFF* */
       pool_foreach (pf, nm->suspended_process_frames)  {
 	  if (pf->next_frame_index != ~0 && pf->next_frame_index >= i)
 	    pf->next_frame_index += n_insert;
       }
-      /* *INDENT-ON* */
 
       r->n_next_nodes = vec_len (node->next_nodes);
     }
@@ -223,7 +189,6 @@ vlib_node_add_next_with_slot (vlib_main_t * vm,
   {
     uword sib_node_index, sib_slot;
     vlib_node_t *sib_node;
-    /* *INDENT-OFF* */
     clib_bitmap_foreach (sib_node_index, node->sibling_bitmap)  {
       sib_node = vec_elt (nm->nodes, sib_node_index);
       if (sib_node != node)
@@ -232,7 +197,6 @@ vlib_node_add_next_with_slot (vlib_main_t * vm,
 	  ASSERT (sib_slot == slot);
 	}
     }
-    /* *INDENT-ON* */
   }
 
   vlib_worker_thread_barrier_release (vm);
@@ -328,15 +292,54 @@ vlib_node_get_preferred_node_fn_variant (vlib_main_t *vm,
   return fn;
 }
 
+static void
+vlib_node_add_to_sibling_bitmap (vlib_main_t *vm, vlib_node_t *n,
+				 vlib_node_t *sib)
+{
+  vlib_node_main_t *nm = &vm->node_main;
+  u32 si;
+
+  clib_bitmap_foreach (si, sib->sibling_bitmap)
+    {
+      vlib_node_t *m = vec_elt (nm->nodes, si);
+
+      /* Connect all of sibling's siblings to us. */
+      m->sibling_bitmap = clib_bitmap_ori (m->sibling_bitmap, n->index);
+
+      /* Connect us to all of sibling's siblings. */
+      n->sibling_bitmap = clib_bitmap_ori (n->sibling_bitmap, si);
+    }
+
+  /* Connect sibling to us. */
+  sib->sibling_bitmap = clib_bitmap_ori (sib->sibling_bitmap, n->index);
+
+  /* Connect us to sibling. */
+  n->sibling_bitmap = clib_bitmap_ori (n->sibling_bitmap, sib->index);
+}
+
 u32
 vlib_register_node (vlib_main_t *vm, vlib_node_registration_t *r, char *fmt,
 		    ...)
 {
   vlib_node_main_t *nm = &vm->node_main;
-  vlib_node_t *n;
+  vlib_node_t *n, *sib = 0;
   va_list va;
   u32 size;
   int i;
+
+  if (r->sibling_of)
+    {
+      if (r->n_next_nodes > 0)
+	clib_error ("sibling node should not have any next nodes `%v'",
+		    r->name);
+      if (nm->flags & VLIB_NODE_MAIN_RUNTIME_STARTED)
+	{
+	  sib = vlib_get_node_by_name (vm, (u8 *) r->sibling_of);
+
+	  if (sib == 0)
+	    clib_error ("unknown sibling node '%s'", r->sibling_of);
+	}
+    }
 
   if (CLIB_DEBUG > 0)
     {
@@ -387,11 +390,6 @@ vlib_register_node (vlib_main_t *vm, vlib_node_registration_t *r, char *fmt,
 
   r->index = n->index;		/* save index in registration */
   n->function = r->function;
-
-  /* Node index of next sibling will be filled in by vlib_node_main_init. */
-  n->sibling_of = r->sibling_of;
-  if (r->sibling_of && r->n_next_nodes > 0)
-    clib_error ("sibling node should not have any next nodes `%v'", n->name);
 
   if (r->type == VLIB_NODE_TYPE_INTERNAL)
     ASSERT (r->vector_size > 0);
@@ -488,7 +486,7 @@ vlib_register_node (vlib_main_t *vm, vlib_node_registration_t *r, char *fmt,
     vlib_node_runtime_t *rt;
     u32 i;
 
-    if (n->type == VLIB_NODE_TYPE_PROCESS)
+    if (node_type_attrs[n->type].is_process)
       {
 	vlib_process_t *p;
 	uword log2_n_stack_bytes;
@@ -529,11 +527,13 @@ vlib_register_node (vlib_main_t *vm, vlib_node_registration_t *r, char *fmt,
       {
 	vec_add2_aligned (nm->nodes_by_type[n->type], rt, 1,
 			  /* align */ CLIB_CACHE_LINE_BYTES);
-	if (n->type == VLIB_NODE_TYPE_INPUT)
-	  clib_interrupt_resize (&nm->interrupts,
-				 vec_len (nm->nodes_by_type[n->type]));
+
 	n->runtime_index = rt - nm->nodes_by_type[n->type];
       }
+
+    if (node_type_attrs[n->type].may_receive_interrupts)
+      clib_interrupt_resize (&nm->node_interrupts[n->type],
+			     vec_len (nm->nodes_by_type[n->type]));
 
     if (n->type == VLIB_NODE_TYPE_INPUT)
       nm->input_node_counts_by_state[n->state] += 1;
@@ -566,6 +566,24 @@ vlib_register_node (vlib_main_t *vm, vlib_node_registration_t *r, char *fmt,
     vec_free (n->runtime_data);
   }
 #undef _
+
+  if (sib)
+    {
+      u32 slot, i;
+
+      vec_foreach_index (i, sib->next_nodes)
+	{
+	  slot =
+	    vlib_node_add_next_with_slot (vm, n->index, sib->next_nodes[i], i);
+	  ASSERT (slot == i);
+	}
+
+      vlib_node_add_to_sibling_bitmap (vm, n, sib);
+
+      r->n_next_nodes = vec_len (n->next_nodes);
+    }
+  n->sibling_of = r->sibling_of;
+
   return r->index;
 }
 
@@ -720,7 +738,6 @@ vlib_node_main_init (vlib_main_t * vm)
   /* Generate sibling relationships */
   {
     vlib_node_t *n, *sib;
-    uword si;
 
     for (ni = 0; ni < vec_len (nm->nodes); ni++)
       {
@@ -737,23 +754,7 @@ vlib_node_main_init (vlib_main_t * vm)
 	    goto done;
 	  }
 
-        /* *INDENT-OFF* */
-	clib_bitmap_foreach (si, sib->sibling_bitmap)  {
-	      vlib_node_t * m = vec_elt (nm->nodes, si);
-
-	      /* Connect all of sibling's siblings to us. */
-	      m->sibling_bitmap = clib_bitmap_ori (m->sibling_bitmap, n->index);
-
-	      /* Connect us to all of sibling's siblings. */
-	      n->sibling_bitmap = clib_bitmap_ori (n->sibling_bitmap, si);
-	    }
-        /* *INDENT-ON* */
-
-	/* Connect sibling to us. */
-	sib->sibling_bitmap = clib_bitmap_ori (sib->sibling_bitmap, n->index);
-
-	/* Connect us to sibling. */
-	n->sibling_bitmap = clib_bitmap_ori (n->sibling_bitmap, sib->index);
+	vlib_node_add_to_sibling_bitmap (vm, n, sib);
       }
   }
 
@@ -771,7 +772,8 @@ vlib_node_main_init (vlib_main_t * vm)
 	  if (!a)
 	    continue;
 
-	  if (~0 == vlib_node_add_named_next_with_slot (vm, n->index, a, i))
+	  if (~0 == vlib_node_add_named_next_with_slot (vm, n->index, a, i) &&
+	      !(n->flags & VLIB_NODE_FLAG_ALLOW_LAZY_NEXT_NODES))
 	    {
 	      error = clib_error_create
 		("node `%v' refers to unknown node `%s'", n->name, a);
@@ -779,7 +781,8 @@ vlib_node_main_init (vlib_main_t * vm)
 	    }
 	}
 
-      vec_free (n->next_node_names);
+      if (!(n->flags & VLIB_NODE_FLAG_ALLOW_LAZY_NEXT_NODES))
+	vec_free (n->next_node_names);
     }
 
   /* Set previous node pointers. */
@@ -817,14 +820,18 @@ vlib_node_main_init (vlib_main_t * vm)
 
       for (i = 0; i < vec_len (n->next_nodes); i++)
 	{
-	  next = vlib_get_node (vm, n->next_nodes[i]);
+	    if (n->flags & VLIB_NODE_FLAG_ALLOW_LAZY_NEXT_NODES &&
+		n->next_nodes[i] >= vec_len (nm->nodes))
+	      continue;
 
-	  /* Validate node runtime indices are correctly initialized. */
-	  ASSERT (nf[i].node_runtime_index == next->runtime_index);
+	    next = vlib_get_node (vm, n->next_nodes[i]);
 
-	  nf[i].flags = 0;
-	  if (next->flags & VLIB_NODE_FLAG_FRAME_NO_FREE_AFTER_DISPATCH)
-	    nf[i].flags |= VLIB_FRAME_NO_FREE_AFTER_DISPATCH;
+	    /* Validate node runtime indices are correctly initialized. */
+	    ASSERT (nf[i].node_runtime_index == next->runtime_index);
+
+	    nf[i].flags = 0;
+	    if (next->flags & VLIB_NODE_FLAG_FRAME_NO_FREE_AFTER_DISPATCH)
+	      nf[i].flags |= VLIB_FRAME_NO_FREE_AFTER_DISPATCH;
 	}
     }
   }
@@ -893,10 +900,30 @@ vlib_node_set_march_variant (vlib_main_t *vm, u32 node_index,
     }
   return -1;
 }
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+
+clib_error_t *
+vlib_node_main_lazy_next_update (vlib_main_t *vm)
+{
+  vlib_node_main_t *nm = &vm->node_main;
+  uword ni;
+  vlib_node_t *n;
+  for (ni = 0; ni < vec_len (nm->nodes); ni++)
+    {
+      uword nni;
+      n = vec_elt (nm->nodes, ni);
+
+      if (!(n->flags & VLIB_NODE_FLAG_ALLOW_LAZY_NEXT_NODES))
+	continue;
+
+      for (nni = 0; nni < vec_len (n->next_node_names); nni++)
+	{
+	  char *a = n->next_node_names[nni];
+
+	  if (!a)
+	    continue;
+
+	  vlib_node_add_named_next_with_slot (vm, n->index, a, nni);
+	}
+    }
+  return 0;
+}

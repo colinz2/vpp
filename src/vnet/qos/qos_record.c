@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/qos/qos_record.h>
@@ -203,14 +193,12 @@ qos_record_cli (vlib_main_t * vm,
  * @cliexpar
  * @cliexcmd{qos record ip GigEthernet0/1/0}
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (qos_record_command, static) = {
   .path = "qos record",
   .short_help = "qos record <record-source> <INTERFACE> [disable]",
   .function = qos_record_cli,
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
 
 static void
 qos_record_show_one_interface (vlib_main_t * vm, u32 sw_if_index)
@@ -285,19 +273,9 @@ qos_record_show (vlib_main_t * vm,
  * @cliexpar
  * @cliexcmd{show qos egress map}
  ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (qos_record_show_command, static) = {
   .path = "show qos record",
   .short_help = "show qos record [interface]",
   .function = qos_record_show,
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

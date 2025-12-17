@@ -1,20 +1,9 @@
-/*
- *------------------------------------------------------------------
- * l2tp_api.c - l2tpv3 api
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
+ */
+
+/*
+ * l2tp_api.c - l2tpv3 api
  */
 
 #include <vnet/vnet.h>
@@ -89,12 +78,10 @@ vl_api_sw_if_l2tpv3_tunnel_dump_t_handler (vl_api_sw_if_l2tpv3_tunnel_dump_t *
   if (!reg)
     return;
 
-  /* *INDENT-OFF* */
   pool_foreach (session, lm->sessions)
    {
     send_sw_if_l2tpv3_tunnel_details (am, reg, session, lm, mp->context);
   }
-  /* *INDENT-ON* */
 }
 
 static void vl_api_l2tpv3_create_tunnel_t_handler
@@ -146,12 +133,10 @@ static void vl_api_l2tpv3_create_tunnel_t_handler
 				  encap_fib_index, &sw_if_index);
 
 out:
-  /* *INDENT-OFF* */
   REPLY_MACRO2(VL_API_L2TPV3_CREATE_TUNNEL_REPLY,
   ({
     rmp->sw_if_index = ntohl (sw_if_index);
   }));
-  /* *INDENT-ON* */
 }
 
 static void vl_api_l2tpv3_set_tunnel_cookies_t_handler
@@ -234,18 +219,7 @@ VLIB_API_INIT_FUNCTION (l2tp_api_hookup);
 #include <vlib/unix/plugin.h>
 #include <vpp/app/version.h>
 
-/* *INDENT-OFF* */
 VLIB_PLUGIN_REGISTER () = {
-    .version = VPP_BUILD_VER,
-    .description = "Layer 2 Tunneling Protocol v3 (L2TP)",
+  .version = VPP_BUILD_VER,
+  .description = "Layer 2 Tunneling Protocol v3 (L2TP)",
 };
-/* *INDENT-ON* */
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

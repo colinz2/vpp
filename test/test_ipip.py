@@ -5,8 +5,8 @@ import unittest
 from scapy.layers.inet6 import IPv6, Ether, IP, UDP, IPv6ExtHdrFragment, Raw
 from scapy.contrib.mpls import MPLS
 from scapy.all import fragment, fragment6, RandShort, defragment6
-from framework import VppTestCase, VppTestRunner
-from vpp_ip import DpoProto
+from framework import VppTestCase
+from asfframework import VppTestRunner
 from vpp_ip_route import (
     VppIpRoute,
     VppRoutePath,
@@ -19,7 +19,6 @@ from vpp_ip_route import (
 from vpp_ipip_tun_interface import VppIpIpTunInterface
 from vpp_teib import VppTeib
 from vpp_papi import VppEnum
-from socket import AF_INET, AF_INET6, inet_pton
 from util import reassemble4
 
 """ Testipip is a subclass of  VPPTestCase classes.
@@ -89,7 +88,7 @@ class TestIPIP(VppTestCase):
         self.table.remove_vpp_config()
 
     def validate(self, rx, expected):
-        self.assertEqual(rx, expected.__class__(expected))
+        self.assertTrue(bytes(rx), bytes(expected))
 
     def generate_ip4_frags(self, payload_length, fragment_size):
         p_ether = Ether(src=self.pg1.remote_mac, dst=self.pg1.local_mac)
@@ -678,7 +677,7 @@ class TestIPIP(VppTestCase):
                 / Raw(b"0x44" * 100)
             )
             tx_e = [
-                (Ether(dst=self.pg0.local_mac, src=self.pg0.remote_mac) / inner)
+                (Ether(dst=self.pg2.local_mac, src=self.pg0.remote_mac) / inner)
                 for x in range(63)
             ]
 
@@ -765,7 +764,7 @@ class TestIPIP6(VppTestCase):
         rv = self.vapi.ipip_del_tunnel(sw_if_index=self.tunnel_if_index)
 
     def validate(self, rx, expected):
-        self.assertEqual(rx, expected.__class__(expected))
+        self.assertTrue(bytes(rx), bytes(expected))
 
     def generate_ip6_frags(self, payload_length, fragment_size):
         p_ether = Ether(src=self.pg1.remote_mac, dst=self.pg1.local_mac)
@@ -1455,7 +1454,7 @@ class TestIPIPMPLS(VppTestCase):
         # Tunnel Decap
         #
         p4 = (
-            self.p_ether
+            Ether(src=self.pg1.remote_mac, dst=self.pg1.local_mac)
             / IP(src=self.pg1.remote_ip4, dst=self.pg1.local_ip4)
             / MPLS(label=44, ttl=4)
             / IP(src="1.1.1.1", dst="2.2.2.2")
@@ -1469,7 +1468,7 @@ class TestIPIPMPLS(VppTestCase):
             self.assertEqual(rx[IP].dst, "2.2.2.2")
 
         p6 = (
-            self.p_ether
+            Ether(src=self.pg1.remote_mac, dst=self.pg1.local_mac)
             / IPv6(src=self.pg1.remote_ip6, dst=self.pg1.local_ip6)
             / MPLS(label=66, ttl=4)
             / IPv6(src="1::1", dst="2::2")

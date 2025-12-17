@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #ifndef _AVF_H_
@@ -180,6 +167,7 @@ typedef struct
   u8 int_mode;
   u8 buffer_pool_index;
   u32 queue_index;
+  u64 total_packets;
 } avf_rxq_t;
 
 typedef struct
@@ -198,6 +186,8 @@ typedef struct
   avf_tx_desc_t *tmp_descs;
   u32 *tmp_bufs;
   u32 queue_index;
+  u64 total_packets;
+  u64 no_free_tx_count;
 } avf_txq_t;
 
 typedef struct
@@ -428,7 +418,7 @@ avf_reg_write (avf_device_t * ad, u32 addr, u32 val)
 {
   if (ad->flags & AVF_DEVICE_F_ELOG)
     avf_elog_reg (ad, addr, val, 0);
-  *(volatile u32 *) ((u8 *) ad->bar0 + addr) = val;
+  __atomic_store_n ((u32 *) ((u8 *) ad->bar0 + addr), val, __ATOMIC_RELEASE);
 }
 
 static inline u32
@@ -494,11 +484,3 @@ typedef enum
 } avf_tx_func_error_t;
 
 #endif /* AVF_H */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

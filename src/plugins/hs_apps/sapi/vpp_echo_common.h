@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef __included_vpp_echo_common_h__
@@ -304,11 +294,6 @@ typedef struct
   u8 has_failed;		/* stores the exit code */
   u8 *fail_descr;		/* vector containing fail description */
 
-  /** Flag that decides if socket, instead of svm, api is used to connect to
-   * vpp. If sock api is used, shm binary api is subsequently bootstrapped
-   * and all other messages are exchanged using shm IPC. */
-  u8 use_sock_api;
-
   u8 *connect_test_data;
   u8 test_return_packets;
   u64 bytes_to_send;		/* target per stream */
@@ -451,6 +436,7 @@ void echo_send_detach (echo_main_t * em);
 void echo_send_listen (echo_main_t * em, ip46_address_t * ip);
 void echo_send_unbind (echo_main_t * em, echo_session_t * s);
 void echo_send_connect (echo_main_t * em, void *args);
+void echo_send_connect_stream (echo_main_t *em, void *args);
 void echo_send_disconnect_session (echo_main_t * em, void *args);
 void echo_api_hookup (echo_main_t * em);
 void echo_send_add_cert_key (echo_main_t * em);
@@ -466,11 +452,3 @@ int echo_sapi_detach (echo_main_t *em);
 int echo_sapi_recv_fd (echo_main_t *em, int *fds, int n_fds);
 
 #endif /* __included_vpp_echo_common_h__ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

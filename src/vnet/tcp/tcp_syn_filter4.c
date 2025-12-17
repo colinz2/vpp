@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vlib/vlib.h>
@@ -399,7 +389,6 @@ VLIB_NODE_FN (syn_filter4_node) (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (syn_filter4_node) =
 {
   .name = "syn-filter-4",
@@ -418,16 +407,13 @@ VLIB_REGISTER_NODE (syn_filter4_node) =
     [SYN_FILTER_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VNET_FEATURE_INIT (syn_filter_4, static) =
 {
   .arc_name = "ip4-local",
   .node_name = "syn-filter-4",
   .runs_before = VNET_FEATURES("ip4-local-end-of-arc"),
 };
-/* *INDENT-ON* */
 
 #ifndef CLIB_MARCH_VARIANT
 int
@@ -525,20 +511,10 @@ syn_filter_enable_disable_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (sr_content_command, static) =
 {
   .path = "ip syn filter",
   .short_help = "ip syn filter <interface-name> [disable]",
   .function = syn_filter_enable_disable_command_fn,
 };
-/* *INDENT-ON* */
 #endif /* CLIB_MARCH_VARIANT */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

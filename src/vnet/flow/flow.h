@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef included_vnet_flow_flow_h
@@ -200,6 +190,7 @@ typedef enum
   _ (19, NVGRE, "nvgre")                                                      \
   _ (20, GTPU, "gtpu")                                                        \
   _ (21, ESP, "esp")                                                          \
+  _ (22, L2TPV3, "l2tpv3")                                                    \
   _ (60, L4_DST_ONLY, "l4-dst-only")                                          \
   _ (61, L4_SRC_ONLY, "l4-src-only")                                          \
   _ (62, L3_DST_ONLY, "l3-dst-only")                                          \
@@ -356,11 +347,3 @@ format_function_t format_flow_actions;
 format_function_t format_flow_enabled_hw;
 
 #endif /* included_vnet_flow_flow_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

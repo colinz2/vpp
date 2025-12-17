@@ -1,19 +1,8 @@
-/*
- * drop.c - Punt and drop nodes
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* drop.c - Punt and drop nodes */
 
 #include <vlib/vlib.h>
 #include <vppinfra/vector/count_equal.h>
@@ -93,10 +82,12 @@ format_error_trace (u8 * s, va_list * va)
   u32 i;
 
   error_node = vlib_get_node (vm, vlib_error_get_node (&vm->node_main, e[0]));
-  i = counter_index (vm, vlib_error_get_code (&vm->node_main, e[0])) +
-    error_node->error_heap_index;
+  i = counter_index (vm, vlib_error_get_code (&vm->node_main, e[0]));
   if (i != CLIB_U32_MAX)
-    s = format (s, "%v: %s", error_node->name, em->counters_heap[i].desc);
+    {
+      i += error_node->error_heap_index;
+      s = format (s, "%v: %s", error_node->name, em->counters_heap[i].desc);
+    }
 
   return s;
 }
@@ -258,7 +249,6 @@ VLIB_NODE_FN (error_punt_node) (vlib_main_t * vm,
   return process_drop_punt (vm, node, frame, ERROR_DISPOSITION_PUNT);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (error_drop_node) = {
   .name = "drop",
   .flags = VLIB_NODE_FLAG_IS_DROP,
@@ -266,23 +256,12 @@ VLIB_REGISTER_NODE (error_drop_node) = {
   .format_trace = format_error_trace,
   .validate_frame = validate_error_frame,
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (error_punt_node) = {
   .name = "punt",
-  .flags = (VLIB_NODE_FLAG_FRAME_NO_FREE_AFTER_DISPATCH
-	    | VLIB_NODE_FLAG_IS_PUNT),
+  .flags = (VLIB_NODE_FLAG_FRAME_NO_FREE_AFTER_DISPATCH |
+	    VLIB_NODE_FLAG_IS_PUNT),
   .vector_size = sizeof (u32),
   .format_trace = format_error_trace,
   .validate_frame = validate_error_frame,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

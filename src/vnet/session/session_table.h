@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef SRC_VNET_SESSION_SESSION_TABLE_H_
@@ -18,7 +8,6 @@
 
 #include <vppinfra/bihash_16_8.h>
 #include <vppinfra/bihash_48_8.h>
-#include <vnet/session/session_rules_table.h>
 
 typedef struct _session_lookup_table
 {
@@ -37,17 +26,17 @@ typedef struct _session_lookup_table
   /**
    * Per fib proto and transport proto session rules tables
    */
-  session_rules_table_t *session_rules;
+  u32 srtg_handle;
 
   /** Flag that indicates if table has local scope */
   u8 is_local;
 
   /** Namespace this table belongs to */
-  u32 appns_index;
+  u32 *appns_index;
 
   /** For global tables only one fib proto is active. This is a
    * byproduct of fib table ids not necessarily being the same for
-   * identical fib idices of v4 and v6 fib protos */
+   * identical fib indices of v4 and v6 fib protos */
   u8 active_fib_proto;
   /* Required for pool_get_aligned(...) */
     CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
@@ -69,18 +58,15 @@ u32 session_table_index (session_table_t * slt);
 void session_table_init (session_table_t * slt, u8 fib_proto);
 void session_table_free (session_table_t *slt, u8 fib_proto);
 
+u32 session_table_memory_size (session_table_t *st);
+u8 *format_session_table (u8 *s, va_list *args);
+
 /* Internal, try not to use it! */
 session_table_t *_get_session_tables ();
 
 #define session_table_foreach(VAR, BODY)		\
   pool_foreach (VAR, _get_session_tables ()) BODY
 
+void session_lookup_table_cleanup (u32 fib_proto, u32 fib_index, u32 ns_index);
+
 #endif /* SRC_VNET_SESSION_SESSION_TABLE_H_ */
-/* *INDENT-ON* */
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

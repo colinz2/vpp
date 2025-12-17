@@ -1,19 +1,8 @@
-/*
- * ip/ip6_neighbor.c: IP6 neighbor handling
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2010 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* ip/ip6_neighbor.c: IP6 neighbor handling */
 
 #include <vnet/ip6-nd/ip6_ra.h>
 
@@ -30,7 +19,6 @@
  * The files contains the API and CLI code for managing IPv6 RAs
  */
 
-/* *INDENT-OFF* */
 /* Router solicitation packet format for ethernet. */
 typedef CLIB_PACKED (struct
 {
@@ -51,7 +39,6 @@ typedef CLIB_PACKED (struct
   icmp6_neighbor_discovery_prefix_information_option_t
   prefix[0];
 }) icmp6_router_advertisement_packet_t;
-/* *INDENT-ON* */
 
 #define DEF_MAX_RADV_INTERVAL 200
 #define DEF_MIN_RADV_INTERVAL .75 * DEF_MAX_RADV_INTERVAL
@@ -305,7 +292,6 @@ icmp6_router_solicitation (vlib_main_t * vm,
 	  if (PREDICT_TRUE (error0 == ICMP6_ERROR_NONE && o0 != 0 &&
 			    !is_unspecified && !is_link_local))
 	    {
-              /* *INDENT-OFF* */
 	      ip_neighbor_learn_t learn = {
 		.sw_if_index = sw_if_index0,
 		.ip = {
@@ -313,7 +299,6 @@ icmp6_router_solicitation (vlib_main_t * vm,
                   .version = AF_IP6,
                 },
 	      };
-              /* *INDENT-ON* */
 	      memcpy (&learn.mac, o0->ethernet_address, sizeof (learn.mac));
 	      ip_neighbor_learn_dp (&learn);
 	    }
@@ -460,7 +445,6 @@ icmp6_router_solicitation (vlib_main_t * vm,
 		      /* add advertised prefix options  */
 		      ip6_radv_prefix_t *pr_info;
 
-		      /* *INDENT-OFF* */
 		      pool_foreach (pr_info, radv_info->adv_prefixes_pool)
                        {
                         if(pr_info->enabled &&
@@ -526,7 +510,6 @@ icmp6_router_solicitation (vlib_main_t * vm,
 
                           }
                       }
-		      /* *INDENT-ON* */
 
 		      /* add additional options before here */
 
@@ -634,7 +617,6 @@ icmp6_router_solicitation (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_icmp_router_solicitation_node,static) =
 {
   .function = icmp6_router_solicitation,
@@ -651,7 +633,6 @@ VLIB_REGISTER_NODE (ip6_icmp_router_solicitation_node,static) =
     [ICMP6_ROUTER_SOLICITATION_NEXT_REPLY_TX] = "interface-output",
   },
 };
-/* *INDENT-ON* */
 
  /* validate advertised info for consistancy (see RFC-4861 section 6.2.7) - log any inconsistencies, packet will always  be dropped  */
 static_always_inline uword
@@ -944,7 +925,6 @@ icmp6_router_advertisement (vlib_main_t * vm,
 				prefix->prefix.fp_proto = FIB_PROTOCOL_IP6;
 
 				/* look for matching prefix - if we our advertising it, it better be consistant */
-				/* *INDENT-OFF* */
 				pool_foreach (pr_info, radv_info->adv_prefixes_pool)
                                  {
 
@@ -975,7 +955,6 @@ icmp6_router_advertisement (vlib_main_t * vm,
                                     }
                                   break;
                                 }
-				/* *INDENT-ON* */
 				break;
 			      }
 			    default:
@@ -1009,7 +988,6 @@ icmp6_router_advertisement (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_icmp_router_advertisement_node,static) =
 {
   .function = icmp6_router_advertisement,
@@ -1024,7 +1002,6 @@ VLIB_REGISTER_NODE (ip6_icmp_router_advertisement_node,static) =
     [0] = "ip6-drop",
   },
 };
-/* *INDENT-ON* */
 
 static inline f64
 random_f64_from_to (f64 from, f64 to)
@@ -1214,14 +1191,12 @@ send_rs_process (vlib_main_t * vm, vlib_node_runtime_t * rt,
       do
 	{
 	  due_time = current_time + 1e9;
-        /* *INDENT-OFF* */
         pool_foreach (radv_info, ip6_ra_pool)
          {
 	    if (check_send_rs (vm, radv_info, current_time, &dt)
 		&& (dt < due_time))
 	      due_time = dt;
         }
-        /* *INDENT-ON* */
 	  current_time = vlib_time_now (vm);
 	}
       while (due_time < current_time);
@@ -1232,13 +1207,11 @@ send_rs_process (vlib_main_t * vm, vlib_node_runtime_t * rt,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_rs_process_node) = {
     .function = send_rs_process,
     .type = VLIB_NODE_TYPE_PROCESS,
     .name = "ip6-rs-process",
 };
-/* *INDENT-ON* */
 
 void
 icmp6_send_router_solicitation (vlib_main_t * vm, u32 sw_if_index, u8 stop,
@@ -1346,12 +1319,10 @@ ip6_ra_delegate_disable (index_t rai)
   radv_info = pool_elt_at_index (ip6_ra_pool, rai);
 
   /* clean up prefix and MDP pools */
-  /* *INDENT-OFF* */
   pool_flush(p, radv_info->adv_prefixes_pool,
   ({
     mhash_unset (&radv_info->address_to_prefix_index, &p->prefix, 0);
   }));
-  /* *INDENT-ON* */
 
   pool_free (radv_info->adv_prefixes_pool);
 
@@ -1373,12 +1344,10 @@ ip6_ra_update_secondary_radv_info (ip6_address_t * address, u8 prefix_len,
   ip6_address_mask_from_width (&mask, prefix_len);
 
   vec_reset_length (radv_indices);
-  /* *INDENT-OFF* */
   pool_foreach (radv_info, ip6_ra_pool)
    {
     vec_add1 (radv_indices, radv_info - ip6_ra_pool);
   }
-  /* *INDENT-ON* */
 
   /*
    * If we have another customer for this prefix,
@@ -1393,7 +1362,6 @@ ip6_ra_update_secondary_radv_info (ip6_address_t * address, u8 prefix_len,
       if (radv_info->sw_if_index == primary_sw_if_index)
 	continue;
 
-      /* *INDENT-OFF* */
       pool_foreach (this_prefix, radv_info->adv_prefixes_pool)
        {
         if (this_prefix->prefix_len == prefix_len
@@ -1416,7 +1384,6 @@ ip6_ra_update_secondary_radv_info (ip6_address_t * address, u8 prefix_len,
               clib_warning ("ip6_neighbor_ra_prefix returned %d", rv);
           }
       }
-      /* *INDENT-ON*/
     }
 }
 
@@ -1437,7 +1404,6 @@ ip6_ra_process_timer_event (vlib_main_t * vm,
   f64 now = vlib_time_now (vm);
 
   /* Interface ip6 radv info list */
-  /* *INDENT-OFF* */
   pool_foreach (radv_info, ip6_ra_pool)
    {
     if( !vnet_sw_interface_is_admin_up (vnm, radv_info->sw_if_index))
@@ -1527,7 +1493,6 @@ ip6_ra_process_timer_event (vlib_main_t * vm,
           }
       }
   }
-  /* *INDENT-ON* */
 
   if (f)
     {
@@ -1584,14 +1549,12 @@ ip6_ra_event_process (vlib_main_t * vm,
   return frame->n_vectors;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_ra_process_node) =
 {
  .function = ip6_ra_event_process,
  .name = "ip6-ra-process",
  .type = VLIB_NODE_TYPE_PROCESS,
 };
-/* *INDENT-ON* */
 
 static void
 ip6_ra_signal_report (ip6_ra_report_t * r)
@@ -2053,14 +2016,12 @@ format_ip6_ra (u8 * s, va_list * args)
 
   indent += 2;
 
-  /* *INDENT-OFF* */
   pool_foreach (p, radv_info->adv_prefixes_pool)
    {
     s = format (s, "%Uprefix %U, length %d\n",
                 format_white_space, indent+2,
                 format_ip6_address, &p->prefix, p->prefix_len);
   }
-  /* *INDENT-ON* */
 
   s = format (s, "%UMTU is %d\n",
 	      format_white_space, indent, radv_info->adv_link_mtu);
@@ -2236,14 +2197,12 @@ format_ip6_ra (u8 * s, va_list * args)
  * Example of how to delete a prefix:
  * @cliexcmd{ip6 nd GigabitEthernet2/0/0 no prefix fe80::fe:28ff:fe9c:75b3/64}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (ip6_nd_command, static) =
 {
   .path = "ip6 nd",
   .short_help = "ip6 nd <interface> ...",
   .function = ip6_ra_cmd,
 };
-/* *INDENT-ON* */
 
 /**
  * VFT for registering as a delegate to an IP6 link
@@ -2269,17 +2228,6 @@ ip6_ra_init (vlib_main_t * vm)
   return (NULL);
 }
 
-/* *INDENT-OFF* */
-VLIB_INIT_FUNCTION (ip6_ra_init) =
-{
-  .runs_after = VLIB_INITS("icmp6_init"),
+VLIB_INIT_FUNCTION (ip6_ra_init) = {
+  .runs_after = VLIB_INITS ("icmp6_init"),
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

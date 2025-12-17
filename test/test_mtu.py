@@ -11,10 +11,8 @@
 import unittest
 from scapy.layers.inet6 import IPv6, Ether, IP, UDP, ICMPv6PacketTooBig
 from scapy.layers.inet import ICMP
-from framework import VppTestCase, VppTestRunner
-from vpp_ip import DpoProto
-from vpp_ip_route import VppIpRoute, VppRoutePath, FibPathProto
-from socket import AF_INET, AF_INET6, inet_pton
+from framework import VppTestCase
+from asfframework import VppTestRunner
 from util import reassemble4
 
 
@@ -57,7 +55,7 @@ class TestMTU(VppTestCase):
                 i.admin_down()
 
     def validate(self, rx, expected):
-        self.assertEqual(rx, expected.__class__(expected))
+        self.assertTrue(bytes(rx), bytes(expected))
 
     def validate_bytes(self, rx, expected):
         self.assertEqual(rx, expected)
@@ -101,19 +99,18 @@ class TestMTU(VppTestCase):
             chksum=0x2DBB,
         )
         icmp4_reply = (
-            IP(src=self.pg0.local_ip4, dst=self.pg0.remote_ip4, ttl=254, len=576, id=0)
+            IP(src=self.pg0.local_ip4, dst=self.pg0.remote_ip4, ttl=255, len=576, id=0)
             / p_icmp4
             / p_ip4
             / p_payload
         )
-        n = icmp4_reply.__class__(icmp4_reply)
         s = bytes(icmp4_reply)
         icmp4_reply = s[0:576]
         rx = self.send_and_expect_some(self.pg0, p4 * 11, self.pg0)
         for p in rx:
-            # p.show2()
-            # n.show2()
             self.validate_bytes(bytes(p[1]), icmp4_reply)
+
+        self.assert_error_counter_equal("/err/ip4-input/mtu_exceeded", 11)
 
         # Now with DF off. Expect fragments.
         # First go with 1500 byte packets.
@@ -185,13 +182,14 @@ class TestMTU(VppTestCase):
             / p_payload
         )
         icmp6_reply[2].hlim -= 1
-        n = icmp6_reply.__class__(icmp6_reply)
         s = bytes(icmp6_reply)
         icmp6_reply_str = s[0:1280]
 
         rx = self.send_and_expect_some(self.pg0, p6 * 9, self.pg0)
         for p in rx:
             self.validate_bytes(bytes(p[1]), icmp6_reply_str)
+
+        self.assert_error_counter_equal("/err/ip6-input/mtu_exceeded", 9)
 
         # Reset MTU
         self.vapi.sw_interface_set_mtu(self.pg1.sw_if_index, [current_mtu, 0, 0, 0])

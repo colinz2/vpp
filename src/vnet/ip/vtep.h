@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef included_ip_vtep_h
@@ -29,7 +19,6 @@
  * processing and go directly to the tunnel protocol handler node.
  */
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED
 (struct {
   union {
@@ -40,7 +29,6 @@ typedef CLIB_PACKED
     u64 as_u64;
   };
 }) vtep4_key_t;
-/* *INDENT-ON* */
 
 /**
  * @brief Tunnel endpoint key (IPv6)
@@ -51,13 +39,11 @@ typedef CLIB_PACKED
  * processing and go directly to the tunnel protocol handler node.
  */
 
-/* *INDENT-OFF* */
 typedef CLIB_PACKED
 (struct {
   ip6_address_t addr;
   u32 fib_index;
 }) vtep6_key_t;
-/* *INDENT-ON* */
 
 typedef struct
 {
@@ -171,11 +157,3 @@ vtep6_check (vtep_table_t * t, vlib_buffer_t * b0, ip6_header_t * ip60,
   return VTEP_CHECK_PASS;
 }
 #endif /* included_ip_vtep_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

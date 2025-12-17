@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifndef SRC_SVM_FIFO_TYPES_H_
@@ -87,6 +77,8 @@ typedef struct svm_fifo_shr_
   u8 subscribers[SVM_FIFO_MAX_EVT_SUBSCRIBERS];
 } svm_fifo_shared_t;
 
+struct _svm_fifo;
+
 typedef struct _svm_fifo
 {
   CLIB_CACHE_LINE_ALIGN_MARK (cacheline);
@@ -101,22 +93,53 @@ typedef struct _svm_fifo
   u32 ooos_newest;		 /**< Last segment to have been updated */
 
   u8 flags;		  /**< fifo flags */
-  u8 master_thread_index; /**< session layer thread index */
-  u8 client_thread_index; /**< app worker index */
   i8 refcnt;		  /**< reference count  */
-  u32 segment_manager;	  /**< session layer segment manager index */
-  u32 segment_index;	  /**< segment index in segment manager */
+  u8 client_thread_index; /**< app worker index */
+  u32 app_session_index;  /**< app session index */
+  union
+  {
+    struct
+    {
+      u32 vpp_session_index;   /**< session layer session index */
+      u32 master_thread_index; /**< session layer thread index */
+    };
+    u64 vpp_sh;
+  };
+  u32 segment_manager; /**< session layer segment manager index */
+  u32 segment_index;   /**< segment index in segment manager */
 
   struct _svm_fifo *next; /**< prev in active chain */
   struct _svm_fifo *prev; /**< prev in active chain */
-
-  svm_fifo_chunk_t *chunks_at_attach; /**< chunks to be accounted at detach */
-  svm_fifo_shared_t *hdr_at_attach;   /**< hdr to be freed at detach */
+  union
+  {
+    struct _svm_fifo *ct_fifo; /**< ct client's ptr to server fifo */
+    struct
+    {
+      u32 seg_ctx_index; /**< info to locate custom_seg_ctx */
+      u32 ct_seg_index;	 /**< info to locate ct_seg within seg_ctx */
+    };
+  };
 
 #if SVM_FIFO_TRACE
   svm_fifo_trace_elem_t *trace;
 #endif
 } svm_fifo_t;
+
+/* To minimize size of svm_fifo_t reuse ooo lookup for tracking chunks and
+ * hdr at attach/detach. Fifo being migrated should not receive new data */
+#define svm_fifo_chunks_at_attach(f)                                          \
+  ((union {                                                                   \
+    rb_tree_t *tree;                                                          \
+    svm_fifo_chunk_t **chunks;                                                \
+  }){ .tree = &(f)->ooo_enq_lookup })                                         \
+    .chunks[0]
+
+#define svm_fifo_hdr_at_attach(f)                                             \
+  ((union {                                                                   \
+    rb_tree_t *tree;                                                          \
+    svm_fifo_shared_t **hdr;                                                  \
+  }){ .tree = &(f)->ooo_deq_lookup })                                         \
+    .hdr[0]
 
 typedef struct fifo_segment_slice_
 {
@@ -180,11 +203,3 @@ fs_chunk_sptr (fifo_segment_header_t *fsh, svm_fifo_chunk_t *c)
 }
 
 #endif /* SRC_SVM_FIFO_TYPES_H_ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

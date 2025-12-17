@@ -1,19 +1,8 @@
-/*
- * l2_bvi.c : layer 2 Bridged Virtual Interface
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2013 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* l2_bvi.c : layer 2 Bridged Virtual Interface */
 
 #include <vlib/vlib.h>
 #include <vnet/vnet.h>
@@ -58,14 +47,12 @@ bvi_mac_change (vnet_hw_interface_t * hi,
   return (NULL);
 }
 
-/* *INDENT-OFF* */
 VNET_DEVICE_CLASS (bvi_device_class) = {
   .name = "BVI",
   .format_device_name = format_bvi_name,
   .admin_up_down_function = bvi_admin_up_down,
   .mac_addr_change_function = bvi_mac_change,
 };
-/* *INDENT-ON* */
 
 /*
  * Maintain a bitmap of allocated bvi instance numbers.
@@ -273,13 +260,11 @@ l2_bvi_create_cli (vlib_main_t * vm,
  * Example of how to create a bvi interface:
  * @cliexcmd{bvi create}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (l2_bvi_create_command, static) = {
   .path = "bvi create",
   .short_help = "bvi create [mac <mac-addr>] [instance <instance>]",
   .function = l2_bvi_create_cli,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 l2_bvi_delete_cli (vlib_main_t * vm,
@@ -324,19 +309,8 @@ l2_bvi_delete_cli (vlib_main_t * vm,
  * Example of how to create a bvi interface:
  * @cliexcmd{bvi delete bvi0}
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (l2_bvi_delete_command, static) = {
   .path = "bvi delete",
   .short_help = "bvi delete <interface>",
   .function = l2_bvi_delete_cli,
 };
-/* *INDENT-ON* */
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

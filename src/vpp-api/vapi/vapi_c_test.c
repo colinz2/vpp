@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <stdio.h>
@@ -28,6 +15,7 @@
 #include <vapi/vlib.api.vapi.h>
 #include <vapi/vpe.api.vapi.h>
 #include <vapi/interface.api.vapi.h>
+#include <vapi/ip.api.vapi.h>
 #include <vapi/l2.api.vapi.h>
 #include <fake.api.vapi.h>
 
@@ -36,11 +24,13 @@
 
 DEFINE_VAPI_MSG_IDS_VPE_API_JSON;
 DEFINE_VAPI_MSG_IDS_INTERFACE_API_JSON;
+DEFINE_VAPI_MSG_IDS_IP_API_JSON;
 DEFINE_VAPI_MSG_IDS_L2_API_JSON;
 DEFINE_VAPI_MSG_IDS_FAKE_API_JSON;
 
 static char *app_name = NULL;
 static char *api_prefix = NULL;
+static bool use_uds = false;
 static const int max_outstanding_requests = 64;
 static const int response_queue_size = 32;
 
@@ -63,8 +53,9 @@ START_TEST (test_invalid_values)
   ck_assert_ptr_eq (NULL, sv);
   rv = vapi_send (ctx, sv);
   ck_assert_int_eq (VAPI_EINVAL, rv);
-  rv = vapi_connect (ctx, app_name, api_prefix, max_outstanding_requests,
-		     response_queue_size, VAPI_MODE_BLOCKING, true);
+  rv =
+    vapi_connect_ex (ctx, app_name, api_prefix, max_outstanding_requests,
+		     response_queue_size, VAPI_MODE_BLOCKING, true, use_uds);
   ck_assert_int_eq (VAPI_OK, rv);
   rv = vapi_send (ctx, NULL);
   ck_assert_int_eq (VAPI_EINVAL, rv);
@@ -365,8 +356,9 @@ START_TEST (test_connect)
   vapi_ctx_t ctx;
   vapi_error_e rv = vapi_ctx_alloc (&ctx);
   ck_assert_int_eq (VAPI_OK, rv);
-  rv = vapi_connect (ctx, app_name, api_prefix, max_outstanding_requests,
-		     response_queue_size, VAPI_MODE_BLOCKING, true);
+  rv =
+    vapi_connect_ex (ctx, app_name, api_prefix, max_outstanding_requests,
+		     response_queue_size, VAPI_MODE_BLOCKING, true, use_uds);
   ck_assert_int_eq (VAPI_OK, rv);
   rv = vapi_disconnect (ctx);
   ck_assert_int_eq (VAPI_OK, rv);
@@ -382,8 +374,9 @@ setup_blocking (void)
 {
   vapi_error_e rv = vapi_ctx_alloc (&ctx);
   ck_assert_int_eq (VAPI_OK, rv);
-  rv = vapi_connect (ctx, app_name, api_prefix, max_outstanding_requests,
-		     response_queue_size, VAPI_MODE_BLOCKING, true);
+  rv =
+    vapi_connect_ex (ctx, app_name, api_prefix, max_outstanding_requests,
+		     response_queue_size, VAPI_MODE_BLOCKING, true, use_uds);
   ck_assert_int_eq (VAPI_OK, rv);
 }
 
@@ -392,8 +385,9 @@ setup_nonblocking (void)
 {
   vapi_error_e rv = vapi_ctx_alloc (&ctx);
   ck_assert_int_eq (VAPI_OK, rv);
-  rv = vapi_connect (ctx, app_name, api_prefix, max_outstanding_requests,
-		     response_queue_size, VAPI_MODE_NONBLOCKING, true);
+  rv = vapi_connect_ex (ctx, app_name, api_prefix, max_outstanding_requests,
+			response_queue_size, VAPI_MODE_NONBLOCKING, true,
+			use_uds);
   ck_assert_int_eq (VAPI_OK, rv);
 }
 
@@ -481,6 +475,50 @@ sw_interface_dump_cb (struct vapi_ctx_s *ctx, void *callback_ctx,
   return VAPI_OK;
 }
 
+vapi_error_e
+vapi_ip_path_mtu_update_reply_cb (struct vapi_ctx_s *ctx, void *callback_ctx,
+				  vapi_error_e rv, bool is_last,
+				  vapi_payload_ip_path_mtu_update_reply *reply)
+{
+  bool *x = callback_ctx;
+  *x = true;
+  return VAPI_OK;
+}
+
+vapi_error_e
+vapi_ip_path_mtu_get_reply_cb (struct vapi_ctx_s *ctx, void *callback_ctx,
+			       vapi_error_e rv, bool is_last,
+			       vapi_payload_ip_path_mtu_get_reply *reply)
+{
+  int *counter = callback_ctx;
+  ck_assert_int_gt (*counter, 0); // make sure details were called first
+  ++*counter;
+  ck_assert_int_eq (is_last, true);
+  printf ("Got ip path mtu reply error %d\n", rv);
+  ck_assert_int_eq (rv, VAPI_OK);
+  printf ("counter is %d", *counter);
+  return VAPI_OK;
+}
+
+vapi_error_e
+vapi_ip_path_mtu_details_cb (struct vapi_ctx_s *ctx, void *callback_ctx,
+			     vapi_error_e rv, bool is_last,
+			     vapi_payload_ip_path_mtu_details *details)
+{
+  int *counter = callback_ctx;
+  ++*counter;
+  if (!is_last)
+    {
+      printf ("Got ip path mtu to %u for ip %d.%d.%d.%d\n",
+	      details->pmtu.path_mtu, details->pmtu.nh.un.ip4[0],
+	      details->pmtu.nh.un.ip4[1], details->pmtu.nh.un.ip4[2],
+	      details->pmtu.nh.un.ip4[3]);
+      ck_assert_int_eq (details->pmtu.path_mtu, 1420);
+    }
+  printf ("counter is %d\n", *counter);
+  return VAPI_OK;
+}
+
 START_TEST (test_loopbacks_1)
 {
   printf ("--- Create/delete loopbacks using blocking API ---\n");
@@ -521,6 +559,7 @@ START_TEST (test_loopbacks_1)
 	      mac_addresses[i][3], mac_addresses[i][4], mac_addresses[i][5],
 	      sw_if_indexes[i]);
     }
+
   bool seen[num_ifs];
   sw_interface_dump_ctx dctx = { false, num_ifs, sw_if_indexes, seen, 0 };
   vapi_msg_sw_interface_dump *dump;
@@ -530,7 +569,7 @@ START_TEST (test_loopbacks_1)
     {
       dctx.last_called = false;
       clib_memset (&seen, 0, sizeof (seen));
-      dump = vapi_alloc_sw_interface_dump (ctx);
+      dump = vapi_alloc_sw_interface_dump (ctx, 0);
       while (VAPI_EAGAIN ==
 	     (rv =
 	      vapi_sw_interface_dump (ctx, dump, sw_interface_dump_cb,
@@ -559,7 +598,7 @@ START_TEST (test_loopbacks_1)
     }
   dctx.last_called = false;
   clib_memset (&seen, 0, sizeof (seen));
-  dump = vapi_alloc_sw_interface_dump (ctx);
+  dump = vapi_alloc_sw_interface_dump (ctx, 0);
   while (VAPI_EAGAIN ==
 	 (rv =
 	  vapi_sw_interface_dump (ctx, dump, sw_interface_dump_cb, &dctx)))
@@ -569,6 +608,47 @@ START_TEST (test_loopbacks_1)
     {
       ck_assert_int_eq (false, seen[i]);
     }
+}
+
+END_TEST;
+
+START_TEST (test_pmtu)
+{
+  printf ("--- Set ip_path_mtu to test stream rpc ---\n");
+  const int num_path_mtus = 5;
+
+  { // new context
+    for (int i = 0; i < num_path_mtus; ++i)
+      {
+	vapi_msg_ip_path_mtu_update *mc = vapi_alloc_ip_path_mtu_update (ctx);
+	mc->payload.pmtu.path_mtu = 1420;
+	mc->payload.pmtu.nh.af = ADDRESS_IP4;
+	mc->payload.pmtu.nh.un.ip4[0] = 10;
+	mc->payload.pmtu.nh.un.ip4[1] = 0;
+	mc->payload.pmtu.nh.un.ip4[2] = 0;
+	mc->payload.pmtu.nh.un.ip4[3] = i;
+	bool reply_ctx = false;
+	printf ("Set ip path mtu to %u for %d.%d.%d.%d\n",
+		mc->payload.pmtu.path_mtu, mc->payload.pmtu.nh.un.ip4[0],
+		mc->payload.pmtu.nh.un.ip4[1], mc->payload.pmtu.nh.un.ip4[2],
+		mc->payload.pmtu.nh.un.ip4[3]);
+	vapi_error_e rv = vapi_ip_path_mtu_update (
+	  ctx, mc, vapi_ip_path_mtu_update_reply_cb, &reply_ctx);
+	ck_assert_int_eq (VAPI_OK, rv);
+	ck_assert_int_eq (reply_ctx, true);
+      }
+  }
+
+  { // new context
+    int counter = 0;
+    vapi_msg_ip_path_mtu_get *msg = vapi_alloc_ip_path_mtu_get (ctx);
+    vapi_error_e rv =
+      vapi_ip_path_mtu_get (ctx, msg, vapi_ip_path_mtu_get_reply_cb, &counter,
+			    vapi_ip_path_mtu_details_cb, &counter);
+    printf ("counter is %d", counter);
+    ck_assert_int_eq (VAPI_OK, rv);
+    ck_assert_int_eq (counter, num_path_mtus + 1);
+  }
 }
 
 END_TEST;
@@ -688,7 +768,7 @@ START_TEST (test_loopbacks_2)
   bool seen[num_ifs];
   clib_memset (&seen, 0, sizeof (seen));
   sw_interface_dump_ctx dctx = { false, num_ifs, sw_if_indexes, seen, 0 };
-  vapi_msg_sw_interface_dump *dump = vapi_alloc_sw_interface_dump (ctx);
+  vapi_msg_sw_interface_dump *dump = vapi_alloc_sw_interface_dump (ctx, 0);
   while (VAPI_EAGAIN ==
 	 (rv =
 	  vapi_sw_interface_dump (ctx, dump, sw_interface_dump_cb, &dctx)))
@@ -728,7 +808,7 @@ START_TEST (test_loopbacks_2)
     }
   clib_memset (&seen, 0, sizeof (seen));
   dctx.last_called = false;
-  dump = vapi_alloc_sw_interface_dump (ctx);
+  dump = vapi_alloc_sw_interface_dump (ctx, 0);
   while (VAPI_EAGAIN ==
 	 (rv =
 	  vapi_sw_interface_dump (ctx, dump, sw_interface_dump_cb, &dctx)))
@@ -847,7 +927,7 @@ START_TEST (test_no_response_2)
 {
   printf ("--- Simulate no response to dump message ---\n");
   vapi_error_e rv;
-  vapi_msg_sw_interface_dump *dump = vapi_alloc_sw_interface_dump (ctx);
+  vapi_msg_sw_interface_dump *dump = vapi_alloc_sw_interface_dump (ctx, 0);
   dump->header._vl_msg_id = ~0;	/* malformed ID causes vpp to drop the msg */
   int no_called = 0;
   while (VAPI_EAGAIN ==
@@ -962,6 +1042,7 @@ test_suite (void)
   tcase_add_test (tc_block, test_show_version_1);
   tcase_add_test (tc_block, test_show_version_2);
   tcase_add_test (tc_block, test_loopbacks_1);
+  tcase_add_test (tc_block, test_pmtu);
   suite_add_tcase (s, tc_block);
 
   TCase *tc_nonblock = tcase_create ("Nonblocking API");
@@ -990,13 +1071,23 @@ test_suite (void)
 int
 main (int argc, char *argv[])
 {
-  if (3 != argc)
+  if (4 != argc)
     {
       printf ("Invalid argc==`%d'\n", argc);
       return EXIT_FAILURE;
     }
   app_name = argv[1];
   api_prefix = argv[2];
+  if (!strcmp (argv[3], "shm"))
+    use_uds = 0;
+  else if (!strcmp (argv[3], "uds"))
+    use_uds = 1;
+  else
+    {
+      printf ("Unrecognised required argument '%s', expected 'uds' or 'shm'.",
+	      argv[3]);
+      return EXIT_FAILURE;
+    }
   printf ("App name: `%s', API prefix: `%s'\n", app_name, api_prefix);
 
   int number_failed;
@@ -1011,11 +1102,3 @@ main (int argc, char *argv[])
   srunner_free (sr);
   return (number_failed == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

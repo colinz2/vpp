@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /**
  * @file
  * @brief L2 LISP-GPE decap code.
@@ -102,9 +93,9 @@ next_index_to_iface (lisp_gpe_main_t * lgm, u32 next_index)
 }
 
 static_always_inline void
-incr_decap_stats (vnet_main_t * vnm, u32 thread_index, u32 length,
-		  u32 sw_if_index, u32 * last_sw_if_index, u32 * n_packets,
-		  u32 * n_bytes)
+incr_decap_stats (vnet_main_t *vnm, clib_thread_index_t thread_index,
+		  u32 length, u32 sw_if_index, u32 *last_sw_if_index,
+		  u32 *n_packets, u32 *n_bytes)
 {
   vnet_interface_main_t *im;
 
@@ -456,7 +447,6 @@ static char *lisp_gpe_ip4_input_error_strings[] = {
 #undef lisp_gpe_error
 };
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (lisp_gpe_ip4_input_node) = {
   .function = lisp_gpe_ip4_input,
   .name = "lisp-gpe-ip4-input",
@@ -476,9 +466,7 @@ VLIB_REGISTER_NODE (lisp_gpe_ip4_input_node) = {
   .format_trace = format_lisp_gpe_rx_trace,
   // $$$$ .unformat_buffer = unformat_lisp_gpe_header,
 };
-/* *INDENT-ON* */
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (lisp_gpe_ip6_input_node) = {
   .function = lisp_gpe_ip6_input,
   .name = "lisp-gpe-ip6-input",
@@ -498,7 +486,6 @@ VLIB_REGISTER_NODE (lisp_gpe_ip6_input_node) = {
   .format_trace = format_lisp_gpe_rx_trace,
   // $$$$ .unformat_buffer = unformat_lisp_gpe_header,
 };
-/* *INDENT-ON* */
 
 /**
  * Adds arc from lisp-gpe-input to nsh-input if nsh-input is available
@@ -556,7 +543,6 @@ static char *lisp_gpe_nsh_placeholder_error_strings[] = {
   "lisp gpe placeholder nsh decap",
 };
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (lisp_gpe_nsh_placeholder_input_node) = {
   .function = lisp_gpe_nsh_placeholder_input,
   .name = "lisp-gpe-nsh-placeholder-input",
@@ -571,7 +557,6 @@ VLIB_REGISTER_NODE (lisp_gpe_nsh_placeholder_input_node) = {
       [0] = "error-drop",
   },
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 lisp_add_placeholder_nsh_node_command_fn (vlib_main_t * vm,
@@ -586,19 +571,9 @@ lisp_add_placeholder_nsh_node_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (lisp_add_placeholder_nsh_node_command, static) = {
   .path = "test one nsh add-placeholder-decap-node",
   .function = lisp_add_placeholder_nsh_node_command_fn,
 };
-/* *INDENT-ON* */
 
 VLIB_INIT_FUNCTION (gpe_decap_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

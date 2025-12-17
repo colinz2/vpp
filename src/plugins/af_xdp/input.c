@@ -1,21 +1,7 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
-#include <poll.h>
 #include <vlib/vlib.h>
 #include <vlib/unix/unix.h>
 #include <vlib/pci/pci.h>
@@ -89,8 +75,12 @@ af_xdp_device_input_refill_db (vlib_main_t * vm,
 
   if (clib_spinlock_trylock_if_init (&rxq->syscall_lock))
     {
-      struct pollfd fd = { .fd = rxq->xsk_fd, .events = POLLIN | POLLOUT };
-      int ret = poll (&fd, 1, 0);
+      struct msghdr msg = { 0 };
+      struct iovec iov = { 0 };
+      msg.msg_iov = &iov;
+      msg.msg_iovlen = 1;
+
+      int ret = recvmsg (rxq->xsk_fd, &msg, MSG_DONTWAIT);
       clib_spinlock_unlock_if_init (&rxq->syscall_lock);
       if (PREDICT_FALSE (ret < 0))
 	{
@@ -198,6 +188,7 @@ af_xdp_device_input_ethernet (vlib_main_t * vm, vlib_node_runtime_t * node,
   ef = vlib_frame_scalar_args (f);
   ef->sw_if_index = sw_if_index;
   ef->hw_if_index = hw_if_index;
+  vlib_frame_no_append (f);
 }
 
 static_always_inline u32
@@ -297,7 +288,7 @@ af_xdp_device_input_inline (vlib_main_t *vm, vlib_node_runtime_t *node,
   vlib_buffer_copy_template (&bt, ad->buffer_template);
   next_index = ad->per_interface_next_index;
   if (PREDICT_FALSE (vnet_device_input_have_features (ad->sw_if_index)))
-    vnet_feature_start_device_input_x1 (ad->sw_if_index, &next_index, &bt);
+    vnet_feature_start_device_input (ad->sw_if_index, &next_index, &bt);
 
   vlib_get_new_next_frame (vm, node, next_index, to_next, n_left_to_next);
 
@@ -353,7 +344,6 @@ af_xdp_device_input_refill (af_xdp_device_t *ad)
 }
 #endif /* CLIB_MARCH_VARIANT */
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (af_xdp_input_node) = {
   .name = "af_xdp-input",
   .sibling_of = "device-input",
@@ -364,12 +354,3 @@ VLIB_REGISTER_NODE (af_xdp_input_node) = {
   .error_strings = af_xdp_input_error_strings,
   .flags = VLIB_NODE_FLAG_TRACE_SUPPORTED,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

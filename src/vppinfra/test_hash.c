@@ -1,39 +1,7 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright (c) 2001, 2002, 2003 Eliot Dresselhaus
  */
-/*
-  Copyright (c) 2001, 2002, 2003 Eliot Dresselhaus
-
-  Permission is hereby granted, free of charge, to any person obtaining
-  a copy of this software and associated documentation files (the
-  "Software"), to deal in the Software without restriction, including
-  without limitation the rights to use, copy, modify, merge, publish,
-  distribute, sublicense, and/or sell copies of the Software, and to
-  permit persons to whom the Software is furnished to do so, subject to
-  the following conditions:
-
-  The above copyright notice and this permission notice shall be
-  included in all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
 
 #ifdef CLIB_LINUX_KERNEL
 #include <linux/unistd.h>
@@ -86,14 +54,12 @@ hash_next_test (word * h)
   hash_pair_t *p0, *p1;
   clib_error_t *error = 0;
 
-  /* *INDENT-OFF* */
   hash_foreach_pair (p0, h, {
     p1 = hash_next (h, &hn);
     error = CLIB_ERROR_ASSERT (p0 == p1);
     if (error)
       break;
   });
-  /* *INDENT-ON* */
 
   if (!error)
     error = CLIB_ERROR_ASSERT (!hash_next (h, &hn));
@@ -176,12 +142,10 @@ test_word_key (hash_test_t * ht)
 	hash_pair_t *p;
 	uword ki;
 
-	  /* *INDENT-OFF* */
 	  hash_foreach_pair (p, h, {
 	      ki = p->value[0];
 	      ASSERT (keys[ki] == p->key);
 	  });
-	  /* *INDENT-ON* */
       }
 
       if ((error = hash_validate (h)))
@@ -442,11 +406,3 @@ main (int argc, char *argv[])
   return ret;
 }
 #endif /* CLIB_UNIX */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

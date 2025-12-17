@@ -1,16 +1,5 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 SUSE LLC.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vlib/vlib.h>
@@ -79,7 +68,7 @@ geneve_input (vlib_main_t * vm,
   geneve4_tunnel_key_t last_key4;
   geneve6_tunnel_key_t last_key6;
   u32 pkts_decapsulated = 0;
-  u32 thread_index = vm->thread_index;
+  clib_thread_index_t thread_index = vm->thread_index;
   u32 stats_sw_if_index, stats_n_packets, stats_n_bytes;
   vlib_buffer_t *bufs[VLIB_FRAME_SIZE], **b = bufs;
 
@@ -812,7 +801,6 @@ static char *geneve_error_strings[] = {
 #undef _
 };
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (geneve4_input_node) = {
   .name = "geneve4-input",
   /* Takes a vector of packets. */
@@ -847,7 +835,6 @@ VLIB_REGISTER_NODE (geneve6_input_node) = {
   .format_trace = format_geneve_rx_trace,
   // $$$$ .unformat_buffer = unformat_geneve_header,
 };
-/* *INDENT-ON* */
 
 typedef enum
 {
@@ -1252,7 +1239,6 @@ VLIB_NODE_FN (ip4_geneve_bypass_node) (vlib_main_t * vm,
   return ip_geneve_bypass_inline (vm, node, frame, /* is_ip4 */ 1);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip4_geneve_bypass_node) =
 {
   .name = "ip4-geneve-bypass",
@@ -1265,7 +1251,6 @@ VLIB_REGISTER_NODE (ip4_geneve_bypass_node) =
   .format_buffer = format_ip4_header,
   .format_trace = format_ip4_forward_next_trace,
 };
-/* *INDENT-ON* */
 
 VLIB_NODE_FN (ip6_geneve_bypass_node) (vlib_main_t * vm,
 				       vlib_node_runtime_t * node,
@@ -1274,7 +1259,6 @@ VLIB_NODE_FN (ip6_geneve_bypass_node) (vlib_main_t * vm,
   return ip_geneve_bypass_inline (vm, node, frame, /* is_ip4 */ 0);
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (ip6_geneve_bypass_node) =
 {
   .name = "ip6-geneve-bypass",
@@ -1288,12 +1272,3 @@ VLIB_REGISTER_NODE (ip6_geneve_bypass_node) =
   .format_buffer = format_ip6_header,
   .format_trace = format_ip6_forward_next_trace,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,18 +1,8 @@
 
-/*
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <vnet/session/session.h>
@@ -80,7 +70,7 @@ bio_tls_read (BIO * b, char *out, int outl)
   if (svm_fifo_needs_deq_ntf (s->rx_fifo, rv))
     {
       svm_fifo_clear_deq_ntf (s->rx_fifo);
-      session_send_io_evt_to_thread (s->rx_fifo, SESSION_IO_EVT_RX);
+      session_program_transport_io_evt (s->handle, SESSION_IO_EVT_RX);
     }
 
   if (svm_fifo_is_empty_cons (s->rx_fifo))
@@ -178,11 +168,3 @@ BIO_new_tls (session_handle_t sh)
   BIO_set_init (b, 1);
   return b;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

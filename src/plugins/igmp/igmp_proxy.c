@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <vlib/vlib.h>
@@ -34,7 +21,6 @@ igmp_proxy_device_mfib_path_add_del (igmp_group_t * group, u8 add)
     mfib_table_get_index_for_sw_if_index (FIB_PROTOCOL_IP4,
 					  config->sw_if_index);
 
-  /* *INDENT-OFF* */
   mfib_prefix_t mpfx_group_addr = {
       .fp_proto = FIB_PROTOCOL_IP4,
       .fp_len = 32,
@@ -51,7 +37,6 @@ igmp_proxy_device_mfib_path_add_del (igmp_group_t * group, u8 add)
       .frp_weight = 1,
       .frp_mitf_flags = MFIB_ITF_FLAG_FORWARD,
     };
-  /* *INDENT-ON* */
 
   if (add)
     mfib_table_entry_path_update (mfib_index, &mpfx_group_addr,
@@ -346,12 +331,10 @@ igmp_proxy_device_merge_group (igmp_proxy_device_t * proxy_device,
       igmp_proxy_device_mfib_path_add_del (group, 0);
     }
 
-  /* *INDENT-OFF* */
   FOR_EACH_SRC (src, group, group->router_filter_mode,
     ({
       igmp_proxy_device_merge_src (&proxy_group, src, srcaddrs, block);
     }));
-  /* *INDENT-ON* */
   return proxy_group;
 }
 
@@ -370,7 +353,6 @@ igmp_proxy_device_merge_config (igmp_config_t * config, u8 block)
 
   igmp_pkt_build_report_init (&br, proxy_device->upstream_if);
 
-  /* *INDENT-OFF* */
   FOR_EACH_GROUP(group, config,
     ({
       proxy_group = igmp_proxy_device_merge_group (proxy_device, group, &srcaddrs, block);
@@ -383,16 +365,6 @@ igmp_proxy_device_merge_config (igmp_config_t * config, u8 block)
 	}
       vec_free (srcaddrs);
     }));
-  /* *INDENT-ON* */
 
   igmp_pkt_report_v3_send (&br);
-
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

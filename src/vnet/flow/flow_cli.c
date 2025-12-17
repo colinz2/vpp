@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <stddef.h>
 
 #include <vnet/vnet.h>
@@ -138,13 +129,11 @@ format_flow_enabled_hw (u8 * s, va_list * args)
   u32 hw_if_index;
   uword private_data;
   vnet_main_t *vnm = vnet_get_main ();
-  /* *INDENT-OFF* */
   hash_foreach (hw_if_index, private_data, f->private_data,
     ({
      t = format (t, "%s%U", t ? ", " : "",
                  format_vnet_hw_if_index_name, vnm, hw_if_index);
      }));
-  /* *INDENT-ON* */
   s = format (s, "%v", t);
   vec_free (t);
   return s;
@@ -228,7 +217,6 @@ show_flow_entry (vlib_main_t * vm, unformat_input_t * input,
 	  vlib_cli_output (vm, "%s: %s", "spec", f->generic.pattern.spec);
 	  vlib_cli_output (vm, "%s: %s", "mask", f->generic.pattern.mask);
 	}
-      /* *INDENT-OFF* */
       hash_foreach (hw_if_index, private_data, f->private_data,
         ({
 	 hi = vnet_get_hw_interface (vnm, hw_if_index);
@@ -239,12 +227,10 @@ show_flow_entry (vlib_main_t * vm, unformat_input_t * input,
 	    vlib_cli_output (vm,  "  %U\n", dev_class->format_flow,
 			     hi->dev_instance, f->index, private_data);
          }));
-      /* *INDENT-ON* */
       return 0;
     }
 
 no_args:
-  /* *INDENT-OFF* */
   pool_foreach (f, fm->global_flow_pool)
     {
       vlib_cli_output (vm, "%U\n", format_flow, f);
@@ -254,18 +240,15 @@ no_args:
 	  vlib_cli_output (vm, "%s: %s", "mask", f->generic.pattern.mask);
 	}
     }
-  /* *INDENT-ON* */
 
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_flow_entry_command, static) = {
     .path = "show flow entry",
     .short_help = "show flow entry [index <index>]",
     .function = show_flow_entry,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 show_flow_ranges (vlib_main_t * vm, unformat_input_t * input,
@@ -276,22 +259,18 @@ show_flow_ranges (vlib_main_t * vm, unformat_input_t * input,
 
   vlib_cli_output (vm, "%8s  %8s  %s", "Start", "Count", "Owner");
 
-  /* *INDENT-OFF* */
   vec_foreach (r, fm->ranges)
     {
       vlib_cli_output (vm, "%8u  %8u  %s", r->start, r->count, r->owner);
     };
-  /* *INDENT-ON* */
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_flow_ranges_command, static) = {
     .path = "show flow ranges",
     .short_help = "show flow ranges",
     .function = show_flow_ranges,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 show_flow_interface (vlib_main_t * vm, unformat_input_t * input,
@@ -329,13 +308,11 @@ show_flow_interface (vlib_main_t * vm, unformat_input_t * input,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_flow_interface_command, static) = {
     .path = "show flow interface",
     .short_help = "show flow interface <interface name>",
     .function = show_flow_interface,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 test_flow (vlib_main_t * vm, unformat_input_t * input,
@@ -833,7 +810,6 @@ test_flow (vlib_main_t * vm, unformat_input_t * input,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (test_flow_command, static) = {
   .path = "test flow",
   .short_help = "test flow [add|del|enable|disable] [index <id>] "
@@ -850,7 +826,6 @@ VLIB_CLI_COMMAND (test_flow_command, static) = {
 		"[rss queues <queue_start> to <queue_end>]",
   .function = test_flow,
 };
-/* *INDENT-ON* */
 
 static u8 *
 format_flow_match_element (u8 * s, va_list * args)
@@ -977,11 +952,3 @@ format_flow (u8 * s, va_list * args)
 
   return s;
 }
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

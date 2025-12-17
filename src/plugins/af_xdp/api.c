@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <vlib/vlib.h>
@@ -57,11 +44,11 @@ af_xdp_api_flags (vl_api_af_xdp_flag_t flags)
 }
 
 static void
-vl_api_af_xdp_create_t_handler (vl_api_af_xdp_create_t * mp)
+vl_api_af_xdp_create_v3_t_handler (vl_api_af_xdp_create_v3_t *mp)
 {
   vlib_main_t *vm = vlib_get_main ();
   af_xdp_main_t *rm = &af_xdp_main;
-  vl_api_af_xdp_create_reply_t *rmp;
+  vl_api_af_xdp_create_v3_reply_t *rmp;
   af_xdp_create_if_args_t args;
   int rv;
 
@@ -70,47 +57,20 @@ vl_api_af_xdp_create_t_handler (vl_api_af_xdp_create_t * mp)
   args.linux_ifname = mp->host_if[0] ? (char *) mp->host_if : 0;
   args.name = mp->name[0] ? (char *) mp->name : 0;
   args.prog = mp->prog[0] ? (char *) mp->prog : 0;
+  args.netns = mp->netns[0] ? (char *) mp->netns : 0;
   args.mode = af_xdp_api_mode (mp->mode);
   args.flags = af_xdp_api_flags (mp->flags);
-  args.rxq_size = ntohs (mp->rxq_size);
-  args.txq_size = ntohs (mp->txq_size);
-  args.rxq_num = ntohs (mp->rxq_num);
-
-  af_xdp_create_if (vm, &args);
-  rv = args.rv;
-
-  REPLY_MACRO2 (VL_API_AF_XDP_CREATE_REPLY,
-		({ rmp->sw_if_index = ntohl (args.sw_if_index); }));
-}
-
-static void
-vl_api_af_xdp_create_v2_t_handler (vl_api_af_xdp_create_v2_t *mp)
-{
-  vlib_main_t *vm = vlib_get_main ();
-  af_xdp_main_t *rm = &af_xdp_main;
-  vl_api_af_xdp_create_v2_reply_t *rmp;
-  af_xdp_create_if_args_t args;
-  int rv;
-
-  clib_memset (&args, 0, sizeof (af_xdp_create_if_args_t));
-
-  args.linux_ifname = mp->host_if[0] ? (char *) mp->host_if : 0;
-  args.name = mp->name[0] ? (char *) mp->name : 0;
-  args.prog = mp->prog[0] ? (char *) mp->prog : 0;
-  args.netns = mp->namespace[0] ? (char *) mp->namespace : 0;
-  args.mode = af_xdp_api_mode (mp->mode);
-  args.flags = af_xdp_api_flags (mp->flags);
-  args.rxq_size = ntohs (mp->rxq_size);
-  args.txq_size = ntohs (mp->txq_size);
-  args.rxq_num = ntohs (mp->rxq_num);
+  args.rxq_size = mp->rxq_size;
+  args.txq_size = mp->txq_size;
+  args.rxq_num = mp->rxq_num;
 
   af_xdp_create_if (vm, &args);
   rv = args.rv;
 
   /* clang-format off */
-  REPLY_MACRO2 (VL_API_AF_XDP_CREATE_V2_REPLY,
+  REPLY_MACRO2_END (VL_API_AF_XDP_CREATE_V3_REPLY,
     ({
-      rmp->sw_if_index = ntohl (args.sw_if_index);
+      rmp->sw_if_index = args.sw_if_index;
     }));
   /* clang-format on */
 }
@@ -156,11 +116,3 @@ af_xdp_plugin_api_hookup (vlib_main_t * vm)
 }
 
 VLIB_API_INIT_FUNCTION (af_xdp_plugin_api_hookup);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,18 +1,5 @@
-/*
- *------------------------------------------------------------------
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Intel and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *------------------------------------------------------------------
  */
 
 #include <vlib/vlib.h>
@@ -71,7 +58,7 @@ prepare_aead_xform (struct rte_crypto_sym_xform *xform,
   aead_xform->iv.offset = CRYPTODEV_IV_OFFSET;
   aead_xform->iv.length = 12;
   aead_xform->key.data = key->data;
-  aead_xform->key.length = vec_len (key->data);
+  aead_xform->key.length = key->length;
 
   return 0;
 }
@@ -111,7 +98,7 @@ prepare_linked_xform (struct rte_crypto_sym_xform *xforms,
   xform_auth->type = RTE_CRYPTO_SYM_XFORM_AUTH;
   xforms->next = xforms + 1;
 
-  switch (key->async_alg)
+  switch (key->alg)
     {
 #define _(a, b, c, d, e)                                                      \
   case VNET_CRYPTO_ALG_##a##_##d##_TAG##e:                                    \
@@ -128,14 +115,14 @@ prepare_linked_xform (struct rte_crypto_sym_xform *xforms,
 
   xform_cipher->cipher.algo = cipher_algo;
   xform_cipher->cipher.key.data = key_cipher->data;
-  xform_cipher->cipher.key.length = vec_len (key_cipher->data);
+  xform_cipher->cipher.key.length = key_cipher->length;
   xform_cipher->cipher.iv.length = 16;
   xform_cipher->cipher.iv.offset = CRYPTODEV_IV_OFFSET;
 
   xform_auth->auth.algo = auth_algo;
   xform_auth->auth.digest_length = digest_len;
   xform_auth->auth.key.data = key_auth->data;
-  xform_auth->auth.key.length = vec_len (key_auth->data);
+  xform_auth->auth.key.length = key_auth->length;
 
   return 0;
 }
@@ -249,9 +236,9 @@ cryptodev_check_supported_vnet_alg (vnet_crypto_key_t *key)
 {
   u32 matched = 0;
 
-  if (key->type == VNET_CRYPTO_KEY_TYPE_LINK)
+  if (key->is_link)
     {
-      switch (key->async_alg)
+      switch (key->alg)
 	{
 #define _(a, b, c, d, e)                                                      \
   case VNET_CRYPTO_ALG_##a##_##d##_TAG##e:                                    \
@@ -327,10 +314,9 @@ cryptodev_sess_handler (vlib_main_t *vm, vnet_crypto_key_op_t kop,
 }
 
 /*static*/ void
-cryptodev_key_handler (vlib_main_t *vm, vnet_crypto_key_op_t kop,
-		       vnet_crypto_key_index_t idx)
+cryptodev_key_handler (vnet_crypto_key_op_t kop, vnet_crypto_key_index_t idx)
 {
-  cryptodev_sess_handler (vm, kop, idx, 8);
+  cryptodev_sess_handler (vlib_get_main (), kop, idx, 8);
 }
 
 clib_error_t *
@@ -454,7 +440,7 @@ cryptodev_session_create (vlib_main_t *vm, vnet_crypto_key_index_t idx,
     rte_cryptodev_sym_session_create (sess_pool);
 #endif
 
-  if (key->type == VNET_CRYPTO_KEY_TYPE_LINK)
+  if (key->is_link)
     ret = prepare_linked_xform (xforms_enc, CRYPTODEV_OP_TYPE_ENCRYPT, key);
   else
     ret =
@@ -465,7 +451,7 @@ cryptodev_session_create (vlib_main_t *vm, vnet_crypto_key_index_t idx,
       goto clear_key;
     }
 
-  if (key->type == VNET_CRYPTO_KEY_TYPE_LINK)
+  if (key->is_link)
     prepare_linked_xform (xforms_dec, CRYPTODEV_OP_TYPE_DECRYPT, key);
   else
     prepare_aead_xform (xforms_dec, CRYPTODEV_OP_TYPE_DECRYPT, key, aad_len);
@@ -579,14 +565,14 @@ cryptodev_assign_resource (cryptodev_engine_thread_t * cet,
 	return -EBUSY;
 
       vec_foreach_index (idx, cmt->cryptodev_inst)
-      {
-	cinst = cmt->cryptodev_inst + idx;
-	if (cinst->dev_id == cet->cryptodev_id &&
-	    cinst->q_id == cet->cryptodev_q)
-	  break;
-      }
+	{
+	  cinst = cmt->cryptodev_inst + idx;
+	  if (cinst->dev_id == cet->cryptodev_id &&
+	      cinst->q_id == cet->cryptodev_q)
+	    break;
+	}
       /* invalid existing worker resource assignment */
-      if (idx == vec_len (cmt->cryptodev_inst))
+      if (idx >= vec_len (cmt->cryptodev_inst))
 	return -EINVAL;
       clib_spinlock_lock (&cmt->tlock);
       clib_bitmap_set_no_check (cmt->active_cdev_inst_mask, idx, 0);
@@ -609,7 +595,7 @@ format_cryptodev_inst (u8 * s, va_list * args)
   cryptodev_main_t *cmt = &cryptodev_main;
   u32 inst = va_arg (*args, u32);
   cryptodev_inst_t *cit = cmt->cryptodev_inst + inst;
-  u32 thread_index = 0;
+  clib_thread_index_t thread_index = 0;
   struct rte_cryptodev_info info;
 
   rte_cryptodev_info_get (cit->dev_id, &info);
@@ -667,13 +653,97 @@ VLIB_CLI_COMMAND (show_cryptodev_assignment, static) = {
 };
 
 static clib_error_t *
+cryptodev_show_cache_rings_fn (vlib_main_t *vm, unformat_input_t *input,
+			       vlib_cli_command_t *cmd)
+{
+  cryptodev_main_t *cmt = &cryptodev_main;
+  clib_thread_index_t thread_index = 0;
+  u16 i;
+  vec_foreach_index (thread_index, cmt->per_thread_data)
+    {
+      cryptodev_engine_thread_t *cet = cmt->per_thread_data + thread_index;
+      cryptodev_cache_ring_t *ring = &cet->cache_ring;
+      u16 head = ring->head;
+      u16 tail = ring->tail;
+      u16 n_cached = (CRYPTODEV_CACHE_QUEUE_SIZE - tail + head) &
+		     CRYPTODEV_CACHE_QUEUE_MASK;
+
+      u16 enq_head = ring->enq_head;
+      u16 deq_tail = ring->deq_tail;
+      u16 n_frames_inflight =
+	(enq_head == deq_tail) ?
+		0 :
+		((CRYPTODEV_CACHE_QUEUE_SIZE + enq_head - deq_tail) &
+	   CRYPTODEV_CACHE_QUEUE_MASK);
+      /* even if some elements of dequeued frame are still pending for deq
+       * we consider the frame as processed */
+      u16 n_frames_processed =
+	((tail == deq_tail) && (ring->frames[deq_tail].f == 0)) ?
+		0 :
+		((CRYPTODEV_CACHE_QUEUE_SIZE - tail + deq_tail) &
+	   CRYPTODEV_CACHE_QUEUE_MASK) +
+	    1;
+      /* even if some elements of enqueued frame are still pending for enq
+       * we consider the frame as enqueued */
+      u16 n_frames_pending =
+	(head == enq_head) ? 0 :
+				   ((CRYPTODEV_CACHE_QUEUE_SIZE - enq_head + head) &
+			      CRYPTODEV_CACHE_QUEUE_MASK) -
+			       1;
+
+      u16 elts_to_enq =
+	(ring->frames[enq_head].n_elts - ring->frames[enq_head].enq_elts_head);
+      u16 elts_to_deq =
+	(ring->frames[deq_tail].n_elts - ring->frames[deq_tail].deq_elts_tail);
+
+      u32 elts_total = 0;
+
+      for (i = 0; i < CRYPTODEV_CACHE_QUEUE_SIZE; i++)
+	elts_total += ring->frames[i].n_elts;
+
+      if (vlib_num_workers () > 0 && thread_index == 0)
+	continue;
+
+      vlib_cli_output (vm, "\n\n");
+      vlib_cli_output (vm, "Frames cached in the ring: %u", n_cached);
+      vlib_cli_output (vm, "Frames cached but not processed: %u",
+		       n_frames_pending);
+      vlib_cli_output (vm, "Frames inflight: %u", n_frames_inflight);
+      vlib_cli_output (vm, "Frames processed: %u", n_frames_processed);
+      vlib_cli_output (vm, "Elements total: %u", elts_total);
+      vlib_cli_output (vm, "Elements inflight: %u", cet->inflight);
+      vlib_cli_output (vm, "Head index: %u", head);
+      vlib_cli_output (vm, "Tail index: %u", tail);
+      vlib_cli_output (vm, "Current frame index beeing enqueued: %u",
+		       enq_head);
+      vlib_cli_output (vm, "Current frame index being dequeued: %u", deq_tail);
+      vlib_cli_output (vm,
+		       "Elements in current frame to be enqueued: %u, waiting "
+		       "to be enqueued: %u",
+		       ring->frames[enq_head].n_elts, elts_to_enq);
+      vlib_cli_output (vm,
+		       "Elements in current frame to be dequeued: %u, waiting "
+		       "to be dequeued: %u",
+		       ring->frames[deq_tail].n_elts, elts_to_deq);
+      vlib_cli_output (vm, "\n\n");
+    }
+  return 0;
+}
+
+VLIB_CLI_COMMAND (show_cryptodev_sw_rings, static) = {
+  .path = "show cryptodev cache status",
+  .short_help = "show status of all cryptodev cache rings",
+  .function = cryptodev_show_cache_rings_fn,
+};
+
+static clib_error_t *
 cryptodev_set_assignment_fn (vlib_main_t * vm, unformat_input_t * input,
 			     vlib_cli_command_t * cmd)
 {
   cryptodev_main_t *cmt = &cryptodev_main;
   cryptodev_engine_thread_t *cet;
   unformat_input_t _line_input, *line_input = &_line_input;
-  u32 thread_index, inst_index;
+  clib_thread_index_t thread_index, inst_index;
   u32 thread_present = 0, inst_present = 0;
   clib_error_t *error = 0;
   int ret;
@@ -1235,7 +1305,7 @@ dpdk_cryptodev_init (vlib_main_t * vm)
   vec_free (unique_drivers);
 #endif
 
-  clib_bitmap_vec_validate (cmt->active_cdev_inst_mask, tm->n_vlib_mains);
+  clib_bitmap_vec_validate (cmt->active_cdev_inst_mask, n_workers);
   clib_spinlock_init (&cmt->tlock);
 
   vec_validate_aligned(cmt->per_thread_data, tm->n_vlib_mains - 1,

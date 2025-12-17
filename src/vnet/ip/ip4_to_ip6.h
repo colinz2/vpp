@@ -1,17 +1,8 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 /**
  * @file
  * @brief IPv4 to IPv6 translation
@@ -28,16 +19,28 @@
 typedef int (*ip4_to_ip6_set_fn_t) (vlib_buffer_t * b, ip4_header_t * ip4,
 				    ip6_header_t * ip6, void *ctx);
 
-/* *INDENT-OFF* */
 static u8 icmp_to_icmp6_updater_pointer_table[] =
   { 0, 1, 4, 4, ~0,
     ~0, ~0, ~0, 7, 6,
     ~0, ~0, 8, 8, 8,
     8, 24, 24, 24, 24
   };
-/* *INDENT-ON* */
 
 #define frag_id_4to6(id) (id)
+
+always_inline u64
+icmp_type_is_error_message (u8 icmp_type)
+{
+  int bmp = 0;
+  bmp |= 1 << ICMP4_destination_unreachable;
+  bmp |= 1 << ICMP4_time_exceeded;
+  bmp |= 1 << ICMP4_parameter_problem;
+  bmp |= 1 << ICMP4_source_quench;
+  bmp |= 1 << ICMP4_redirect;
+  bmp |= 1 << ICMP4_alternate_host_address;
+
+  return (1ULL << icmp_type) & bmp;
+}
 
 /**
  * @brief Get TCP/UDP port number or ICMP id from IPv4 packet.
@@ -48,10 +51,9 @@ static u8 icmp_to_icmp6_updater_pointer_table[] =
  * @returns Port number on success, 0 otherwise.
  */
 always_inline u16
-ip4_get_port (ip4_header_t * ip, u8 sender)
+ip4_get_port (ip4_header_t *ip, u8 sender)
 {
-  if (ip->ip_version_and_header_length != 0x45 ||
-      ip4_get_fragment_offset (ip))
+  if (ip->ip_version_and_header_length != 0x45 || ip4_get_fragment_offset (ip))
     return 0;
 
   if (PREDICT_TRUE ((ip->protocol == IP_PROTOCOL_TCP) ||
@@ -67,7 +69,20 @@ ip4_get_port (ip4_header_t * ip, u8 sender)
 	{
 	  return *((u16 *) (icmp + 1));
 	}
-      else if (clib_net_to_host_u16 (ip->length) >= 64)
+      /*
+       * Minimum length here consists of:
+       *  - outer IP header length
+       *  - outer ICMP header length (2*sizeof (icmp46_header_t))
+       *  - inner IP header length
+       *  - first 8 bytes of payload of original packet in case of ICMP error
+       *
+       * Also make sure we only attempt to parse payload as IP packet if it's
+       * an ICMP error.
+       */
+      else if (clib_net_to_host_u16 (ip->length) >=
+		 2 * sizeof (ip4_header_t) + 2 * sizeof (icmp46_header_t) +
+		   8 &&
+	       icmp_type_is_error_message (icmp->type))
 	{
 	  ip = (ip4_header_t *) (icmp + 2);
 	  if (PREDICT_TRUE ((ip->protocol == IP_PROTOCOL_TCP) ||

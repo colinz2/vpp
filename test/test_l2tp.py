@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 
-import unittest
-
 from scapy.layers.l2 import Ether
 from scapy.layers.inet6 import IPv6
 
-from framework import tag_fixme_vpp_workers
+from asfframework import tag_fixme_vpp_workers
 from framework import VppTestCase
+from config import config
+
+import unittest
 
 
 @tag_fixme_vpp_workers
+@unittest.skipIf("l2tp" in config.excluded_plugins, "Exclude L2TP plugin tests")
 class TestL2tp(VppTestCase):
     """L2TP Test Case"""
 

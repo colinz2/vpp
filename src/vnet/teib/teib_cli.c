@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/teib/teib.h>
@@ -85,13 +75,11 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (teib_create_command, static) = {
   .path = "create teib",
   .short_help = "create teib <interface> peer <addr> nh <addr> [nh-table-id <ID>]",
   .function = teib_add,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 teib_del (vlib_main_t * vm,
@@ -150,13 +138,11 @@ done:
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (teib_delete_command, static) = {
   .path = "delete teib",
   .short_help = "delete teib <interface> peer <addr>",
   .function = teib_del,
 };
-/* *INDENT-ON* */
 
 static walk_rc_t
 teib_show_one (index_t nei, void *ctx)
@@ -175,18 +161,8 @@ teib_show (vlib_main_t * vm,
   return (NULL);
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (teib_show_command, static) = {
   .path = "show teib",
   .short_help = "show teib",
   .function = teib_show,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

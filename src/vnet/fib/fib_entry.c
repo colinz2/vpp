@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vlib/vlib.h>
@@ -1772,6 +1762,12 @@ fib_entry_module_init (void)
     fib_entry_track_module_init();
 }
 
+void
+fib_entry_pool_alloc (uword size)
+{
+  pool_alloc(fib_entry_pool, size);
+}
+
 fib_route_path_t *
 fib_entry_encode (fib_node_index_t fib_entry_index)
 {
@@ -1828,10 +1824,18 @@ fib_entry_pool_size (void)
     return (pool_elts(fib_entry_pool));
 }
 
-#if CLIB_DEBUG > 0
 void
 fib_table_assert_empty (const fib_table_t *fib_table)
 {
+  if (0 == fib_table->ft_total_route_counts)
+    return;
+
+  vlib_log_err (fib_entry_logger,
+		"BUG: %U table %d (index %d) is not empty",
+		format_fib_protocol, fib_table->ft_proto,
+		fib_table->ft_table_id, fib_table->ft_index);
+
+#if CLIB_DEBUG > 0
     fib_node_index_t *fei, *feis = NULL;
     fib_entry_t *fib_entry;
 
@@ -1844,12 +1848,12 @@ fib_table_assert_empty (const fib_table_t *fib_table)
     if (vec_len(feis))
     {
         vec_foreach (fei, feis)
-            clib_error ("%U", format_fib_entry, *fei, FIB_ENTRY_FORMAT_DETAIL);
+            clib_warning ("%U", format_fib_entry, *fei, FIB_ENTRY_FORMAT_DETAIL);
     }
 
     ASSERT(0);
-}
 #endif
+}
 
 static clib_error_t *
 show_fib_entry_command (vlib_main_t * vm,

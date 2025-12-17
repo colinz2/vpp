@@ -1,18 +1,5 @@
-/* Hey Emacs use -*- mode: C -*- */
-/*
- * Copyright 2021 Cisco and/or its affiliates.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+/* SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2021 Cisco and/or its affiliates.
  */
 
 #include <vnet/vnet.h>
@@ -37,7 +24,7 @@ lcp_itf_pair_sync_state (lcp_itf_pair_t *lip)
   u32 mtu;
   u32 netlink_mtu;
 
-  if (!lcp_sync ())
+  if (!lcp_sync () || lcp_get_netlink_processing_active ())
     return;
 
   sw =
@@ -176,7 +163,7 @@ lcp_itf_admin_state_change (vnet_main_t *vnm, u32 sw_if_index, u32 flags)
   vnet_hw_interface_t *hi;
   vnet_sw_interface_t *si;
 
-  if (!lcp_sync ())
+  if (!lcp_sync () || lcp_get_netlink_processing_active ())
     return 0;
 
   LCP_ITF_PAIR_DBG ("admin_state_change: sw %U %u",
@@ -223,7 +210,8 @@ lcp_itf_mtu_change (vnet_main_t *vnm, u32 sw_if_index, u32 flags)
 {
   vnet_sw_interface_t *si;
   vnet_hw_interface_t *hi;
-  if (!lcp_sync ())
+
+  if (!lcp_sync () || lcp_get_netlink_processing_active ())
     return NULL;
 
   LCP_ITF_PAIR_DBG ("mtu_change: sw %U %u", format_vnet_sw_if_index_name, vnm,
@@ -271,7 +259,7 @@ lcp_itf_ip4_add_del_interface_addr (ip4_main_t *im, uword opaque,
   int curr_ns_fd = -1;
   int vif_ns_fd = -1;
 
-  if (!lcp_sync ())
+  if (!lcp_sync () || lcp_get_netlink_processing_active ())
     return;
 
   LCP_ITF_PAIR_DBG ("ip4_addr_%s: si:%U %U/%u", is_del ? "del" : "add",
@@ -320,7 +308,7 @@ lcp_itf_ip6_add_del_interface_addr (ip6_main_t *im, uword opaque,
   int curr_ns_fd = -1;
   int vif_ns_fd = -1;
 
-  if (!lcp_sync ())
+  if (!lcp_sync () || lcp_get_netlink_processing_active ())
     return;
 
   LCP_ITF_PAIR_DBG ("ip6_addr_%s: si:%U %U/%u", is_del ? "del" : "add",
@@ -434,11 +422,3 @@ lcp_itf_sync_init (vlib_main_t *vm)
 VLIB_INIT_FUNCTION (lcp_itf_sync_init) = {
   .runs_after = VLIB_INITS ("vnet_interface_init", "tcp_init", "udp_init"),
 };
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

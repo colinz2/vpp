@@ -1,41 +1,9 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0 OR MIT
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * ip/ip.h: ip generic (4 or 6) main
- *
  * Copyright (c) 2008 Eliot Dresselhaus
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- *  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- *  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- *  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+/* ip/ip.h: ip generic (4 or 6) main */
 
 #ifndef included_ip_main_h
 #define included_ip_main_h
@@ -262,7 +230,7 @@ extern vlib_node_registration_t ip4_inacl_node;
 extern vlib_node_registration_t ip6_inacl_node;
 
 void ip_table_create (fib_protocol_t fproto, u32 table_id, u8 is_api,
-		      const u8 * name);
+		      u8 create_mfib, const u8 *name);
 
 void ip_table_delete (fib_protocol_t fproto, u32 table_id, u8 is_api);
 
@@ -272,13 +240,7 @@ int ip_table_bind (fib_protocol_t fproto, u32 sw_if_index, u32 table_id);
 
 u32 ip_table_get_unused_id (fib_protocol_t fproto);
 
-u8 ip_is_zero (ip46_address_t * ip46_address, u8 is_ip4);
-u8 ip_is_local_host (ip46_address_t * ip46_address, u8 is_ip4);
-u8 ip4_is_local_host (ip4_address_t * ip4_address);
-u8 ip6_is_local_host (ip6_address_t * ip6_address);
-u8 ip_is_local (u32 fib_index, ip46_address_t * ip46_address, u8 is_ip4);
-void ip_copy (ip46_address_t * dst, ip46_address_t * src, u8 is_ip4);
-void ip_set (ip46_address_t * dst, void *src, u8 is_ip4);
+u8 ip_is_local (u32 fib_index, ip46_address_t *ip46_address, u8 is_ip4);
 
 void ip_feature_enable_disable (ip_address_family_t af,
 				ip_sub_address_family_t safi,
@@ -300,11 +262,3 @@ vlib_buffer_get_ip_fib_index (vlib_buffer_t * b, u8 is_ip4)
 }
 
 #endif /* included_ip_main_h */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

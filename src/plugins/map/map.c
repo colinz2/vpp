@@ -1,19 +1,8 @@
-/*
- * map.c : MAP support
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* map.c : MAP support */
 
 #include <vnet/fib/fib_table.h>
 #include <vnet/fib/fib_entry_track.h>
@@ -176,6 +165,10 @@ map_create_domain (ip4_address_t * ip4_prefix,
   mm->ip6_src_prefix_tbl->add (mm->ip6_src_prefix_tbl, &d->ip6_src,
 			       d->ip6_src_len, *map_domain_index);
 
+  /* Let's build a table with the MAP rule ip6 prefixes as well [dgeist] */
+  mm->ip6_prefix_tbl->add (mm->ip6_prefix_tbl, &d->ip6_prefix,
+			   d->ip6_prefix_len, *map_domain_index);
+
   /* Validate packet/byte counters */
   map_domain_counter_lock (mm);
   int i;
@@ -218,6 +211,9 @@ map_delete_domain (u32 map_domain_index)
 			      d->ip4_prefix_len);
   mm->ip6_src_prefix_tbl->delete (mm->ip6_src_prefix_tbl, &d->ip6_src,
 				  d->ip6_src_len);
+  /* Addition to remove the new table [dgeist] */
+  mm->ip6_prefix_tbl->delete (mm->ip6_prefix_tbl, &d->ip6_prefix,
+			      d->ip6_prefix_len);
 
   /* Release user-assigned MAP domain name. */
   map_free_extras (map_domain_index);
@@ -979,10 +975,8 @@ show_map_domain_command_fn (vlib_main_t * vm, unformat_input_t * input,
   /* Get a line of input. */
   if (!unformat_user (input, unformat_line_input, line_input))
     {
-      /* *INDENT-OFF* */
       pool_foreach (d, mm->domains)
 	 {vlib_cli_output(vm, "%U", format_map_domain, d, counters);}
-      /* *INDENT-ON* */
       return 0;
     }
 
@@ -1008,10 +1002,8 @@ show_map_domain_command_fn (vlib_main_t * vm, unformat_input_t * input,
 
   if (map_domain_index == ~0)
     {
-      /* *INDENT-OFF* */
       pool_foreach (d, mm->domains)
 	 {vlib_cli_output(vm, "%U", format_map_domain, d, counters);}
-      /* *INDENT-ON* */
     }
   else
     {
@@ -1062,7 +1054,6 @@ show_map_stats_command_fn (vlib_main_t * vm, unformat_input_t * input,
       return 0;
     }
 
-  /* *INDENT-OFF* */
   pool_foreach (d, mm->domains)  {
     if (d->rules) {
       rulecount+= 0x1 << d->psid_length;
@@ -1071,7 +1062,6 @@ show_map_stats_command_fn (vlib_main_t * vm, unformat_input_t * input,
     domains += sizeof(*d);
     domaincount++;
   }
-  /* *INDENT-ON* */
 
   vlib_cli_output (vm, "MAP domains structure: %d\n", sizeof (map_domain_t));
   vlib_cli_output (vm, "MAP domains: %d (%d bytes)\n", domaincount, domains);
@@ -1255,7 +1245,6 @@ done:
 }
 
 
-/* *INDENT-OFF* */
 
 /*?
  * Set or copy the IP TOS/Traffic Class field
@@ -1469,7 +1458,6 @@ VLIB_PLUGIN_REGISTER() = {
   .description = "Mapping of Address and Port (MAP)",
 };
 
-/* *INDENT-ON* */
 
 /*
  * map_init
@@ -1537,11 +1525,3 @@ map_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (map_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

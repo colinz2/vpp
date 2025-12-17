@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <stddef.h>
@@ -46,9 +36,21 @@ vl_api_crypto_set_async_dispatch_t_handler (vl_api_crypto_set_async_dispatch_t
   vl_api_crypto_set_async_dispatch_reply_t *rmp;
   int rv = 0;
 
-  vnet_crypto_set_async_dispatch_mode ((u8) mp->mode);
+  vnet_crypto_set_async_dispatch ((u8) mp->mode, 0);
 
   REPLY_MACRO (VL_API_CRYPTO_SET_ASYNC_DISPATCH_REPLY);
+}
+
+static void
+vl_api_crypto_set_async_dispatch_v2_t_handler (
+  vl_api_crypto_set_async_dispatch_v2_t *mp)
+{
+  vl_api_crypto_set_async_dispatch_v2_reply_t *rmp;
+  int rv = 0;
+
+  vnet_crypto_set_async_dispatch ((u8) mp->mode, mp->adaptive ? 1 : 0);
+
+  REPLY_MACRO (VL_API_CRYPTO_SET_ASYNC_DISPATCH_V2_REPLY);
 }
 
 static void
@@ -56,18 +58,23 @@ vl_api_crypto_set_handler_t_handler (vl_api_crypto_set_handler_t * mp)
 {
   vl_api_crypto_set_handler_reply_t *rmp;
   int rv = 0;
-  char *engine;
-  char *alg_name;
-  crypto_op_class_type_t oct;
 
-  engine = (char *) mp->engine;
-  alg_name = (char *) mp->alg_name;
-  oct = (crypto_op_class_type_t) mp->oct;
+  enum
+  {
+    CRYPTO_OP_SIMPLE,
+    CRYPTO_OP_CHAINED,
+    CRYPTO_OP_BOTH,
+  } oct = (typeof (oct)) mp->oct;
 
-  if (mp->is_async)
-    rv = vnet_crypto_set_async_handler2 (alg_name, engine);
-  else
-    rv = vnet_crypto_set_handler2 (alg_name, engine, oct);
+  vnet_crypto_set_handlers_args_t args = {
+    .engine = (char *) mp->engine,
+    .handler_name = (char *) mp->alg_name,
+    .set_async = mp->is_async != 0,
+    .set_simple = oct == CRYPTO_OP_SIMPLE || oct == CRYPTO_OP_BOTH,
+    .set_chained = oct == CRYPTO_OP_CHAINED || oct == CRYPTO_OP_BOTH,
+  };
+
+  rv = vnet_crypto_set_handlers (&args);
 
   REPLY_MACRO (VL_API_CRYPTO_SET_HANDLER_REPLY);
 }
@@ -84,11 +91,3 @@ crypto_api_hookup (vlib_main_t * vm)
 }
 
 VLIB_API_INIT_FUNCTION (crypto_api_hookup);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

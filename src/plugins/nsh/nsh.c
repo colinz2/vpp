@@ -1,26 +1,15 @@
-/*
- * nsh.c - nsh mapping
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2013 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* nsh.c - nsh mapping */
 
 #include <vnet/vnet.h>
 #include <vnet/plugin/plugin.h>
 #include <nsh/nsh.h>
 #include <gre/gre.h>
 #include <vxlan/vxlan.h>
-#include <vnet/vxlan-gpe/vxlan_gpe.h>
+#include <plugins/vxlan-gpe/vxlan_gpe.h>
 #include <vnet/l2/l2_classify.h>
 #include <vnet/adj/adj.h>
 #include <vpp/app/version.h>
@@ -164,14 +153,12 @@ format_nsh_tunnel_with_length (u8 * s, va_list * args)
   return s;
 }
 
-/* *INDENT-OFF* */
 VNET_HW_INTERFACE_CLASS (nsh_hw_class) = {
   .name = "NSH",
   .format_header = format_nsh_tunnel_with_length,
   .build_rewrite = default_build_rewrite,
   .flags = VNET_HW_INTERFACE_CLASS_FLAG_P2P,
 };
-/* *INDENT-ON* */
 
 void
 nsh_md2_set_next_ioam_export_override (uword next)
@@ -184,7 +171,8 @@ nsh_md2_set_next_ioam_export_override (uword next)
 clib_error_t *
 nsh_init (vlib_main_t * vm)
 {
-  vlib_node_t *node;
+  vlib_node_t *node, *gre4_input, *gre6_input, *vxlan4_gpe_input,
+    *vxlan6_gpe_input;
   nsh_main_t *nm = &nsh_main;
   clib_error_t *error = 0;
   uword next_node;
@@ -224,31 +212,39 @@ nsh_init (vlib_main_t * vm)
 
   /* Add dispositions to nodes that feed nsh-input */
   //alagalah - validate we don't really need to use the node value
+  vxlan4_gpe_input = vlib_get_node_by_name (vm, (u8 *) "vxlan4-gpe-input");
+  vxlan6_gpe_input = vlib_get_node_by_name (vm, (u8 *) "vxlan6-gpe-input");
+  nm->vgm = vlib_get_plugin_symbol ("vxlan-gpe_plugin.so", "vxlan_gpe_main");
+  if (vxlan4_gpe_input == 0 || vxlan6_gpe_input == 0 || nm->vgm == 0)
+    {
+      error = clib_error_return (0, "vxlan_gpe_plugin.so is not loaded");
+      return error;
+    }
   next_node =
-    vlib_node_add_next (vm, vxlan4_gpe_input_node.index,
-			nm->nsh_input_node_index);
-  vlib_node_add_next (vm, vxlan4_gpe_input_node.index,
-		      nm->nsh_proxy_node_index);
-  vlib_node_add_next (vm, vxlan4_gpe_input_node.index,
+    vlib_node_add_next (vm, vxlan4_gpe_input->index, nm->nsh_input_node_index);
+  vlib_node_add_next (vm, vxlan4_gpe_input->index, nm->nsh_proxy_node_index);
+  vlib_node_add_next (vm, vxlan4_gpe_input->index,
 		      nsh_aware_vnf_proxy_node.index);
-  vxlan_gpe_register_decap_protocol (VXLAN_GPE_PROTOCOL_NSH, next_node);
+  nm->vgm->register_decap_protocol (VXLAN_GPE_PROTOCOL_NSH, next_node);
 
-  vlib_node_add_next (vm, vxlan6_gpe_input_node.index,
-		      nm->nsh_input_node_index);
-  vlib_node_add_next (vm, vxlan6_gpe_input_node.index,
-		      nm->nsh_proxy_node_index);
-  vlib_node_add_next (vm, vxlan6_gpe_input_node.index,
+  vlib_node_add_next (vm, vxlan6_gpe_input->index, nm->nsh_input_node_index);
+  vlib_node_add_next (vm, vxlan6_gpe_input->index, nm->nsh_proxy_node_index);
+  vlib_node_add_next (vm, vxlan6_gpe_input->index,
 		      nsh_aware_vnf_proxy_node.index);
 
-  vlib_node_add_next (vm, gre4_input_node.index, nm->nsh_input_node_index);
-  vlib_node_add_next (vm, gre4_input_node.index, nm->nsh_proxy_node_index);
-  vlib_node_add_next (vm, gre4_input_node.index,
-		      nsh_aware_vnf_proxy_node.index);
-
-  vlib_node_add_next (vm, gre6_input_node.index, nm->nsh_input_node_index);
-  vlib_node_add_next (vm, gre6_input_node.index, nm->nsh_proxy_node_index);
-  vlib_node_add_next (vm, gre6_input_node.index,
-		      nsh_aware_vnf_proxy_node.index);
+  gre4_input = vlib_get_node_by_name (vm, (u8 *) "gre4-input");
+  gre6_input = vlib_get_node_by_name (vm, (u8 *) "gre6-input");
+  if (gre4_input == 0 || gre6_input == 0)
+    {
+      error = clib_error_return (0, "gre_plugin.so is not loaded");
+      return error;
+    }
+  vlib_node_add_next (vm, gre4_input->index, nm->nsh_input_node_index);
+  vlib_node_add_next (vm, gre4_input->index, nm->nsh_proxy_node_index);
+  vlib_node_add_next (vm, gre4_input->index, nsh_aware_vnf_proxy_node.index);
+  vlib_node_add_next (vm, gre6_input->index, nm->nsh_input_node_index);
+  vlib_node_add_next (vm, gre6_input->index, nm->nsh_proxy_node_index);
+  vlib_node_add_next (vm, gre6_input->index, nsh_aware_vnf_proxy_node.index);
 
   /* Add NSH-Proxy support */
   vxlan4_input =
@@ -278,19 +274,11 @@ nsh_init (vlib_main_t * vm)
   return error;
 }
 
-VLIB_INIT_FUNCTION (nsh_init);
-
-/* *INDENT-OFF* */
-VLIB_PLUGIN_REGISTER () = {
-    .version = VPP_BUILD_VER,
-    .description = "Network Service Header (NSH)",
+VLIB_INIT_FUNCTION (nsh_init) = {
+  .runs_after = VLIB_INITS ("vxlan_gpe_init"),
 };
-/* *INDENT-ON* */
 
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */
+VLIB_PLUGIN_REGISTER () = {
+  .version = VPP_BUILD_VER,
+  .description = "Network Service Header (NSH)",
+};

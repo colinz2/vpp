@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2017 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <plugins/abf/abf_policy.h>
@@ -315,7 +305,6 @@ out:
   return (NULL);
 }
 
-/* *INDENT-OFF* */
 /**
  * Create an ABF policy.
  */
@@ -325,7 +314,6 @@ VLIB_CLI_COMMAND (abf_policy_cmd_node, static) = {
   .short_help = "abf policy [add|del] id <index> acl <index> via ...",
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
 
 static u8 *
 format_abf (u8 * s, va_list * args)
@@ -352,13 +340,11 @@ abf_policy_walk (abf_policy_walk_cb_t cb, void *ctx)
 {
   u32 api;
 
-  /* *INDENT-OFF* */
   pool_foreach_index (api, abf_policy_pool)
    {
     if (!cb(api, ctx))
       break;
   }
-  /* *INDENT-ON* */
 }
 
 static clib_error_t *
@@ -381,12 +367,10 @@ abf_show_policy_cmd (vlib_main_t * vm,
 
   if (INDEX_INVALID == policy_id)
     {
-      /* *INDENT-OFF* */
       pool_foreach (ap, abf_policy_pool)
        {
         vlib_cli_output(vm, "%U", format_abf, ap);
       }
-      /* *INDENT-ON* */
     }
   else
     {
@@ -401,14 +385,12 @@ abf_show_policy_cmd (vlib_main_t * vm,
   return (NULL);
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (abf_policy_show_policy_cmd_node, static) = {
   .path = "show abf policy",
   .function = abf_show_policy_cmd,
   .short_help = "show abf policy <value>",
   .is_mp_safe = 1,
 };
-/* *INDENT-ON* */
 
 static fib_node_t *
 abf_policy_get_node (fib_node_index_t index)
@@ -470,11 +452,3 @@ abf_policy_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (abf_policy_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

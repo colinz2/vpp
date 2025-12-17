@@ -1,24 +1,14 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2015 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
 #include <vppinfra/error.h>
 #include <vppinfra/hash.h>
 #include <vnet/vnet.h>
 #include <vnet/ip/ip.h>
 #include <vnet/ethernet/ethernet.h>
-#include <vnet/vxlan-gpe/vxlan_gpe.h>
-#include <vnet/vxlan-gpe/vxlan_gpe.h>
+#include <plugins/vxlan-gpe/vxlan_gpe.h>
 #include <ioam/lib-vxlan-gpe/vxlan_gpe_ioam_packet.h>
 #include <ioam/lib-vxlan-gpe/vxlan_gpe_ioam.h>
 #include <ioam/lib-vxlan-gpe/vxlan_gpe_ioam_util.h>
@@ -68,8 +58,8 @@ vxlan_gpe_decap_ioam (vlib_main_t * vm,
 		      vlib_frame_t * from_frame, u8 is_ipv6)
 {
   u32 n_left_from, next_index, *from, *to_next;
-  vxlan_gpe_main_t *ngm = &vxlan_gpe_main;
   vxlan_gpe_ioam_main_t *hm = &vxlan_gpe_ioam_main;
+  vxlan_gpe_main_t *ngm = hm->gpe_main;
 
   from = vlib_frame_vector_args (from_frame);
   n_left_from = from_frame->n_vectors;
@@ -192,8 +182,6 @@ vxlan_gpe_decap_ioam_v4 (vlib_main_t * vm,
   return vxlan_gpe_decap_ioam (vm, node, from_frame, 0);
 }
 
-
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (vxlan_gpe_decap_ioam_v4_node) = {
   .function = vxlan_gpe_decap_ioam_v4,
   .name = "vxlan-gpe-decap-ioam-v4",
@@ -211,13 +199,3 @@ VLIB_REGISTER_NODE (vxlan_gpe_decap_ioam_v4_node) = {
     [VXLAN_GPE_DECAP_IOAM_V4_NEXT_DROP] = "error-drop",
   },
 };
-/* *INDENT-ON* */
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

@@ -1,10 +1,11 @@
-""" test framework utilities """
+"""test framework utilities"""
 
 import ipaddress
 import logging
 import socket
 from socket import AF_INET6
 import os.path
+import platform
 from copy import deepcopy
 from collections import UserDict
 
@@ -109,8 +110,13 @@ def is_core_present(tempdir):
 
 
 def get_core_pattern():
-    with open("/proc/sys/kernel/core_pattern", "r") as f:
-        corefmt = f.read().strip()
+    if platform.uname().system == "FreeBSD":
+        import sysctl
+
+        corefmt = sysctl.filter("kern.corefile")[0].value
+    elif platform.uname().system == "Linux":
+        with open("/proc/sys/kernel/core_pattern", "r") as f:
+            corefmt = f.read().strip()
     return corefmt
 
 
@@ -130,7 +136,6 @@ def check_core_path(logger, core_path):
 
 
 class NumericConstant:
-
     desc_dict = {}
 
     def __init__(self, value):

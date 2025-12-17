@@ -1,19 +1,8 @@
-/*
- * ip_neighboor.h: ip neighbor generic services
- *
+/* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
+
+/* ip_neighboor.h: ip neighbor generic services */
 
 #ifndef __INCLUDE_IP_NEIGHBOR_H__
 #define __INCLUDE_IP_NEIGHBOR_H__
@@ -36,6 +25,8 @@ extern int ip_neighbor_del (const ip_address_t * ip, u32 sw_if_index);
 
 extern int ip_neighbor_config (ip_address_family_t af,
 			       u32 limit, u32 age, bool recycle);
+extern int ip_neighbor_get_config (ip_address_family_t af, u32 *limit,
+				   u32 *age, bool *recycle);
 
 extern void ip_neighbor_del_all (ip_address_family_t af, u32 sw_if_index);
 
@@ -54,7 +45,8 @@ extern void ip_neighbor_learn (const ip_neighbor_learn_t * l);
 extern void ip_neighbor_update (vnet_main_t * vnm, adj_index_t ai);
 
 extern void ip_neighbor_probe (const ip_adjacency_t * adj);
-extern void ip_neighbor_probe_dst (u32 sw_if_index, u32 thread_index,
+extern void ip_neighbor_probe_dst (u32 sw_if_index,
+				   clib_thread_index_t thread_index,
 				   ip_address_family_t af,
 				   const ip46_address_t *ip);
 
@@ -113,11 +105,3 @@ extern void ip_neighbor_register (ip_address_family_t af,
 				  const ip_neighbor_vft_t * vft);
 
 #endif /* __INCLUDE_IP_NEIGHBOR_H__ */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

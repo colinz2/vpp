@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2018 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vnet/vnet.h>
@@ -271,7 +261,6 @@ dhcp6_reply_event_handler (vl_api_dhcp6_reply_event_t * mp)
 	continue;
 
       u8 address_already_present = 0;
-      /* *INDENT-OFF* */
       pool_foreach (address_info, rm->address_pool)
        {
         if (address_info->sw_if_index != sw_if_index)
@@ -284,7 +273,6 @@ dhcp6_reply_event_handler (vl_api_dhcp6_reply_event_t * mp)
             goto address_pool_foreach_out;
           }
       }
-      /* *INDENT-ON* */
     address_pool_foreach_out:
 
       if (address_already_present)
@@ -344,7 +332,6 @@ create_address_list (u32 sw_if_index)
   dhcp6_client_cp_main_t *rm = &dhcp6_client_cp_main;
   address_info_t *address_info, *address_list = 0;;
 
-  /* *INDENT-OFF* */
   pool_foreach (address_info, rm->address_pool)
    {
     if (address_info->sw_if_index == sw_if_index)
@@ -354,7 +341,6 @@ create_address_list (u32 sw_if_index)
         clib_memcpy (&address_list[pos], address_info, sizeof (*address_info));
       }
   }
-  /* *INDENT-ON* */
 
   return address_list;
 }
@@ -393,7 +379,6 @@ dhcp6_client_cp_process (vlib_main_t * vm, vlib_node_runtime_t * rt,
       do
 	{
 	  due_time = current_time + 1e9;
-          /* *INDENT-OFF* */
           pool_foreach (address_info, rm->address_pool)
            {
             if (address_info->due_time > current_time)
@@ -423,7 +408,6 @@ dhcp6_client_cp_process (vlib_main_t * vm, vlib_node_runtime_t * rt,
                   }
               }
           }
-          /* *INDENT-ON* */
 	  for (i = 0; i < vec_len (rm->client_state_by_sw_if_index); i++)
 	    {
 	      client_state_t *cs = &rm->client_state_by_sw_if_index[i];
@@ -473,13 +457,11 @@ dhcp6_client_cp_process (vlib_main_t * vm, vlib_node_runtime_t * rt,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_REGISTER_NODE (dhcp6_client_cp_process_node) = {
     .function = dhcp6_client_cp_process,
     .type = VLIB_NODE_TYPE_PROCESS,
     .name = "dhcp6-client-cp-process",
 };
-/* *INDENT-ON* */
 
 static void
 interrupt_process (void)
@@ -524,7 +506,6 @@ dhcp6_addresses_show_command_function (vlib_main_t * vm,
   address_info_t *address_info;
   f64 current_time = vlib_time_now (vm);
 
-  /* *INDENT-OFF* */
   pool_foreach (address_info, dm->address_pool)
    {
     vlib_cli_output (vm, "address: %U, "
@@ -534,18 +515,15 @@ dhcp6_addresses_show_command_function (vlib_main_t * vm,
                      address_info->preferred_lt, address_info->valid_lt,
                      address_info->due_time - current_time);
   }
-  /* *INDENT-ON* */
 
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (dhcp6_addresses_show_command, static) = {
   .path = "show dhcp6 addresses",
   .short_help = "show dhcp6 addresses",
   .function = dhcp6_addresses_show_command_function,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 dhcp6_clients_show_command_function (vlib_main_t * vm,
@@ -601,13 +579,11 @@ dhcp6_clients_show_command_function (vlib_main_t * vm,
   return error;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (dhcp6_clients_show_command, static) = {
   .path = "show dhcp6 clients",
   .short_help = "show dhcp6 clients",
   .function = dhcp6_clients_show_command_function,
 };
-/* *INDENT-ON* */
 
 int
 dhcp6_client_enable_disable (u32 sw_if_index, u8 enable)
@@ -659,7 +635,6 @@ dhcp6_client_enable_disable (u32 sw_if_index, u8 enable)
 	  disable_process ();
 	}
 
-      /* *INDENT-OFF* */
       pool_foreach (address_info, rm->address_pool)
        {
         if (address_info->sw_if_index == sw_if_index)
@@ -680,7 +655,6 @@ dhcp6_client_enable_disable (u32 sw_if_index, u8 enable)
             pool_put (rm->address_pool, address_info);
           }
       }
-      /* *INDENT-ON* */
     }
 
   if (!enable)
@@ -745,13 +719,11 @@ done:
  * @cliexcmd{dhcp6 client GigabitEthernet2/0/0 disable}
  * @endparblock
 ?*/
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (dhcp6_client_enable_disable_command, static) = {
   .path = "dhcp6 client",
   .short_help = "dhcp6 client <interface> [disable]",
   .function = dhcp6_client_enable_disable_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 dhcp_ia_na_client_cp_init (vlib_main_t * vm)
@@ -767,11 +739,3 @@ dhcp_ia_na_client_cp_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (dhcp_ia_na_client_cp_init);
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

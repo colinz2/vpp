@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #include <vlib/vlib.h>
@@ -86,6 +76,9 @@ span_add_delete_entry (vlib_main_t * vm,
     case SPAN_FEAT_DEVICE:
       if (enable_rx || disable_rx)
 	vnet_feature_enable_disable ("device-input", "span-input",
+				     src_sw_if_index, rx, 0, 0);
+      if (enable_rx || disable_rx)
+	vnet_feature_enable_disable ("port-rx-eth", "span-input",
 				     src_sw_if_index, rx, 0, 0);
       if (enable_tx || disable_tx)
 	vnet_feature_enable_disable ("interface-output", "span-output",
@@ -163,13 +156,11 @@ set_interface_span_command_fn (vlib_main_t * vm,
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (set_interface_span_command, static) = {
   .path = "set interface span",
   .short_help = "set interface span <if-name> [l2] {disable | destination <if-name> [both|rx|tx]}",
   .function = set_interface_span_command_fn,
 };
-/* *INDENT-ON* */
 
 static clib_error_t *
 show_interfaces_span_command_fn (vlib_main_t * vm,
@@ -188,7 +179,6 @@ show_interfaces_span_command_fn (vlib_main_t * vm,
   };
   u8 *s = 0;
 
-  /* *INDENT-OFF* */
   vec_foreach (si, sm->interfaces)
   {
   span_mirror_t * drxm = &si->mirror_rxtx[SPAN_FEAT_DEVICE][VLIB_RX];
@@ -229,23 +219,12 @@ show_interfaces_span_command_fn (vlib_main_t * vm,
 	clib_bitmap_free (d);
       }
       }
-  /* *INDENT-ON* */
   vec_free (s);
   return 0;
 }
 
-/* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_interfaces_span_command, static) = {
   .path = "show interface span",
   .short_help = "Shows SPAN mirror table",
   .function = show_interfaces_span_command_fn,
 };
-/* *INDENT-ON* */
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

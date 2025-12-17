@@ -1,16 +1,6 @@
 /*
+ * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2016-2019 Cisco and/or its affiliates.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 #ifdef HAVE_GNU_SOURCE
@@ -67,6 +57,11 @@
 #define UDP_SEGMENT 103
 #endif
 
+#ifndef SO_ORIGINAL_DST
+/* from <linux/netfilter_ipv4.h> */
+#define SO_ORIGINAL_DST 80
+#endif
+
 typedef struct ldp_worker_ctx_
 {
   u8 *io_buffer;
@@ -98,8 +93,9 @@ typedef struct ldp_worker_ctx_
   u8 epoll_wait_vcl;
   u8 mq_epfd_added;
   int vcl_mq_epfd;
-
 } ldp_worker_ctx_t;
+
+__thread ldp_worker_ctx_t _ldp_worker = {};
 
 /* clib_bitmap_t, fd_mask and vcl_si_set are used interchangeably. Make sure
  * they are the same size */
@@ -110,15 +106,11 @@ STATIC_ASSERT (sizeof (vcl_si_set) == sizeof (fd_mask),
 
 typedef struct
 {
-  ldp_worker_ctx_t *workers;
   int init;
   char app_name[LDP_APP_NAME_MAX];
   u32 vlsh_bit_val;
   u32 vlsh_bit_mask;
   u32 debug;
-
-  /** vcl needs next epoll_create to go to libc_epoll */
-  u8 vcl_needs_real_epoll;
 
   /**
    * crypto state used only for testing
@@ -150,7 +142,7 @@ static ldp_main_t *ldp = &ldp_main;
 static inline ldp_worker_ctx_t *
 ldp_worker_get_current (void)
 {
-  return (ldp->workers + vppcom_worker_index ());
+  return &_ldp_worker;
 }
 
 /*
@@ -184,14 +176,6 @@ ldp_fd_to_vlsh (int fd)
     return VLS_INVALID_HANDLE;
 
   return (fd - ldp->vlsh_bit_val);
-}
-
-static void
-ldp_alloc_workers (void)
-{
-  if (ldp->workers)
-    return;
-  pool_alloc (ldp->workers, LDP_MAX_NWORKERS);
 }
 
 static void
@@ -281,18 +265,21 @@ ldp_init_cfg (void)
 static int
 ldp_init (void)
 {
-  ldp_worker_ctx_t *ldpw;
   int rv;
 
-  ASSERT (!ldp->init);
+  if (ldp->init)
+    {
+      LDBG (0, "LDP is initialized already");
+      return 0;
+    }
 
   ldp_init_cfg ();
   ldp->init = 1;
-  ldp->vcl_needs_real_epoll = 1;
+  vls_set_epoll_fns (
+    (vls_epoll_fns_t){ libc_epoll_create1, libc_epoll_ctl, libc_epoll_wait });
   rv = vls_app_create (ldp_get_app_name ());
   if (rv != VPPCOM_OK)
     {
-      ldp->vcl_needs_real_epoll = 0;
       if (rv == VPPCOM_EEXIST)
 	return 0;
       LDBG (2,
@@ -302,13 +289,6 @@ ldp_init (void)
       ldp->init = 0;
       return rv;
     }
-  ldp->vcl_needs_real_epoll = 0;
-  ldp_alloc_workers ();
-  ldpw = ldp_worker_get_current ();
-
-  pool_foreach (ldpw, ldp->workers)  {
-    clib_memset (&ldpw->clib_time, 0, sizeof (ldpw->clib_time));
-  }
 
   LDBG (0, "LDP initialization: done!");
 
@@ -333,19 +313,17 @@ close (int fd)
   vlsh = ldp_fd_to_vlsh (fd);
   if (vlsh != VLS_INVALID_HANDLE)
     {
-      epfd = vls_attr (vlsh, VPPCOM_ATTR_GET_LIBC_EPFD, 0, 0);
+      epfd = vls_get_libc_epfd (vlsh);
       if (epfd > 0)
 	{
 	  ldp_worker_ctx_t *ldpw = ldp_worker_get_current ();
-	  u32 size = sizeof (epfd);
 
 	  LDBG (0, "fd %d: calling libc_close: epfd %u", fd, epfd);
 
 	  libc_close (epfd);
 	  ldpw->mq_epfd_added = 0;
 
-	  epfd = 0;
-	  (void) vls_attr (vlsh, VPPCOM_ATTR_SET_LIBC_EPFD, &epfd, &size);
+	  vls_set_libc_epfd (vlsh, 0);
 	}
       else if (PREDICT_FALSE (epfd < 0))
 	{
@@ -607,7 +585,13 @@ ioctl (int fd, unsigned long int cmd, ...)
 	case FIONREAD:
 	  rv = vls_attr (vlsh, VPPCOM_ATTR_GET_NREAD, 0, 0);
 	  break;
-
+	case TIOCOUTQ:
+	  {
+	    u32 *buf = va_arg (ap, void *);
+	    u32 *buflen = va_arg (ap, u32 *);
+	    rv = vls_attr (vlsh, VPPCOM_ATTR_GET_NWRITEQ, buf, buflen);
+	  }
+	  break;
 	case FIONBIO:
 	  {
 	    u32 flags = *(va_arg (ap, int *)) ? O_NONBLOCK : 0;
@@ -647,6 +631,7 @@ ldp_select_init_maps (fd_set * __restrict original,
 		      u32 n_bytes, uword * si_bits, uword * libc_bits)
 {
   uword si_bits_set, libc_bits_set;
+  u32 session_index, wrk_index;
   vls_handle_t vlsh;
   int fd;
 
@@ -656,21 +641,29 @@ ldp_select_init_maps (fd_set * __restrict original,
   clib_memcpy_fast (*resultb, original, n_bytes);
   memset (original, 0, n_bytes);
 
-  /* *INDENT-OFF* */
-  clib_bitmap_foreach (fd, *resultb)  {
-    if (fd > nfds)
-      break;
-    vlsh = ldp_fd_to_vlsh (fd);
-    if (vlsh == VLS_INVALID_HANDLE)
-      clib_bitmap_set_no_check (*libcb, fd, 1);
-    else
-      *vclb = clib_bitmap_set (*vclb, vlsh_to_session_index (vlsh), 1);
-  }
-  /* *INDENT-ON* */
+  clib_bitmap_foreach (fd, *resultb)
+    {
+      if (fd > nfds)
+	break;
+      vlsh = ldp_fd_to_vlsh (fd);
+      if (vlsh == VLS_INVALID_HANDLE)
+	clib_bitmap_set_no_check (*libcb, fd, 1);
+      else
+	{
+	  vlsh_to_session_and_worker_index (vlsh, &session_index, &wrk_index);
+	  if (wrk_index != vppcom_worker_index ())
+	    clib_warning (
+	      "migration for %d vlsh %d from %d to %d not supported", fd, vlsh,
+	      wrk_index, vppcom_worker_index ());
+	  else
+	    *vclb = clib_bitmap_set (*vclb, session_index, 1);
+	}
+    }
 
   si_bits_set = clib_bitmap_last_set (*vclb) + 1;
   *si_bits = (si_bits_set > *si_bits) ? si_bits_set : *si_bits;
-  clib_bitmap_validate (*resultb, *si_bits);
+  if (*si_bits)
+    clib_bitmap_validate (*resultb, *si_bits);
 
   libc_bits_set = clib_bitmap_last_set (*libcb) + 1;
   *libc_bits = (libc_bits_set > *libc_bits) ? libc_bits_set : *libc_bits;
@@ -686,10 +679,10 @@ ldp_select_vcl_map_to_libc (clib_bitmap_t * vclb, fd_set * __restrict libcb)
   if (!libcb)
     return 0;
 
-  /* *INDENT-OFF* */
   clib_bitmap_foreach (si, vclb)  {
     vlsh = vls_session_index_to_vlsh (si);
-    ASSERT (vlsh != VLS_INVALID_HANDLE);
+    if (vlsh == VLS_INVALID_HANDLE)
+      continue;
     fd = ldp_vlsh_to_fd (vlsh);
     if (PREDICT_FALSE (fd < 0))
       {
@@ -698,7 +691,6 @@ ldp_select_vcl_map_to_libc (clib_bitmap_t * vclb, fd_set * __restrict libcb)
       }
     FD_SET (fd, libcb);
   }
-  /* *INDENT-ON* */
 
   return 0;
 }
@@ -711,10 +703,8 @@ ldp_select_libc_map_merge (clib_bitmap_t * result, fd_set * __restrict libcb)
   if (!libcb)
     return;
 
-  /* *INDENT-OFF* */
   clib_bitmap_foreach (fd, result)
     FD_SET ((int)fd, libcb);
-  /* *INDENT-ON* */
 }
 
 int
@@ -725,10 +715,10 @@ ldp_pselect (int nfds, fd_set * __restrict readfds,
 	     const __sigset_t * __restrict sigmask)
 {
   u32 minbits = clib_max (nfds, BITS (uword)), n_bytes;
-  ldp_worker_ctx_t *ldpw = ldp_worker_get_current ();
   struct timespec libc_tspec = { 0 };
   f64 time_out, vcl_timeout = 0;
   uword si_bits, libc_bits;
+  ldp_worker_ctx_t *ldpw;
   int rv, bits_set = 0;
 
   if (nfds < 0)
@@ -736,6 +726,11 @@ ldp_pselect (int nfds, fd_set * __restrict readfds,
       errno = EINVAL;
       return -1;
     }
+
+  if (PREDICT_FALSE (vppcom_worker_index () == ~0))
+    vls_register_vcl_worker ();
+
+  ldpw = ldp_worker_get_current ();
 
   if (PREDICT_FALSE (ldpw->clib_time.init_cpu_time == 0))
     clib_time_init (&ldpw->clib_time);
@@ -1748,6 +1743,7 @@ ldp_make_cmsg (vls_handle_t vlsh, struct msghdr *msg)
   struct cmsghdr *cmsg;
 
   cmsg = CMSG_FIRSTHDR (msg);
+  memset (cmsg, 0, sizeof (*cmsg));
 
   if (!vls_attr (vlsh, VPPCOM_ATTR_GET_IP_PKTINFO, (void *) &optval, &optlen))
     return 0;
@@ -1858,7 +1854,6 @@ sendmmsg (int fd, struct mmsghdr *vmessages, unsigned int vlen, int flags)
       if (size < 0)
 	{
 	  int errno_val = errno;
-	  perror (func_str);
 	  clib_warning ("LDP<%d>: ERROR: fd %d (0x%x): %s() failed! "
 			"rv %d, errno = %d", getpid (), fd, fd,
 			func_str, size, errno_val);
@@ -1885,7 +1880,7 @@ recvmsg (int fd, struct msghdr * msg, int flags)
     {
       struct iovec *iov = msg->msg_iov;
       ssize_t max_deq, total = 0;
-      int i, rv;
+      int i, rv = 0;
 
       max_deq = vls_attr (vlsh, VPPCOM_ATTR_GET_NREAD, 0, 0);
       if (!max_deq)
@@ -2021,10 +2016,14 @@ getsockopt (int fd, int level, int optname,
 			     optval, optlen);
 	      break;
 	    case TCP_INFO:
-	      if (optval && optlen && (*optlen == sizeof (struct tcp_info)))
+	      /* Note: tcp_info in netinet/tcp.h and linux/tcp.h have
+	       * different lenghts but overlap. Accept both for now */
+	      if (optval && optlen)
 		{
-		  LDBG (1, "fd %d: vlsh %u SOL_TCP, TCP_INFO, optval %p, "
-			"optlen %d: #LDP-NOP#", fd, vlsh, optval, *optlen);
+		  LDBG (1,
+			"fd %d: vlsh %u SOL_TCP, TCP_INFO, optval %p, "
+			"optlen %d: #LDP-NOP#",
+			fd, vlsh, optval, *optlen);
 		  memset (optval, 0, *optlen);
 		  rv = VPPCOM_OK;
 		}
@@ -2039,6 +2038,21 @@ getsockopt (int fd, int level, int optname,
 	    default:
 	      LDBG (0, "ERROR: fd %d: getsockopt SOL_TCP: sid %u, "
 		    "optname %d unsupported!", fd, vlsh, optname);
+	      break;
+	    }
+	  break;
+	case SOL_IP:
+	  switch (optname)
+	    {
+	    case SO_ORIGINAL_DST:
+	      rv =
+		vls_attr (vlsh, VPPCOM_ATTR_GET_ORIGINAL_DST, optval, optlen);
+	      break;
+	    default:
+	      LDBG (0,
+		    "ERROR: fd %d: getsockopt SOL_IP: vlsh %u "
+		    "optname %d unsupported!",
+		    fd, vlsh, optname);
 	      break;
 	    }
 	  break;
@@ -2092,6 +2106,9 @@ getsockopt (int fd, int level, int optname,
 	      break;
 	    case SO_BINDTODEVICE:
 	      rv = 0;
+	      break;
+	    case SO_COOKIE:
+	      rv = vls_attr (vlsh, VPPCOM_ATTR_GET_COOKIE, optval, optlen);
 	      break;
 	    default:
 	      LDBG (0, "ERROR: fd %d: getsockopt SOL_SOCKET: vlsh %u "
@@ -2197,6 +2214,10 @@ setsockopt (int fd, int level, int optname,
 	      break;
 	    case SO_LINGER:
 	      rv = 0;
+	      break;
+	    case SO_COOKIE:
+	      rv = vls_attr (vlsh, VPPCOM_ATTR_SET_COOKIE, (void *) optval,
+			     &optlen);
 	      break;
 	    default:
 	      LDBG (0, "ERROR: fd %d: setsockopt SOL_SOCKET: vlsh %u "
@@ -2361,26 +2382,10 @@ shutdown (int fd, int how)
 int
 epoll_create1 (int flags)
 {
-  ldp_worker_ctx_t *ldpw = ldp_worker_get_current ();
   vls_handle_t vlsh;
   int rv;
 
   ldp_init_check ();
-
-  if (ldp->vcl_needs_real_epoll || vls_use_real_epoll ())
-    {
-      /* Make sure workers have been allocated */
-      if (!ldp->workers)
-	{
-	  ldp_alloc_workers ();
-	  ldpw = ldp_worker_get_current ();
-	}
-      rv = libc_epoll_create1 (flags);
-      ldp->vcl_needs_real_epoll = 0;
-      ldpw->vcl_mq_epfd = rv;
-      LDBG (0, "created vcl epfd %u", rv);
-      return rv;
-    }
 
   vlsh = vls_epoll_create ();
   if (PREDICT_FALSE (vlsh == VLS_INVALID_HANDLE))
@@ -2449,9 +2454,8 @@ epoll_ctl (int epfd, int op, int fd, struct epoll_event *event)
   else
     {
       int libc_epfd;
-      u32 size = sizeof (epfd);
 
-      libc_epfd = vls_attr (vep_vlsh, VPPCOM_ATTR_GET_LIBC_EPFD, 0, 0);
+      libc_epfd = vls_get_libc_epfd (vep_vlsh);
       if (!libc_epfd)
 	{
 	  LDBG (1, "epfd %d, vep_vlsh %d calling libc_epoll_create1: "
@@ -2464,8 +2468,7 @@ epoll_ctl (int epfd, int op, int fd, struct epoll_event *event)
 	      goto done;
 	    }
 
-	  rv = vls_attr (vep_vlsh, VPPCOM_ATTR_SET_LIBC_EPFD, &libc_epfd,
-			 &size);
+	  rv = vls_set_libc_epfd (vep_vlsh, libc_epfd);
 	  if (rv < 0)
 	    {
 	      errno = -rv;
@@ -2510,10 +2513,6 @@ ldp_epoll_pwait (int epfd, struct epoll_event *events, int maxevents,
   if (PREDICT_FALSE (vppcom_worker_index () == ~0))
     vls_register_vcl_worker ();
 
-  ldpw = ldp_worker_get_current ();
-  if (epfd == ldpw->vcl_mq_epfd)
-    return libc_epoll_pwait (epfd, events, maxevents, timeout, sigmask);
-
   ep_vlsh = ldp_fd_to_vlsh (epfd);
   if (PREDICT_FALSE (ep_vlsh == VLS_INVALID_HANDLE))
     {
@@ -2522,12 +2521,13 @@ ldp_epoll_pwait (int epfd, struct epoll_event *events, int maxevents,
       return -1;
     }
 
+  ldpw = ldp_worker_get_current ();
   if (PREDICT_FALSE (ldpw->clib_time.init_cpu_time == 0))
     clib_time_init (&ldpw->clib_time);
   time_to_wait = ((timeout >= 0) ? (double) timeout / 1000 : 0);
   max_time = clib_time_now (&ldpw->clib_time) + time_to_wait;
 
-  libc_epfd = vls_attr (ep_vlsh, VPPCOM_ATTR_GET_LIBC_EPFD, 0, 0);
+  libc_epfd = vls_get_libc_epfd (ep_vlsh);
   if (PREDICT_FALSE (libc_epfd < 0))
     {
       errno = -libc_epfd;
@@ -2594,9 +2594,6 @@ ldp_epoll_pwait_eventfd (int epfd, struct epoll_event *events,
     vls_register_vcl_worker ();
 
   ldpw = ldp_worker_get_current ();
-  if (epfd == ldpw->vcl_mq_epfd)
-    return libc_epoll_pwait (epfd, events, maxevents, timeout, sigmask);
-
   ep_vlsh = ldp_fd_to_vlsh (epfd);
   if (PREDICT_FALSE (ep_vlsh == VLS_INVALID_HANDLE))
     {
@@ -2605,11 +2602,9 @@ ldp_epoll_pwait_eventfd (int epfd, struct epoll_event *events,
       return -1;
     }
 
-  libc_epfd = vls_attr (ep_vlsh, VPPCOM_ATTR_GET_LIBC_EPFD, 0, 0);
+  libc_epfd = vls_get_libc_epfd (ep_vlsh);
   if (PREDICT_FALSE (!libc_epfd))
     {
-      u32 size = sizeof (epfd);
-
       LDBG (1, "epfd %d, vep_vlsh %d calling libc_epoll_create1: "
 	    "EPOLL_CLOEXEC", epfd, ep_vlsh);
       libc_epfd = libc_epoll_create1 (EPOLL_CLOEXEC);
@@ -2619,7 +2614,7 @@ ldp_epoll_pwait_eventfd (int epfd, struct epoll_event *events,
 	  goto done;
 	}
 
-      rv = vls_attr (ep_vlsh, VPPCOM_ATTR_SET_LIBC_EPFD, &libc_epfd, &size);
+      rv = vls_set_libc_epfd (ep_vlsh, libc_epfd);
       if (rv < 0)
 	{
 	  errno = -rv;
@@ -2637,10 +2632,10 @@ ldp_epoll_pwait_eventfd (int epfd, struct epoll_event *events,
   if (PREDICT_FALSE (!ldpw->mq_epfd_added))
     {
       struct epoll_event e = { 0 };
+      ldpw->vcl_mq_epfd = vppcom_mq_epoll_fd ();
       e.events = EPOLLIN;
       e.data.fd = ldpw->vcl_mq_epfd;
-      if (libc_epoll_ctl (libc_epfd, EPOLL_CTL_ADD, ldpw->vcl_mq_epfd, &e) <
-	  0)
+      if (libc_epoll_ctl (libc_epfd, EPOLL_CTL_ADD, ldpw->vcl_mq_epfd, &e) < 0)
 	{
 	  LDBG (0, "epfd %d, add libc mq epoll fd %d to libc epoll fd %d",
 		epfd, ldpw->vcl_mq_epfd, libc_epfd);
@@ -2657,6 +2652,7 @@ ldp_epoll_pwait_eventfd (int epfd, struct epoll_event *events,
       timeout = 0;
       if (rv >= maxevents)
 	goto done;
+      maxevents -= rv;
     }
   else if (PREDICT_FALSE (rv < 0))
     {
@@ -2669,7 +2665,7 @@ epoll_again:
 
   libc_evts = &events[rv];
   libc_num_ev =
-    libc_epoll_pwait (libc_epfd, libc_evts, maxevents - rv, timeout, sigmask);
+    libc_epoll_pwait (libc_epfd, libc_evts, maxevents, timeout, sigmask);
   if (libc_num_ev <= 0)
     {
       rv = rv >= 0 ? rv : -1;
@@ -2727,11 +2723,18 @@ epoll_wait (int epfd, struct epoll_event *events, int maxevents, int timeout)
 int
 poll (struct pollfd *fds, nfds_t nfds, int timeout)
 {
-  ldp_worker_ctx_t *ldpw = ldp_worker_get_current ();
   int rv, i, n_revents = 0;
+  ldp_worker_ctx_t *ldpw;
   vls_handle_t vlsh;
   vcl_poll_t *vp;
   double max_time;
+
+  ldp_init_check ();
+
+  if (PREDICT_FALSE (vppcom_worker_index () == ~0))
+    vls_register_vcl_worker ();
+
+  ldpw = ldp_worker_get_current ();
 
   LDBG (3, "fds %p, nfds %ld, timeout %d", fds, nfds, timeout);
 
@@ -2773,7 +2776,7 @@ poll (struct pollfd *fds, nfds_t nfds, int timeout)
     {
       if (vec_len (ldpw->vcl_poll))
 	{
-	  rv = vppcom_poll (ldpw->vcl_poll, vec_len (ldpw->vcl_poll), 0);
+	  rv = vls_poll (ldpw->vcl_poll, vec_len (ldpw->vcl_poll), 0);
 	  if (rv < 0)
 	    {
 	      errno = -rv;
@@ -2883,12 +2886,3 @@ ldp_destructor (void)
     fprintf (stderr, "%s:%d: LDP<%d>: LDP destructor: done!\n",
 	     __func__, __LINE__, getpid ());
 }
-
-
-/*
- * fd.io coding-style-patch-verification: ON
- *
- * Local Variables:
- * eval: (c-set-style "gnu")
- * End:
- */

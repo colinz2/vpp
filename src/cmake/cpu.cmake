@@ -22,20 +22,61 @@ macro(set_log2_cacheline_size var n)
 endmacro()
 
 ##############################################################################
-# Cache line size
+# Platform selection
 ##############################################################################
-if(DEFINED VPP_CACHE_LINE_SIZE)
-  # Cache line size assigned via cmake args
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*)")
-  set(VPP_CACHE_LINE_SIZE 128)
+
+if(DEFINED VPP_PLATFORM AND VPP_PLATFORM STREQUAL "default")
+  unset(VPP_PLATFORM)
+  unset(VPP_PLATFORM CACHE)
+  set(VPP_PLATFORM_NAME "default")
+elseif(DEFINED VPP_PLATFORM)
+	set(platform_file ${CMAKE_CURRENT_LIST_DIR}/platform/${VPP_PLATFORM}.cmake)
+  if(NOT EXISTS ${platform_file})
+     message(FATAL_ERROR "unknown platform ${VPP_PLATFORM}")
+  endif()
+  include(${platform_file})
+  set(VPP_PLATFORM_NAME ${VPP_PLATFORM})
 else()
-  set(VPP_CACHE_LINE_SIZE 64)
+  set(VPP_PLATFORM_NAME "default")
 endif()
 
-set(VPP_CACHE_LINE_SIZE ${VPP_CACHE_LINE_SIZE}
-    CACHE STRING "Target CPU cache line size")
+if (DEFINED VPP_PLATFORM_C_COMPILER_NAMES)
+  set(CMAKE_C_COMPILER_NAMES ${VPP_PLATFORM_C_COMPILER_NAME})
+else()
+  set(CMAKE_C_COMPILER_NAMES clang gcc cc)
+endif()
+
+##############################################################################
+# Cache line size
+##############################################################################
+
+if(DEFINED VPP_PLATFORM_CACHE_LINE_SIZE)
+  set(VPP_CACHE_LINE_SIZE ${VPP_PLATFORM_CACHE_LINE_SIZE})
+else()
+  if(DEFINED VPP_CACHE_LINE_SIZE)
+    # Cache line size assigned via cmake args
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*)")
+    set(VPP_CACHE_LINE_SIZE 128)
+  else()
+    set(VPP_CACHE_LINE_SIZE 64)
+  endif()
+
+  set(VPP_CACHE_LINE_SIZE ${VPP_CACHE_LINE_SIZE}
+      CACHE STRING "Target CPU cache line size")
+endif()
 
 set_log2_cacheline_size(VPP_LOG2_CACHE_LINE_SIZE ${VPP_CACHE_LINE_SIZE})
+
+##############################################################################
+# Quad/Dual loop unrolling selection --- CLIB_N_PREFETCHES
+# CLIB_N_PREFETCHES is set to 16 by default on x86
+# CLIB_N_PREFETCHES is tuned to achieve optimal performance on AArch64
+##############################################################################
+if(DEFINED VPP_PLATFORM_N_PREFETCHES)
+  set(VPP_N_PREFETCHES ${VPP_PLATFORM_N_PREFETCHES})
+else()
+  set(VPP_N_PREFETCHES 16)
+endif()
 
 ##############################################################################
 # Gnu Assembler AVX-512 bug detection
@@ -57,13 +98,8 @@ endif()
 # CPU optimizations and multiarch support
 ##############################################################################
 
-option(VPP_BUILD_NATIVE_ONLY "Build only for native CPU." OFF)
-
-if(VPP_BUILD_NATIVE_ONLY)
-  check_c_compiler_flag("-march=native" compiler_flag_march_native)
-  if(NOT compiler_flag_march_native)
-    message(FATAL_ERROR "Native-only build not supported by compiler")
-  endif()
+if(NOT DEFINED VPP_PLATFORM)
+  option(VPP_BUILD_NATIVE_ONLY "Build only for native CPU." OFF)
 endif()
 
 macro(add_vpp_march_variant v)
@@ -111,8 +147,24 @@ macro(add_vpp_march_variant v)
   endif()
 endmacro()
 
-if(VPP_BUILD_NATIVE_ONLY)
-  set(VPP_DEFAULT_MARCH_FLAGS -march=native)
+if(DEFINED VPP_PLATFORM)
+  if(DEFINED VPP_PLATFORM_MARCH_FLAGS)
+     set(VPP_DEFAULT_MARCH_FLAGS ${VPP_PLATFORM_MARCH_FLAGS})
+     check_c_compiler_flag(${VPP_DEFAULT_MARCH_FLAGS} compiler_flag_march)
+     if(NOT compiler_flag_march)
+       message(FATAL_ERROR "platform build with ${VPP_DEFAULT_MARCH_FLAGS} is not supported by compiler")
+     endif()
+  else()
+     set(VPP_DEFAULT_MARCH_FLAGS "")
+  endif()
+  set(MARCH_VARIANTS_NAMES "platform-only")
+elseif(VPP_BUILD_NATIVE_ONLY)
+  set(VPP_BUILD_NATIVE_ARCH "native" CACHE STRING "native CPU -march= value.")
+  set(VPP_DEFAULT_MARCH_FLAGS -march=${VPP_BUILD_NATIVE_ARCH})
+  check_c_compiler_flag(${VPP_DEFAULT_MARCH_FLAGS} compiler_flag_march)
+  if(NOT compiler_flag_march)
+    message(FATAL_ERROR "Native-only build with ${VPP_DEFAULT_MARCH_FLAGS} is not supported by compiler")
+  endif()
   set(MARCH_VARIANTS_NAMES "native-only")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "amd64.*|x86_64.*|AMD64.*")
   set(VPP_DEFAULT_MARCH_FLAGS -march=corei7 -mtune=corei7-avx)
@@ -194,6 +246,19 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*)")
     N_PREFETCHES 6
     CACHE_PREFETCH_BYTES 64
   )
+  add_vpp_march_variant(neoversen2
+    FLAGS -march=armv9-a+crypto -mtune=neoverse-n2
+    N_PREFETCHES 6
+    CACHE_PREFETCH_BYTES 64
+    OFF
+  )
+
+  add_vpp_march_variant(neoversev2
+    FLAGS -mcpu=neoverse-v2+crypto
+    N_PREFETCHES 6
+    CACHE_PREFETCH_BYTES 64
+  )
+
 endif()
 
 macro(vpp_library_set_multiarch_sources lib)
